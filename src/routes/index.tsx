@@ -457,6 +457,8 @@ function Prompter({
     };
   }, []);
 
+  const iconBtn = "grid h-11 w-11 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
+
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
       {/* Scrolling text — tap toggles play/pause */}
