@@ -344,9 +344,9 @@ function Prompter({
 
   // Persist live edits back to settings
   useEffect(() => {
-    onSettings({ ...settings, speed, fontSize, mirrorH, mirrorV });
+    onSettings({ ...settings, speed, fontSize, mirrorV });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speed, fontSize, mirrorH, mirrorV]);
+  }, [speed, fontSize, mirrorV]);
 
   const bgClass = settings.bg === "white" ? "bg-white text-neutral-900"
     : settings.bg === "sepia" ? "bg-[#f5ecd7] text-[#2a1f0f]"
