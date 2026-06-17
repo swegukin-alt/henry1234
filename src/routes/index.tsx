@@ -350,6 +350,7 @@ function Prompter({
   const [mirrorV, setMirrorV] = useState(true);
   const [mirrorH, setMirrorH] = useState(settings.mirrorH);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
 
   // Persist live edits back to settings
   useEffect(() => {
