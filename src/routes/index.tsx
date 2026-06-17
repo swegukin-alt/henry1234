@@ -341,6 +341,12 @@ function Prompter({
   const [mirrorV, setMirrorV] = useState(settings.mirrorV);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
+
+  // Update scroll direction when mirrorV changes
+  useEffect(() => {
+    scrollDirectionRef.current = mirrorV ? -1 : 1;
+  }, [mirrorV]);
 
   // Persist live edits back to settings
   useEffect(() => {
@@ -357,8 +363,12 @@ function Prompter({
     if (!el) return 0;
     const max = el.scrollHeight - el.clientHeight;
     if (max <= 0) return 1;
-    return Math.min(1, Math.max(0, el.scrollTop / max));
-  }, []);
+    const raw = el.scrollTop / max;
+    // When mirrored we start at the bottom and scroll toward top,
+    // so invert the raw ratio so progress still goes 0 -> 1.
+    const p = mirrorV ? 1 - raw : raw;
+    return Math.min(1, Math.max(0, p));
+  }, [mirrorV]);
 
   const tick = useCallback((ts: number) => {
     const el = scrollRef.current;
@@ -366,7 +376,8 @@ function Prompter({
     if (!lastTsRef.current) lastTsRef.current = ts;
     const dt = (ts - lastTsRef.current) / 1000;
     lastTsRef.current = ts;
-    el.scrollTop += speed * dt;
+    const dir = scrollDirectionRef.current;
+    el.scrollTop += dir * speed * dt;
     const p = computeProgress();
     setProgress(p);
     if (p >= 1) { setPlaying(false); return; }
@@ -394,7 +405,11 @@ function Prompter({
   };
   const reset = () => {
     setPlaying(false);
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    const el = scrollRef.current;
+    if (el) {
+      const max = el.scrollHeight - el.clientHeight;
+      el.scrollTop = mirrorV && max > 0 ? max : 0;
+    }
     setProgress(0);
   };
   // Smooth nudge that does NOT stop playback. While playing, the rAF tick
@@ -404,14 +419,16 @@ function Prompter({
     const el = scrollRef.current;
     if (!el) return;
     const step = dir * Math.max(60, el.clientHeight * 0.18);
+    // When mirrored, scroll direction is reversed, so invert the nudge.
+    const effectiveStep = mirrorV ? -step : step;
     if (playing) {
-      el.scrollTop += step;
+      el.scrollTop += effectiveStep;
     } else {
-      try { el.scrollBy({ top: step, behavior: "smooth" }); }
-      catch { el.scrollTop += step; }
+      try { el.scrollBy({ top: effectiveStep, behavior: "smooth" }); }
+      catch { el.scrollTop += effectiveStep; }
     }
     setProgress(computeProgress());
-  }, [computeProgress, playing]);
+  }, [computeProgress, playing, mirrorV]);
 
   // Bluetooth remote (Desview RM-S1/S2 etc.) keyboard mapping
   useEffect(() => {
@@ -468,6 +485,20 @@ function Prompter({
     document.addEventListener("visibilitychange", onVis);
     return () => { document.removeEventListener("visibilitychange", onVis); try { wakeLock?.release(); } catch {} };
   }, []);
+
+  // Ensure correct starting scroll position when entering play or toggling mirror
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    if (mirrorV && max > 0) {
+      el.scrollTop = max;
+    } else {
+      el.scrollTop = 0;
+    }
+    setProgress(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mirrorV]);
 
   const onScroll = () => { if (!playing) setProgress(computeProgress()); };
   const remaining = Math.round((1 - progress) * 100);
