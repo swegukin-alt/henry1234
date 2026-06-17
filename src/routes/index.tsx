@@ -575,8 +575,8 @@ function Prompter({
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
-              <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
-                <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
+              <button onClick={() => setMirrorH((v) => !v)} className={iconBtn} aria-label="Mirror for beam splitter">
+                <FlipHorizontal2 className={`h-6 w-6 ${mirrorH ? "text-amber-300" : ""}`} />
               </button>
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
                 {playing
