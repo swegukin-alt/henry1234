@@ -559,58 +559,70 @@ function Prompter({
         </Popover>
       )}
 
-      {/* Thin progress line above toolbar */}
-      <div className="absolute bottom-[64px] left-0 right-0 z-20 h-[2px] bg-white/10">
-        <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%` }} />
-      </div>
+      {/* Tiny reveal pill — only thing on screen when controls are hidden */}
+      {!controlsVisible && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setControlsVisible(true); }}
+          className="absolute top-2 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
+          aria-label="Show controls"
+        >
+          •••
+        </button>
+      )}
 
-      {/* Bottom toolbar */}
-      <div
-        className="absolute bottom-0 left-0 right-0 z-30 bg-black/85 backdrop-blur-md"
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-3 py-2">
-          <button onClick={onExit} className={iconBtn} aria-label="Back">
-            <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
-          </button>
-          <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
-            <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
-          </button>
-          <button
-            onClick={() => {
-              try {
-                const o: any = (screen as any).orientation;
-                o?.lock?.("landscape-primary").catch?.(() => { o?.lock?.("landscape").catch?.(() => {}); });
-              } catch {}
-            }}
-            className={iconBtn} aria-label="Landscape"
+      {controlsVisible && (
+        <>
+          {/* Thin progress line above toolbar */}
+          <div className="absolute bottom-[64px] left-0 right-0 z-20 h-[2px] bg-white/10">
+            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%` }} />
+          </div>
+
+          {/* Bottom toolbar */}
+          <div
+            className="absolute bottom-0 left-0 right-0 z-30 bg-black/85 backdrop-blur-md"
+            style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <RotateCw className="h-6 w-6" />
-          </button>
-          <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
-            {playing
-              ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
-              : <Play className="h-7 w-7 text-sky-400" fill="currentColor" />}
-          </button>
-          <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
-            <SlidersHorizontal className="h-6 w-6" />
-          </button>
-          <button onClick={() => setPanel(panel === "size" ? null : "size")} className={iconBtn} aria-label="Text size">
-            <Type className="h-6 w-6" />
-          </button>
-          <button onClick={() => setPanel(panel === "more" ? null : "more")} className={`${iconBtn} bg-sky-500/90 text-white`} aria-label="More">
-            <MoreHorizontal className="h-5 w-5" />
-          </button>
-        </div>
-        {/* % remaining — tucked subtly in the toolbar */}
-        <div className="absolute -top-7 right-3 rounded-full bg-black/70 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums">
-          {remaining}% left
-        </div>
-      </div>
-    </div>
-  );
-}
+            <div className="flex items-center justify-between px-3 py-2">
+              <button onClick={onExit} className={iconBtn} aria-label="Back">
+                <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
+              </button>
+              <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
+                <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
+              </button>
+              <button
+                onClick={() => {
+                  try {
+                    const o: any = (screen as any).orientation;
+                    o?.lock?.("landscape-primary").catch?.(() => { o?.lock?.("landscape").catch?.(() => {}); });
+                  } catch {}
+                }}
+                className={iconBtn} aria-label="Landscape"
+              >
+                <RotateCw className="h-6 w-6" />
+              </button>
+              <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
+                {playing
+                  ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
+                  : <Play className="h-7 w-7 text-sky-400" fill="currentColor" />}
+              </button>
+              <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
+                <SlidersHorizontal className="h-6 w-6" />
+              </button>
+              <button onClick={() => setPanel(panel === "size" ? null : "size")} className={iconBtn} aria-label="Text size">
+                <Type className="h-6 w-6" />
+              </button>
+              <button onClick={() => setPanel(panel === "more" ? null : "more")} className={`${iconBtn} bg-sky-500/90 text-white`} aria-label="More">
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+            </div>
+            {/* % remaining — tucked subtly in the toolbar */}
+            <div className="absolute -top-7 right-3 rounded-full bg-black/70 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums">
+              {remaining}% left
+            </div>
+          </div>
+        </>
+      )}
 
 function Popover({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
