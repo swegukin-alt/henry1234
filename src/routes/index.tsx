@@ -265,8 +265,6 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
           onChange={(v) => set({ speed: v })} />
         <Slider label="Text width" value={settings.width} min={50} max={100} step={5} suffix="%"
           onChange={(v) => set({ width: v })} />
-        <Slider label="Countdown" value={settings.countdown} min={0} max={10} step={1} suffix="s"
-          onChange={(v) => set({ countdown: v })} />
         <div className="flex flex-wrap gap-2 pt-1">
           <Toggle on={settings.mirrorH} onClick={() => set({ mirrorH: !settings.mirrorH })}>Mirror ↔</Toggle>
           <Toggle on={settings.mirrorV} onClick={() => set({ mirrorV: !settings.mirrorV })}>Mirror ↕</Toggle>
