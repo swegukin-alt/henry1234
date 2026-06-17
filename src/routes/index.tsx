@@ -426,29 +426,45 @@ function Prompter({
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       const k = e.key, code = e.code;
-      const playKeys = [
-        " ", "Spacebar", "Enter", "MediaPlayPause", "MediaPlay", "MediaPause",
-        "k", "K", "p", "P", "PageDown", "PageUp",
-        "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp",
-        "AudioVolumeUp", "VolumeUp", "AudioVolumeDown", "VolumeDown",
-        ".", "Tab", "F5",
-      ];
+
+      // Escape / Home / font size
       if (k === "Escape" || code === "Escape") { e.preventDefault(); onExit(); return; }
       if (k === "0" || k === "Home") { e.preventDefault(); reset(); return; }
-      if (k === "+" || k === "=") { e.preventDefault(); setSpeed((s) => Math.min(250, s + 5)); return; }
-      if (k === "-" || k === "_") { e.preventDefault(); setSpeed((s) => Math.max(10, s - 5)); return; }
       if (k === "]") { e.preventDefault(); setFontSize((s) => Math.min(140, s + 2)); return; }
       if (k === "[") { e.preventDefault(); setFontSize((s) => Math.max(24, s - 2)); return; }
+
+      // Up / Down — scroll position. NEVER toggles play. Keeps rolling.
+      if (k === "ArrowUp" || k === "PageUp" || code === "PageUp" ||
+          k === "AudioVolumeUp" || k === "VolumeUp") {
+        e.preventDefault(); nudge(-1); return;
+      }
+      if (k === "ArrowDown" || k === "PageDown" || code === "PageDown" ||
+          k === "AudioVolumeDown" || k === "VolumeDown") {
+        e.preventDefault(); nudge(1); return;
+      }
+
+      // Left / Right — adjust speed.
+      if (k === "ArrowLeft" || k === "-" || k === "_") {
+        e.preventDefault(); setSpeed((s) => Math.max(10, s - 5)); return;
+      }
+      if (k === "ArrowRight" || k === "+" || k === "=") {
+        e.preventDefault(); setSpeed((s) => Math.min(250, s + 5)); return;
+      }
+
+      // Play / pause — space, enter, media keys, k/p, tab, dot, F5
+      const playKeys = [
+        " ", "Spacebar", "Enter", "MediaPlayPause", "MediaPlay", "MediaPause",
+        "k", "K", "p", "P", ".", "Tab", "F5",
+      ];
       if (playKeys.includes(k) || playKeys.includes(code)) {
         e.preventDefault();
-        if (!playing && (k === "ArrowDown" || k === "PageDown" || k === "ArrowRight")) { nudge(1); return; }
-        if (!playing && (k === "ArrowUp" || k === "PageUp" || k === "ArrowLeft")) { nudge(-1); return; }
         togglePlay();
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true } as any);
-  }, [playing, nudge, onExit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nudge, onExit]);
 
   // Wake lock
   useEffect(() => {
