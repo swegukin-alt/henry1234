@@ -499,11 +499,11 @@ function Prompter({
 
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
-      {/* Scrolling text — tap toggles play/pause */}
+      {/* Scrolling text — finger tap pauses and reveals controls */}
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        onClick={togglePlay}
+        onClick={() => { setPlaying(false); setControlsVisible(true); }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
