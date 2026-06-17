@@ -508,6 +508,3 @@ function Prompter({
   );
 }
 
-declare global {
-  interface Navigator { wakeLock?: { request: (type: "screen") => Promise<any> } }
-}
