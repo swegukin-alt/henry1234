@@ -533,8 +533,8 @@ function Prompter({
           <button onClick={onExit} className={iconBtn} aria-label="Back">
             <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
           </button>
-          <button onClick={() => setMirrorH((v) => !v)} className={iconBtn} aria-label="Mirror">
-            <FlipHorizontal2 className={`h-6 w-6 ${mirrorH ? "text-amber-300" : ""}`} />
+          <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
+            <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
           </button>
           <button
             onClick={() => { try { (screen as any).orientation?.lock?.("landscape"); } catch {} }}
