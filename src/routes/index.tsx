@@ -330,8 +330,12 @@ function Prompter({
   const [isPortrait, setIsPortrait] = useState(false);
   const [speed, setSpeed] = useState(settings.speed);
   const [fontSize, setFontSize] = useState(settings.fontSize);
-  const [mirrorH, setMirrorH] = useState(true); // auto-on when entering play
-  const [mirrorV, setMirrorV] = useState(settings.mirrorV);
+  // Teleprompter rigs reflect the phone screen through angled glass.
+  // Phone-flat-under-glass (most common consumer rigs): vertical flip.
+  // Phone-behind-vertical-glass beam-splitter: horizontal flip.
+  // Default ON = vertical (matches typical iPhone teleprompter rig).
+  const [mirrorV, setMirrorV] = useState(true);
+  const [mirrorH, setMirrorH] = useState(settings.mirrorH);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
 
   // Persist live edits back to settings
@@ -508,7 +512,7 @@ function Prompter({
         <Popover onClose={() => setPanel(null)}>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
-            <button onClick={() => setMirrorV((v) => !v)} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕</button>
+            <button onClick={() => setMirrorH((v) => !v)} className={`rounded-lg border px-3 py-2 text-sm ${mirrorH ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↔ (beam-splitter rig)</button>
           </div>
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
         </Popover>
@@ -529,8 +533,8 @@ function Prompter({
           <button onClick={onExit} className={iconBtn} aria-label="Back">
             <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
           </button>
-          <button onClick={() => setMirrorH((v) => !v)} className={iconBtn} aria-label="Mirror">
-            <FlipHorizontal2 className={`h-6 w-6 ${mirrorH ? "text-amber-300" : ""}`} />
+          <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
+            <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
           </button>
           <button
             onClick={() => { try { (screen as any).orientation?.lock?.("landscape"); } catch {} }}
