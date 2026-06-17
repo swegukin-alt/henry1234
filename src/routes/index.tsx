@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipHorizontal2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -338,16 +338,15 @@ function Prompter({
   const [fontSize, setFontSize] = useState(settings.fontSize);
   // Beam-splitter teleprompter rig: horizontal flip so text reads correctly
   // through the angled glass.
-  const [mirrorV, setMirrorV] = useState(false);
-  const [mirrorH, setMirrorH] = useState(settings.mirrorH);
+  const [mirrorV, setMirrorV] = useState(settings.mirrorV);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
 
   // Persist live edits back to settings
   useEffect(() => {
-    onSettings({ ...settings, speed, fontSize, mirrorH, mirrorV });
+    onSettings({ ...settings, speed, fontSize, mirrorV });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speed, fontSize, mirrorH, mirrorV]);
+  }, [speed, fontSize, mirrorV]);
 
   const bgClass = settings.bg === "white" ? "bg-white text-neutral-900"
     : settings.bg === "sepia" ? "bg-[#f5ecd7] text-[#2a1f0f]"
@@ -494,9 +493,9 @@ function Prompter({
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
-        <div className="mx-auto" style={{ width: `${settings.width}%`, transform: mirrorV ? "scaleY(-1)" : undefined }}>
+        <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
-          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorH ? "scaleX(-1)" : undefined }}>
+          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorV ? "scaleY(-1)" : undefined }}>
             {script.body}
           </div>
           <div style={{ height: "80vh" }} />
@@ -542,7 +541,7 @@ function Prompter({
         <Popover onClose={() => setPanel(null)}>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
-            <button onClick={() => setMirrorH((v) => !v)} className={`rounded-lg border px-3 py-2 text-sm ${mirrorH ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↔ (beam-splitter rig)</button>
+            <button onClick={() => setMirrorV((v) => !v)} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
           </div>
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
         </Popover>
@@ -576,8 +575,8 @@ function Prompter({
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
-              <button onClick={() => setMirrorH((v) => !v)} className={iconBtn} aria-label="Mirror for beam splitter">
-                <FlipHorizontal2 className={`h-6 w-6 ${mirrorH ? "text-amber-300" : ""}`} />
+              <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Mirror vertically for beam splitter">
+                <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} />
               </button>
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
                 {playing
