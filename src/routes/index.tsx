@@ -338,8 +338,7 @@ function Prompter({
   const [fontSize, setFontSize] = useState(settings.fontSize);
   // Beam-splitter teleprompter rig: horizontal flip so text reads correctly
   // through the angled glass.
-  const [mirrorV, setMirrorV] = useState(false);
-  const [mirrorH, setMirrorH] = useState(settings.mirrorH);
+  const [mirrorV, setMirrorV] = useState(settings.mirrorV);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
 
