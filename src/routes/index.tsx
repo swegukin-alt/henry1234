@@ -389,6 +389,7 @@ function Prompter({
     setPlaying((p) => {
       const next = !p;
       if (next) { setControlsVisible(false); setPanel(null); }
+      else { setControlsVisible(true); }
       return next;
     });
   };
