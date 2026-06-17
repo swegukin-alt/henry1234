@@ -486,6 +486,20 @@ function Prompter({
     return () => { document.removeEventListener("visibilitychange", onVis); try { wakeLock?.release(); } catch {} };
   }, []);
 
+  // Ensure correct starting scroll position when entering play or toggling mirror
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    if (mirrorV && max > 0) {
+      el.scrollTop = max;
+    } else {
+      el.scrollTop = 0;
+    }
+    setProgress(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mirrorV]);
+
   const onScroll = () => { if (!playing) setProgress(computeProgress()); };
   const remaining = Math.round((1 - progress) * 100);
 
