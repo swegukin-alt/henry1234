@@ -375,26 +375,7 @@ function Prompter({
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [playing, tick]);
 
-  const startWithCountdown = () => {
-    if (settings.countdown <= 0) { setPlaying(true); return; }
-    setCountdown(settings.countdown);
-    let n = settings.countdown;
-    const iv = setInterval(() => {
-      n -= 1;
-      if (n <= 0) {
-        clearInterval(iv);
-        setCountdown(null);
-        setPlaying(true);
-      } else {
-        setCountdown(n);
-      }
-    }, 1000);
-  };
-
-  const togglePlay = () => {
-    if (playing) setPlaying(false);
-    else if (countdown == null) startWithCountdown();
-  };
+  const togglePlay = () => setPlaying((p) => !p);
 
   const reset = () => {
     setPlaying(false);
