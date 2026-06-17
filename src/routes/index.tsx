@@ -547,11 +547,16 @@ function Prompter({
         </Popover>
       )}
 
+      {/* % remaining — always visible */}
+      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums backdrop-blur-sm">
+        {remaining}% left
+      </div>
+
       {/* Tiny reveal pill — only thing on screen when controls are hidden */}
       {!controlsVisible && (
         <button
           onClick={(e) => { e.stopPropagation(); setControlsVisible(true); }}
-          className="absolute top-2 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
+          className="absolute top-3 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
           aria-label="Show controls"
         >
           •••
@@ -592,10 +597,6 @@ function Prompter({
               <button onClick={() => setPanel(panel === "more" ? null : "more")} className={`${iconBtn} bg-sky-500/90 text-white`} aria-label="More">
                 <MoreHorizontal className="h-5 w-5" />
               </button>
-            </div>
-            {/* % remaining — tucked subtly in the toolbar */}
-            <div className="absolute -top-7 right-3 rounded-full bg-black/70 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums">
-              {remaining}% left
             </div>
           </div>
         </>
