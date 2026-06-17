@@ -490,7 +490,7 @@ function Prompter({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        onClick={() => { setPlaying(false); setControlsVisible(true); }}
+        onClick={() => { togglePlay(); }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
