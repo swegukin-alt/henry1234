@@ -328,12 +328,17 @@ function Prompter({
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0..1
   const [isPortrait, setIsPortrait] = useState(false);
-  const [showControls, setShowControls] = useState(true);
   const [speed, setSpeed] = useState(settings.speed);
   const [fontSize, setFontSize] = useState(settings.fontSize);
+  const [mirrorH, setMirrorH] = useState(true); // auto-on when entering play
+  const [mirrorV, setMirrorV] = useState(settings.mirrorV);
+  const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
 
-  // Persist live edits to speed/fontSize back to settings
-  useEffect(() => { onSettings({ ...settings, speed, fontSize }); /* eslint-disable-next-line */ }, [speed, fontSize]);
+  // Persist live edits back to settings
+  useEffect(() => {
+    onSettings({ ...settings, speed, fontSize, mirrorH, mirrorV });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speed, fontSize, mirrorH, mirrorV]);
 
   const bgClass = settings.bg === "white" ? "bg-white text-neutral-900"
     : settings.bg === "sepia" ? "bg-[#f5ecd7] text-[#2a1f0f]"
@@ -356,10 +361,7 @@ function Prompter({
     el.scrollTop += speed * dt;
     const p = computeProgress();
     setProgress(p);
-    if (p >= 1) {
-      setPlaying(false);
-      return;
-    }
+    if (p >= 1) { setPlaying(false); return; }
     rafRef.current = requestAnimationFrame(tick);
   }, [speed, computeProgress]);
 
@@ -375,13 +377,11 @@ function Prompter({
   }, [playing, tick]);
 
   const togglePlay = () => setPlaying((p) => !p);
-
   const reset = () => {
     setPlaying(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setProgress(0);
   };
-
   const nudge = useCallback((dir: 1 | -1) => {
     const el = scrollRef.current;
     if (!el) return;
@@ -389,101 +389,50 @@ function Prompter({
     setProgress(computeProgress());
   }, [computeProgress]);
 
-  // ===== Bluetooth remote support (Desview RM-S1/S2, AirTurn, generic BT clickers) =====
-  // Desview clickers pair as a BLE HID keyboard. Different physical-switch
-  // modes send different keys; we accept ALL of them so the remote "just works"
-  // regardless of which mode (Android/iOS/PPT/Keynote/Camera) the user picked.
+  // Bluetooth remote (Desview RM-S1/S2 etc.) keyboard mapping
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Ignore typing inside inputs (shouldn't happen in player, but safe)
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
-
-      const k = e.key;
-      const code = e.code;
-
-      // PLAY / PAUSE — primary action on most Desview buttons
+      const k = e.key, code = e.code;
       const playKeys = [
         " ", "Spacebar", "Enter", "MediaPlayPause", "MediaPlay", "MediaPause",
-        "k", "K", "p", "P",
-        // Keynote/PPT "next" — also acts as toggle for us
-        "PageDown", "PageUp",
+        "k", "K", "p", "P", "PageDown", "PageUp",
         "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp",
-        // Camera-mode shutter often sends Volume Up / Enter / "."
         "AudioVolumeUp", "VolumeUp", "AudioVolumeDown", "VolumeDown",
-        ".", "Tab",
-        // iOS shutter shortcut some remotes emit
-        "F5", "Escape",
+        ".", "Tab", "F5",
       ];
-
-      // Exit
-      if (k === "Escape" || code === "Escape") {
-        e.preventDefault();
-        onExit();
-        return;
-      }
-      // Reset
-      if (k === "0" || k === "Home") {
-        e.preventDefault();
-        reset();
-        return;
-      }
-      // Speed
-      if (k === "+" || k === "=" || k === "ArrowUp" && e.shiftKey) {
-        e.preventDefault();
-        setSpeed((s) => Math.min(250, s + 5));
-        return;
-      }
-      if (k === "-" || k === "_" || k === "ArrowDown" && e.shiftKey) {
-        e.preventDefault();
-        setSpeed((s) => Math.max(10, s - 5));
-        return;
-      }
-      // Font size
+      if (k === "Escape" || code === "Escape") { e.preventDefault(); onExit(); return; }
+      if (k === "0" || k === "Home") { e.preventDefault(); reset(); return; }
+      if (k === "+" || k === "=") { e.preventDefault(); setSpeed((s) => Math.min(250, s + 5)); return; }
+      if (k === "-" || k === "_") { e.preventDefault(); setSpeed((s) => Math.max(10, s - 5)); return; }
       if (k === "]") { e.preventDefault(); setFontSize((s) => Math.min(140, s + 2)); return; }
       if (k === "[") { e.preventDefault(); setFontSize((s) => Math.max(24, s - 2)); return; }
-
-      // Manual nudge (arrows when paused) + toggle play
       if (playKeys.includes(k) || playKeys.includes(code)) {
         e.preventDefault();
-        // If paused and a directional key was pressed, scroll instead of toggling
-        if (!playing && (k === "ArrowDown" || k === "PageDown" || k === "ArrowRight")) {
-          nudge(1);
-          return;
-        }
-        if (!playing && (k === "ArrowUp" || k === "PageUp" || k === "ArrowLeft")) {
-          nudge(-1);
-          return;
-        }
+        if (!playing && (k === "ArrowDown" || k === "PageDown" || k === "ArrowRight")) { nudge(1); return; }
+        if (!playing && (k === "ArrowUp" || k === "PageUp" || k === "ArrowLeft")) { nudge(-1); return; }
         togglePlay();
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true } as any);
-  }, [playing, nudge]);
+  }, [playing, nudge, onExit]);
 
-  // Keep screen awake (best-effort)
+  // Wake lock
   useEffect(() => {
     let wakeLock: any = null;
-    const req = async () => {
-      try { wakeLock = await (navigator as any).wakeLock?.request("screen"); } catch {}
-    };
+    const req = async () => { try { wakeLock = await (navigator as any).wakeLock?.request("screen"); } catch {} };
     req();
     const onVis = () => { if (document.visibilityState === "visible") req(); };
     document.addEventListener("visibilitychange", onVis);
-    return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      try { wakeLock?.release(); } catch {}
-    };
+    return () => { document.removeEventListener("visibilitychange", onVis); try { wakeLock?.release(); } catch {} };
   }, []);
 
-  const onScroll = () => {
-    if (!playing) setProgress(computeProgress());
-  };
-
+  const onScroll = () => { if (!playing) setProgress(computeProgress()); };
   const remaining = Math.round((1 - progress) * 100);
 
-  // Try to lock to landscape; fallback to CSS rotation if unsupported (iOS Safari)
+  // Orientation lock (best-effort) + portrait detection for hint
   useEffect(() => {
     const orient: any = (screen as any).orientation;
     orient?.lock?.("landscape").catch(() => {});
@@ -497,89 +446,143 @@ function Prompter({
     };
   }, []);
 
-  const mirrorTransform = `${settings.mirrorH ? "scaleX(-1) " : ""}${settings.mirrorV ? "scaleY(-1)" : ""}`.trim();
+  const mirrorTransform = `${mirrorH ? "scaleX(-1) " : ""}${mirrorV ? "scaleY(-1)" : ""}`.trim();
 
-  // When the device is portrait and orientation lock failed, rotate the whole
-  // prompter so the user can hold the phone in portrait and read sideways.
-  const rotateStyle: React.CSSProperties = isPortrait
-    ? {
-        width: "100vh",
-        height: "100vw",
-        transform: "translate(-50%, -50%) rotate(90deg)",
-        top: "50%",
-        left: "50%",
-        position: "fixed",
-      }
-    : { position: "fixed", inset: 0 };
+  const iconBtn = "grid h-11 w-11 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
 
   return (
-    <div className={`${bgClass} overflow-hidden select-none`} style={{ ...rotateStyle, fontFamily: "var(--font-prompter)" }}>
+    <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
+      {/* Scrolling text — tap toggles play/pause */}
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        onClick={() => setShowControls((v) => !v)}
+        onClick={togglePlay}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ transform: mirrorTransform, transformOrigin: "center center", WebkitOverflowScrolling: "touch" }}
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
-          <div
-            className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight"
-            style={{ fontSize: `${fontSize}px` }}
-          >
+          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px` }}>
             {script.body}
           </div>
           <div style={{ height: "80vh" }} />
         </div>
       </div>
 
-      {/* Persistent progress badge — ALWAYS visible */}
-      <div className="absolute bottom-3 right-3 z-30 rounded-full bg-black/70 px-3 py-1.5 text-sm font-bold text-amber-300 backdrop-blur-sm tabular-nums">
-        {remaining}% left
-      </div>
-
-      {/* Progress bar */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 h-1 bg-white/10">
-        <div className="h-full bg-amber-400 transition-[width] duration-150" style={{ width: `${progress * 100}%` }} />
-      </div>
-
-      {/* Controls overlay */}
-      {showControls && (
-        <div
-          className="absolute bottom-0 left-0 right-0 z-20 pb-2"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mx-auto max-w-2xl px-3">
-            <div className="rounded-2xl bg-black/75 backdrop-blur-md p-3 text-neutral-100">
-              <div className="flex items-center gap-2">
-                <button onClick={onExit} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold">Exit</button>
-                <button onClick={reset} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold">↺ Reset</button>
-                <div className="flex-1" />
-                <button
-                  onClick={togglePlay}
-                  className="rounded-full bg-amber-400 px-5 py-2 text-sm font-bold text-black"
-                >
-                  {playing ? "❚❚ Pause" : "▶ Play"}
-                </button>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex justify-between text-xs"><span>Speed</span><span className="font-mono text-amber-300">{speed}</span></div>
-                  <input type="range" min={10} max={250} step={5} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-full accent-amber-400" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs"><span>Size</span><span className="font-mono text-amber-300">{fontSize}</span></div>
-                  <input type="range" min={24} max={140} step={2} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="w-full accent-amber-400" />
-                </div>
-              </div>
-            </div>
-            {isPortrait && (
-              <p className="mt-2 text-center text-[11px] text-amber-300/80">Rotate your phone sideways for best results</p>
-            )}
+      {/* Portrait nudge — only hint, no rotation hack */}
+      {isPortrait && (
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center">
+          <div className="rounded-full bg-black/70 px-3 py-1 text-xs text-amber-300 backdrop-blur-sm">
+            Rotate your phone sideways
           </div>
         </div>
       )}
+
+      {/* Popovers */}
+      {panel === "settings" && (
+        <Popover onClose={() => setPanel(null)}>
+          <PopRow label="Speed" value={`${speed}`}>
+            <input type="range" min={10} max={250} step={5} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-full accent-amber-400" />
+          </PopRow>
+          <PopRow label="Width" value={`${settings.width}%`}>
+            <input type="range" min={50} max={100} step={5} value={settings.width} onChange={(e) => onSettings({ ...settings, width: Number(e.target.value) })} className="w-full accent-amber-400" />
+          </PopRow>
+          <div className="flex gap-2 pt-1">
+            {(["black", "white", "sepia"] as const).map((b) => (
+              <button key={b} onClick={() => onSettings({ ...settings, bg: b })}
+                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold border ${settings.bg === b ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                {b === "black" ? "Dark" : b === "white" ? "Light" : "Sepia"}
+              </button>
+            ))}
+          </div>
+        </Popover>
+      )}
+      {panel === "size" && (
+        <Popover onClose={() => setPanel(null)}>
+          <PopRow label="Font size" value={`${fontSize}px`}>
+            <input type="range" min={24} max={140} step={2} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="w-full accent-amber-400" />
+          </PopRow>
+        </Popover>
+      )}
+      {panel === "more" && (
+        <Popover onClose={() => setPanel(null)}>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
+            <button onClick={() => setMirrorV((v) => !v)} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕</button>
+          </div>
+          <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
+        </Popover>
+      )}
+
+      {/* Thin progress line above toolbar */}
+      <div className="absolute bottom-[64px] left-0 right-0 z-20 h-[2px] bg-white/10">
+        <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%` }} />
+      </div>
+
+      {/* Bottom toolbar */}
+      <div
+        className="absolute bottom-0 left-0 right-0 z-30 bg-black/85 backdrop-blur-md"
+        style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-3 py-2">
+          <button onClick={onExit} className={iconBtn} aria-label="Back">
+            <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
+          </button>
+          <button onClick={() => setMirrorH((v) => !v)} className={iconBtn} aria-label="Mirror">
+            <FlipHorizontal2 className={`h-6 w-6 ${mirrorH ? "text-amber-300" : ""}`} />
+          </button>
+          <button
+            onClick={() => { try { (screen as any).orientation?.lock?.("landscape"); } catch {} }}
+            className={iconBtn} aria-label="Landscape"
+          >
+            <RotateCw className="h-6 w-6" />
+          </button>
+          <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
+            {playing
+              ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
+              : <Play className="h-7 w-7 text-sky-400" fill="currentColor" />}
+          </button>
+          <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
+            <SlidersHorizontal className="h-6 w-6" />
+          </button>
+          <button onClick={() => setPanel(panel === "size" ? null : "size")} className={iconBtn} aria-label="Text size">
+            <Type className="h-6 w-6" />
+          </button>
+          <button onClick={() => setPanel(panel === "more" ? null : "more")} className={`${iconBtn} bg-sky-500/90 text-white`} aria-label="More">
+            <MoreHorizontal className="h-5 w-5" />
+          </button>
+        </div>
+        {/* % remaining — tucked subtly in the toolbar */}
+        <div className="absolute -top-7 right-3 rounded-full bg-black/70 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums">
+          {remaining}% left
+        </div>
+      </div>
     </div>
   );
 }
+
+function Popover({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <>
+      <div className="absolute inset-0 z-30" onClick={onClose} />
+      <div className="absolute bottom-[72px] left-1/2 z-40 w-[min(92vw,420px)] -translate-x-1/2 rounded-2xl border border-white/10 bg-black/90 p-3 text-neutral-100 backdrop-blur-md">
+        {children}
+      </div>
+    </>
+  );
+}
+
+function PopRow({ label, value, children }: { label: string; value: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="mb-1 flex justify-between text-xs">
+        <span className="text-neutral-300">{label}</span>
+        <span className="font-mono text-amber-300">{value}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 
