@@ -457,10 +457,6 @@ function Prompter({
     };
   }, []);
 
-  const mirrorTransform = `${mirrorH ? "scaleX(-1) " : ""}${mirrorV ? "scaleY(-1)" : ""}`.trim();
-
-  const iconBtn = "grid h-11 w-11 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
-
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
       {/* Scrolling text — tap toggles play/pause */}
@@ -469,11 +465,11 @@ function Prompter({
         onScroll={onScroll}
         onClick={togglePlay}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
-        style={{ transform: mirrorTransform, transformOrigin: "center center", WebkitOverflowScrolling: "touch" }}
+        style={{ WebkitOverflowScrolling: "touch" }}
       >
-        <div className="mx-auto" style={{ width: `${settings.width}%` }}>
+        <div className="mx-auto" style={{ width: `${settings.width}%`, transform: mirrorV ? "scaleY(-1)" : undefined }}>
           <div style={{ height: "20vh" }} />
-          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px` }}>
+          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorH ? "scaleX(-1)" : undefined }}>
             {script.body}
           </div>
           <div style={{ height: "80vh" }} />
