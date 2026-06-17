@@ -381,6 +381,86 @@ function Prompter({
     setProgress(0);
   };
 
+  const nudge = useCallback((dir: 1 | -1) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop += dir * Math.max(80, el.clientHeight * 0.4);
+    setProgress(computeProgress());
+  }, [computeProgress]);
+
+  // ===== Bluetooth remote support (Desview RM-S1/S2, AirTurn, generic BT clickers) =====
+  // Desview clickers pair as a BLE HID keyboard. Different physical-switch
+  // modes send different keys; we accept ALL of them so the remote "just works"
+  // regardless of which mode (Android/iOS/PPT/Keynote/Camera) the user picked.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Ignore typing inside inputs (shouldn't happen in player, but safe)
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+      const k = e.key;
+      const code = e.code;
+
+      // PLAY / PAUSE — primary action on most Desview buttons
+      const playKeys = [
+        " ", "Spacebar", "Enter", "MediaPlayPause", "MediaPlay", "MediaPause",
+        "k", "K", "p", "P",
+        // Keynote/PPT "next" — also acts as toggle for us
+        "PageDown", "PageUp",
+        "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp",
+        // Camera-mode shutter often sends Volume Up / Enter / "."
+        "AudioVolumeUp", "VolumeUp", "AudioVolumeDown", "VolumeDown",
+        ".", "Tab",
+        // iOS shutter shortcut some remotes emit
+        "F5", "Escape",
+      ];
+
+      // Exit
+      if (k === "Escape" || code === "Escape") {
+        e.preventDefault();
+        onExit();
+        return;
+      }
+      // Reset
+      if (k === "0" || k === "Home") {
+        e.preventDefault();
+        reset();
+        return;
+      }
+      // Speed
+      if (k === "+" || k === "=" || k === "ArrowUp" && e.shiftKey) {
+        e.preventDefault();
+        setSpeed((s) => Math.min(250, s + 5));
+        return;
+      }
+      if (k === "-" || k === "_" || k === "ArrowDown" && e.shiftKey) {
+        e.preventDefault();
+        setSpeed((s) => Math.max(10, s - 5));
+        return;
+      }
+      // Font size
+      if (k === "]") { e.preventDefault(); setFontSize((s) => Math.min(140, s + 2)); return; }
+      if (k === "[") { e.preventDefault(); setFontSize((s) => Math.max(24, s - 2)); return; }
+
+      // Manual nudge (arrows when paused) + toggle play
+      if (playKeys.includes(k) || playKeys.includes(code)) {
+        e.preventDefault();
+        // If paused and a directional key was pressed, scroll instead of toggling
+        if (!playing && (k === "ArrowDown" || k === "PageDown" || k === "ArrowRight")) {
+          nudge(1);
+          return;
+        }
+        if (!playing && (k === "ArrowUp" || k === "PageUp" || k === "ArrowLeft")) {
+          nudge(-1);
+          return;
+        }
+        togglePlay();
+      }
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true } as any);
+  }, [playing, nudge]);
+
   // Keep screen awake (best-effort)
   useEffect(() => {
     let wakeLock: any = null;
