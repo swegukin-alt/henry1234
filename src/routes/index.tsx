@@ -623,6 +623,10 @@ function Prompter({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
 
 function Popover({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
