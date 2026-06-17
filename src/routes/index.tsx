@@ -142,7 +142,14 @@ function Index() {
           onChange={updateActive}
           onSettings={setSettings}
           onBack={() => setMode("library")}
-          onPlay={() => setMode("play")}
+          onPlay={() => {
+            // Must run synchronously inside the user gesture for iOS to honor it.
+            const el: any = document.documentElement;
+            const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
+            try { req?.call(el).catch?.(() => {}); } catch {}
+            try { (screen as any).orientation?.lock?.("landscape").catch?.(() => {}); } catch {}
+            setMode("play");
+          }}
         />
       )}
     </Shell>
