@@ -494,9 +494,9 @@ function Prompter({
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
-        <div className="mx-auto" style={{ width: `${settings.width}%`, transform: mirrorV ? "scaleY(-1)" : undefined }}>
+        <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
-          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorH ? "scaleX(-1)" : undefined }}>
+          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorH ? "scaleY(-1)" : undefined }}>
             {script.body}
           </div>
           <div style={{ height: "80vh" }} />
