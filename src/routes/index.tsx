@@ -265,8 +265,6 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
           onChange={(v) => set({ speed: v })} />
         <Slider label="Text width" value={settings.width} min={50} max={100} step={5} suffix="%"
           onChange={(v) => set({ width: v })} />
-        <Slider label="Countdown" value={settings.countdown} min={0} max={10} step={1} suffix="s"
-          onChange={(v) => set({ countdown: v })} />
         <div className="flex flex-wrap gap-2 pt-1">
           <Toggle on={settings.mirrorH} onClick={() => set({ mirrorH: !settings.mirrorH })}>Mirror ↔</Toggle>
           <Toggle on={settings.mirrorV} onClick={() => set({ mirrorV: !settings.mirrorV })}>Mirror ↕</Toggle>
@@ -328,7 +326,7 @@ function Prompter({
   const lastTsRef = useRef<number>(0);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0..1
-  const [countdown, setCountdown] = useState<number | null>(null);
+  const [isPortrait, setIsPortrait] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [speed, setSpeed] = useState(settings.speed);
   const [fontSize, setFontSize] = useState(settings.fontSize);
@@ -375,26 +373,7 @@ function Prompter({
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [playing, tick]);
 
-  const startWithCountdown = () => {
-    if (settings.countdown <= 0) { setPlaying(true); return; }
-    setCountdown(settings.countdown);
-    let n = settings.countdown;
-    const iv = setInterval(() => {
-      n -= 1;
-      if (n <= 0) {
-        clearInterval(iv);
-        setCountdown(null);
-        setPlaying(true);
-      } else {
-        setCountdown(n);
-      }
-    }, 1000);
-  };
-
-  const togglePlay = () => {
-    if (playing) setPlaying(false);
-    else if (countdown == null) startWithCountdown();
-  };
+  const togglePlay = () => setPlaying((p) => !p);
 
   const reset = () => {
     setPlaying(false);
@@ -423,25 +402,46 @@ function Prompter({
 
   const remaining = Math.round((1 - progress) * 100);
 
-  const transform = `${settings.mirrorH ? "scaleX(-1) " : ""}${settings.mirrorV ? "scaleY(-1)" : ""}`.trim();
+  // Try to lock to landscape; fallback to CSS rotation if unsupported (iOS Safari)
+  useEffect(() => {
+    const orient: any = (screen as any).orientation;
+    orient?.lock?.("landscape").catch(() => {});
+    const mq = window.matchMedia("(orientation: portrait)");
+    const update = () => setIsPortrait(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => {
+      mq.removeEventListener?.("change", update);
+      try { orient?.unlock?.(); } catch {}
+    };
+  }, []);
+
+  const mirrorTransform = `${settings.mirrorH ? "scaleX(-1) " : ""}${settings.mirrorV ? "scaleY(-1)" : ""}`.trim();
+
+  // When the device is portrait and orientation lock failed, rotate the whole
+  // prompter so the user can hold the phone in portrait and read sideways.
+  const rotateStyle: React.CSSProperties = isPortrait
+    ? {
+        width: "100vh",
+        height: "100vw",
+        transform: "translate(-50%, -50%) rotate(90deg)",
+        top: "50%",
+        left: "50%",
+        position: "fixed",
+      }
+    : { position: "fixed", inset: 0 };
 
   return (
-    <div className={`fixed inset-0 ${bgClass} overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
-      {/* Reading guide line */}
-      <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 h-px bg-amber-400/40" />
-      <div className="pointer-events-none absolute left-2 top-1/3 z-10 -translate-y-1/2 text-amber-400 text-xl">▶</div>
-      <div className="pointer-events-none absolute right-2 top-1/3 z-10 -translate-y-1/2 text-amber-400 text-xl">◀</div>
-
+    <div className={`${bgClass} overflow-hidden select-none`} style={{ ...rotateStyle, fontFamily: "var(--font-prompter)" }}>
       <div
         ref={scrollRef}
         onScroll={onScroll}
         onClick={() => setShowControls((v) => !v)}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
-        style={{ transform, transformOrigin: "center center", WebkitOverflowScrolling: "touch" }}
+        style={{ transform: mirrorTransform, transformOrigin: "center center", WebkitOverflowScrolling: "touch" }}
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
-          {/* leading space so text starts at the guide line */}
-          <div style={{ height: "33vh" }} />
+          <div style={{ height: "20vh" }} />
           <div
             className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight"
             style={{ fontSize: `${fontSize}px` }}
@@ -452,15 +452,8 @@ function Prompter({
         </div>
       </div>
 
-      {/* Countdown overlay */}
-      {countdown != null && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60">
-          <div className="text-amber-400 font-black" style={{ fontSize: "30vmin", lineHeight: 1 }}>{countdown}</div>
-        </div>
-      )}
-
       {/* Persistent progress badge — ALWAYS visible */}
-      <div className="absolute bottom-[max(env(safe-area-inset-bottom),0.75rem)] right-3 z-30 rounded-full bg-black/70 px-3 py-1.5 text-sm font-bold text-amber-300 backdrop-blur-sm tabular-nums">
+      <div className="absolute bottom-3 right-3 z-30 rounded-full bg-black/70 px-3 py-1.5 text-sm font-bold text-amber-300 backdrop-blur-sm tabular-nums">
         {remaining}% left
       </div>
 
@@ -472,9 +465,8 @@ function Prompter({
       {/* Controls overlay */}
       {showControls && (
         <div
-          className="absolute bottom-0 left-0 right-0 z-20 pb-[max(env(safe-area-inset-bottom),0.5rem)]"
+          className="absolute bottom-0 left-0 right-0 z-20 pb-2"
           onClick={(e) => e.stopPropagation()}
-          style={{ transform: "none" }}
         >
           <div className="mx-auto max-w-2xl px-3">
             <div className="rounded-2xl bg-black/75 backdrop-blur-md p-3 text-neutral-100">
@@ -500,7 +492,9 @@ function Prompter({
                 </div>
               </div>
             </div>
-            <p className="mt-2 text-center text-[10px] text-neutral-500">Tap screen to hide controls</p>
+            {isPortrait && (
+              <p className="mt-2 text-center text-[11px] text-amber-300/80">Rotate your phone sideways for best results</p>
+            )}
           </div>
         </div>
       )}
