@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipHorizontal2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
