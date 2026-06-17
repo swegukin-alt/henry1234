@@ -386,12 +386,10 @@ function Prompter({
   }, [playing, tick]);
 
   const togglePlay = () => {
-    console.log("togglePlay called, current playing:", playing);
     setPlaying((p) => {
       const next = !p;
       if (next) { setControlsVisible(false); setPanel(null); }
       else { setControlsVisible(true); }
-      console.log("togglePlay setting playing to:", next, "controlsVisible:", next ? false : true);
       return next;
     });
   };
