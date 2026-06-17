@@ -394,16 +394,29 @@ function Prompter({
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [playing, tick]);
 
-  const togglePlay = () => setPlaying((p) => !p);
+  const togglePlay = () => {
+    setPlaying((p) => {
+      const next = !p;
+      if (next) { setControlsVisible(false); setPanel(null); }
+      return next;
+    });
+  };
   const reset = () => {
     setPlaying(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setProgress(0);
   };
+  // Smooth nudge that does NOT stop playback. Uses native smooth scroll
+  // and a smaller step so up/down on the remote feels fluid, not laggy.
   const nudge = useCallback((dir: 1 | -1) => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop += dir * Math.max(80, el.clientHeight * 0.4);
+    const step = dir * Math.max(60, el.clientHeight * 0.18);
+    try {
+      el.scrollBy({ top: step, behavior: "smooth" });
+    } catch {
+      el.scrollTop += step;
+    }
     setProgress(computeProgress());
   }, [computeProgress]);
 
