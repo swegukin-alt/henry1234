@@ -19,6 +19,8 @@
  */
 
 @theme inline {
+  --font-sans: "Atkinson Hyperlegible", "Noto Sans KR", system-ui, sans-serif;
+  --font-prompter: "Atkinson Hyperlegible", "Noto Sans KR", system-ui, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
