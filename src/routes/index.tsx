@@ -406,19 +406,21 @@ function Prompter({
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setProgress(0);
   };
-  // Smooth nudge that does NOT stop playback. Uses native smooth scroll
-  // and a smaller step so up/down on the remote feels fluid, not laggy.
+  // Smooth nudge that does NOT stop playback. While playing, the rAF tick
+  // mutates scrollTop every frame, so a CSS smooth-scroll target would be
+  // overwritten immediately — we apply the offset directly instead.
   const nudge = useCallback((dir: 1 | -1) => {
     const el = scrollRef.current;
     if (!el) return;
     const step = dir * Math.max(60, el.clientHeight * 0.18);
-    try {
-      el.scrollBy({ top: step, behavior: "smooth" });
-    } catch {
+    if (playing) {
       el.scrollTop += step;
+    } else {
+      try { el.scrollBy({ top: step, behavior: "smooth" }); }
+      catch { el.scrollTop += step; }
     }
     setProgress(computeProgress());
-  }, [computeProgress]);
+  }, [computeProgress, playing]);
 
   // Bluetooth remote (Desview RM-S1/S2 etc.) keyboard mapping
   useEffect(() => {
@@ -497,11 +499,11 @@ function Prompter({
 
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
-      {/* Scrolling text — tap toggles play/pause */}
+      {/* Scrolling text — finger tap pauses and reveals controls */}
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        onClick={togglePlay}
+        onClick={() => { setPlaying(false); setControlsVisible(true); }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
