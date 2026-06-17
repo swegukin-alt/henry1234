@@ -147,13 +147,6 @@ function Index() {
             const el: any = document.documentElement;
             const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
             try { req?.call(el).catch?.(() => {}); } catch {}
-            // Lock to landscape-primary (rotated to the left — home button/indicator on the right)
-            try {
-              const o: any = (screen as any).orientation;
-              o?.lock?.("landscape-primary").catch?.(() => {
-                o?.lock?.("landscape").catch?.(() => {});
-              });
-            } catch {}
             setMode("play");
           }}
         />
@@ -481,18 +474,13 @@ function Prompter({
   const onScroll = () => { if (!playing) setProgress(computeProgress()); };
   const remaining = Math.round((1 - progress) * 100);
 
-  // Orientation lock (best-effort) + portrait detection for hint
+  // Portrait detection for hint only (no auto-rotate)
   useEffect(() => {
-    const orient: any = (screen as any).orientation;
-    orient?.lock?.("landscape").catch(() => {});
     const mq = window.matchMedia("(orientation: portrait)");
     const update = () => setIsPortrait(mq.matches);
     update();
     mq.addEventListener?.("change", update);
-    return () => {
-      mq.removeEventListener?.("change", update);
-      try { orient?.unlock?.(); } catch {}
-    };
+    return () => { mq.removeEventListener?.("change", update); };
   }, []);
 
   const iconBtn = "grid h-11 w-11 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
@@ -591,17 +579,6 @@ function Prompter({
               </button>
               <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
                 <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
-              </button>
-              <button
-                onClick={() => {
-                  try {
-                    const o: any = (screen as any).orientation;
-                    o?.lock?.("landscape-primary").catch?.(() => { o?.lock?.("landscape").catch?.(() => {}); });
-                  } catch {}
-                }}
-                className={iconBtn} aria-label="Landscape"
-              >
-                <RotateCw className="h-6 w-6" />
               </button>
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
                 {playing
