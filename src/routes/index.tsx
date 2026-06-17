@@ -330,8 +330,12 @@ function Prompter({
   const [isPortrait, setIsPortrait] = useState(false);
   const [speed, setSpeed] = useState(settings.speed);
   const [fontSize, setFontSize] = useState(settings.fontSize);
-  const [mirrorH, setMirrorH] = useState(true); // auto-on when entering play
-  const [mirrorV, setMirrorV] = useState(settings.mirrorV);
+  // Teleprompter rigs reflect the phone screen through angled glass.
+  // Phone-flat-under-glass (most common consumer rigs): vertical flip.
+  // Phone-behind-vertical-glass beam-splitter: horizontal flip.
+  // Default ON = vertical (matches typical iPhone teleprompter rig).
+  const [mirrorV, setMirrorV] = useState(true);
+  const [mirrorH, setMirrorH] = useState(settings.mirrorH);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
 
   // Persist live edits back to settings
