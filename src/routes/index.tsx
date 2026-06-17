@@ -147,7 +147,13 @@ function Index() {
             const el: any = document.documentElement;
             const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
             try { req?.call(el).catch?.(() => {}); } catch {}
-            try { (screen as any).orientation?.lock?.("landscape").catch?.(() => {}); } catch {}
+            // Lock to landscape-primary (rotated to the left — home button/indicator on the right)
+            try {
+              const o: any = (screen as any).orientation;
+              o?.lock?.("landscape-primary").catch?.(() => {
+                o?.lock?.("landscape").catch?.(() => {});
+              });
+            } catch {}
             setMode("play");
           }}
         />
@@ -542,7 +548,12 @@ function Prompter({
             <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
           </button>
           <button
-            onClick={() => { try { (screen as any).orientation?.lock?.("landscape"); } catch {} }}
+            onClick={() => {
+              try {
+                const o: any = (screen as any).orientation;
+                o?.lock?.("landscape-primary").catch?.(() => { o?.lock?.("landscape").catch?.(() => {}); });
+              } catch {}
+            }}
             className={iconBtn} aria-label="Landscape"
           >
             <RotateCw className="h-6 w-6" />
