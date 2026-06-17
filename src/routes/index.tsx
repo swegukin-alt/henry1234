@@ -336,11 +336,9 @@ function Prompter({
   const [isPortrait, setIsPortrait] = useState(false);
   const [speed, setSpeed] = useState(settings.speed);
   const [fontSize, setFontSize] = useState(settings.fontSize);
-  // Teleprompter rigs reflect the phone screen through angled glass.
-  // Phone-flat-under-glass (most common consumer rigs): vertical flip.
-  // Phone-behind-vertical-glass beam-splitter: horizontal flip.
-  // Default ON = vertical (matches typical iPhone teleprompter rig).
-  const [mirrorV, setMirrorV] = useState(true);
+  // Beam-splitter teleprompter rig: horizontal flip so text reads correctly
+  // through the angled glass.
+  const [mirrorV, setMirrorV] = useState(false);
   const [mirrorH, setMirrorH] = useState(settings.mirrorH);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -577,8 +575,8 @@ function Prompter({
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
-              <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
-                <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
+              <button onClick={() => setMirrorH((v) => !v)} className={iconBtn} aria-label="Mirror for beam splitter">
+                <FlipHorizontal2 className={`h-6 w-6 ${mirrorH ? "text-amber-300" : ""}`} />
               </button>
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
                 {playing
