@@ -350,6 +350,7 @@ function Prompter({
   const [mirrorV, setMirrorV] = useState(true);
   const [mirrorH, setMirrorH] = useState(settings.mirrorH);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
 
   // Persist live edits back to settings
   useEffect(() => {
@@ -393,16 +394,29 @@ function Prompter({
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [playing, tick]);
 
-  const togglePlay = () => setPlaying((p) => !p);
+  const togglePlay = () => {
+    setPlaying((p) => {
+      const next = !p;
+      if (next) { setControlsVisible(false); setPanel(null); }
+      return next;
+    });
+  };
   const reset = () => {
     setPlaying(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setProgress(0);
   };
+  // Smooth nudge that does NOT stop playback. Uses native smooth scroll
+  // and a smaller step so up/down on the remote feels fluid, not laggy.
   const nudge = useCallback((dir: 1 | -1) => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop += dir * Math.max(80, el.clientHeight * 0.4);
+    const step = dir * Math.max(60, el.clientHeight * 0.18);
+    try {
+      el.scrollBy({ top: step, behavior: "smooth" });
+    } catch {
+      el.scrollTop += step;
+    }
     setProgress(computeProgress());
   }, [computeProgress]);
 
@@ -412,29 +426,45 @@ function Prompter({
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       const k = e.key, code = e.code;
-      const playKeys = [
-        " ", "Spacebar", "Enter", "MediaPlayPause", "MediaPlay", "MediaPause",
-        "k", "K", "p", "P", "PageDown", "PageUp",
-        "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp",
-        "AudioVolumeUp", "VolumeUp", "AudioVolumeDown", "VolumeDown",
-        ".", "Tab", "F5",
-      ];
+
+      // Escape / Home / font size
       if (k === "Escape" || code === "Escape") { e.preventDefault(); onExit(); return; }
       if (k === "0" || k === "Home") { e.preventDefault(); reset(); return; }
-      if (k === "+" || k === "=") { e.preventDefault(); setSpeed((s) => Math.min(250, s + 5)); return; }
-      if (k === "-" || k === "_") { e.preventDefault(); setSpeed((s) => Math.max(10, s - 5)); return; }
       if (k === "]") { e.preventDefault(); setFontSize((s) => Math.min(140, s + 2)); return; }
       if (k === "[") { e.preventDefault(); setFontSize((s) => Math.max(24, s - 2)); return; }
+
+      // Up / Down — scroll position. NEVER toggles play. Keeps rolling.
+      if (k === "ArrowUp" || k === "PageUp" || code === "PageUp" ||
+          k === "AudioVolumeUp" || k === "VolumeUp") {
+        e.preventDefault(); nudge(-1); return;
+      }
+      if (k === "ArrowDown" || k === "PageDown" || code === "PageDown" ||
+          k === "AudioVolumeDown" || k === "VolumeDown") {
+        e.preventDefault(); nudge(1); return;
+      }
+
+      // Left / Right — adjust speed.
+      if (k === "ArrowLeft" || k === "-" || k === "_") {
+        e.preventDefault(); setSpeed((s) => Math.max(10, s - 5)); return;
+      }
+      if (k === "ArrowRight" || k === "+" || k === "=") {
+        e.preventDefault(); setSpeed((s) => Math.min(250, s + 5)); return;
+      }
+
+      // Play / pause — space, enter, media keys, k/p, tab, dot, F5
+      const playKeys = [
+        " ", "Spacebar", "Enter", "MediaPlayPause", "MediaPlay", "MediaPause",
+        "k", "K", "p", "P", ".", "Tab", "F5",
+      ];
       if (playKeys.includes(k) || playKeys.includes(code)) {
         e.preventDefault();
-        if (!playing && (k === "ArrowDown" || k === "PageDown" || k === "ArrowRight")) { nudge(1); return; }
-        if (!playing && (k === "ArrowUp" || k === "PageUp" || k === "ArrowLeft")) { nudge(-1); return; }
         togglePlay();
       }
     };
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true } as any);
-  }, [playing, nudge, onExit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nudge, onExit]);
 
   // Wake lock
   useEffect(() => {
@@ -529,58 +559,74 @@ function Prompter({
         </Popover>
       )}
 
-      {/* Thin progress line above toolbar */}
-      <div className="absolute bottom-[64px] left-0 right-0 z-20 h-[2px] bg-white/10">
-        <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%` }} />
-      </div>
+      {/* Tiny reveal pill — only thing on screen when controls are hidden */}
+      {!controlsVisible && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setControlsVisible(true); }}
+          className="absolute top-2 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
+          aria-label="Show controls"
+        >
+          •••
+        </button>
+      )}
 
-      {/* Bottom toolbar */}
-      <div
-        className="absolute bottom-0 left-0 right-0 z-30 bg-black/85 backdrop-blur-md"
-        style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-3 py-2">
-          <button onClick={onExit} className={iconBtn} aria-label="Back">
-            <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
-          </button>
-          <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
-            <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
-          </button>
-          <button
-            onClick={() => {
-              try {
-                const o: any = (screen as any).orientation;
-                o?.lock?.("landscape-primary").catch?.(() => { o?.lock?.("landscape").catch?.(() => {}); });
-              } catch {}
-            }}
-            className={iconBtn} aria-label="Landscape"
+      {controlsVisible && (
+        <>
+          {/* Thin progress line above toolbar */}
+          <div className="absolute bottom-[64px] left-0 right-0 z-20 h-[2px] bg-white/10">
+            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%` }} />
+          </div>
+
+          {/* Bottom toolbar */}
+          <div
+            className="absolute bottom-0 left-0 right-0 z-30 bg-black/85 backdrop-blur-md"
+            style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <RotateCw className="h-6 w-6" />
-          </button>
-          <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
-            {playing
-              ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
-              : <Play className="h-7 w-7 text-sky-400" fill="currentColor" />}
-          </button>
-          <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
-            <SlidersHorizontal className="h-6 w-6" />
-          </button>
-          <button onClick={() => setPanel(panel === "size" ? null : "size")} className={iconBtn} aria-label="Text size">
-            <Type className="h-6 w-6" />
-          </button>
-          <button onClick={() => setPanel(panel === "more" ? null : "more")} className={`${iconBtn} bg-sky-500/90 text-white`} aria-label="More">
-            <MoreHorizontal className="h-5 w-5" />
-          </button>
-        </div>
-        {/* % remaining — tucked subtly in the toolbar */}
-        <div className="absolute -top-7 right-3 rounded-full bg-black/70 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums">
-          {remaining}% left
-        </div>
-      </div>
+            <div className="flex items-center justify-between px-3 py-2">
+              <button onClick={onExit} className={iconBtn} aria-label="Back">
+                <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
+              </button>
+              <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Teleprompter mirror">
+                <FlipHorizontal2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} style={{ transform: "rotate(90deg)" }} />
+              </button>
+              <button
+                onClick={() => {
+                  try {
+                    const o: any = (screen as any).orientation;
+                    o?.lock?.("landscape-primary").catch?.(() => { o?.lock?.("landscape").catch?.(() => {}); });
+                  } catch {}
+                }}
+                className={iconBtn} aria-label="Landscape"
+              >
+                <RotateCw className="h-6 w-6" />
+              </button>
+              <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
+                {playing
+                  ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
+                  : <Play className="h-7 w-7 text-sky-400" fill="currentColor" />}
+              </button>
+              <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
+                <SlidersHorizontal className="h-6 w-6" />
+              </button>
+              <button onClick={() => setPanel(panel === "size" ? null : "size")} className={iconBtn} aria-label="Text size">
+                <Type className="h-6 w-6" />
+              </button>
+              <button onClick={() => setPanel(panel === "more" ? null : "more")} className={`${iconBtn} bg-sky-500/90 text-white`} aria-label="More">
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+            </div>
+            {/* % remaining — tucked subtly in the toolbar */}
+            <div className="absolute -top-7 right-3 rounded-full bg-black/70 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums">
+              {remaining}% left
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
+
 
 function Popover({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
