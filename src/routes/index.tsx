@@ -173,14 +173,18 @@ function Library({
 }) {
   return (
     <div>
-      <header className="flex items-center justify-between py-4">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight leading-tight">Swegukin, let's kick some ass</h1>
-          <p className="text-sm text-neutral-400 mt-1">Never give up. Remember where you came from</p>
-        </div>
+      <header className="pt-6 pb-5">
+        <h1 className="text-[26px] sm:text-3xl font-black tracking-tight leading-[1.15] bg-gradient-to-br from-amber-300 to-amber-500 bg-clip-text text-transparent">
+          Swegukin,
+          <br />
+          let's kick some ass
+        </h1>
+        <p className="text-[13px] text-neutral-400 mt-2 leading-snug">
+          Never give up. Remember where you came from.
+        </p>
         <button
           onClick={onCreate}
-          className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black active:scale-95 transition"
+          className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-3.5 text-base font-bold text-black active:scale-[0.98] transition shadow-lg shadow-amber-400/20"
         >
           Let's go
         </button>
