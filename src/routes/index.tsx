@@ -584,7 +584,7 @@ function Prompter({
         <Popover onClose={() => setPanel(null)}>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
-            <button onClick={() => setMirrorV((v) => !v)} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
+            <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
           </div>
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
         </Popover>
