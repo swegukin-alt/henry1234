@@ -266,11 +266,11 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
     <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
       <h2 className="text-sm font-bold uppercase tracking-widest text-neutral-400">Settings</h2>
       <div className="mt-4 space-y-4">
-        <Slider label="Font size" value={settings.fontSize} min={24} max={140} step={2} suffix="px"
+        <Slider label="Font size" value={settings.fontSize} min={24} max={140} step={1} suffix="px"
           onChange={(v) => set({ fontSize: v })} />
-        <Slider label="Scroll speed" value={settings.speed} min={10} max={250} step={5} suffix="px/s"
+        <Slider label="Scroll speed" value={settings.speed} min={10} max={250} step={1} suffix="px/s"
           onChange={(v) => set({ speed: v })} />
-        <Slider label="Text width" value={settings.width} min={50} max={100} step={5} suffix="%"
+        <Slider label="Text width" value={settings.width} min={50} max={100} step={1} suffix="%"
           onChange={(v) => set({ width: v })} />
         <div className="flex flex-wrap gap-2 pt-1">
           <Toggle on={settings.mirrorH} onClick={() => set({ mirrorH: !settings.mirrorH })}>Mirror ↔</Toggle>
