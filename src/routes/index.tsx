@@ -486,19 +486,31 @@ function Prompter({
     return () => { document.removeEventListener("visibilitychange", onVis); try { wakeLock?.release(); } catch {} };
   }, []);
 
-  // Ensure correct starting scroll position when entering play or toggling mirror
+  // On first mount, position scroll based on initial mirror state.
+  const didInitScrollRef = useRef(false);
   useEffect(() => {
+    if (didInitScrollRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
     const max = el.scrollHeight - el.clientHeight;
-    if (mirrorV && max > 0) {
-      el.scrollTop = max;
-    } else {
-      el.scrollTop = 0;
-    }
+    el.scrollTop = mirrorV && max > 0 ? max : 0;
     setProgress(0);
+    didInitScrollRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mirrorV]);
+  }, []);
+
+  // Toggle mirror while preserving the user's place in the script.
+  // Flipping the text upside-down also reverses scroll direction, so we
+  // mirror scrollTop (max - current) so the same line stays on screen.
+  const toggleMirror = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) el.scrollTop = max - el.scrollTop;
+    }
+    setMirrorV((v) => !v);
+    setProgress((p) => p); // keep progress; computeProgress will resync on next scroll/tick
+  }, []);
 
   const onScroll = () => { if (!playing) setProgress(computeProgress()); };
   const remaining = Math.round((1 - progress) * 100);
