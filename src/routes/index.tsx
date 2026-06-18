@@ -576,7 +576,7 @@ function Prompter({
       {panel === "size" && (
         <Popover onClose={() => setPanel(null)}>
           <PopRow label="Font size" value={`${fontSize}px`}>
-            <input type="range" min={24} max={140} step={2} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="w-full accent-amber-400" />
+            <input type="range" min={24} max={140} step={1} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="slider-fluid w-full accent-amber-400" />
           </PopRow>
         </Popover>
       )}
