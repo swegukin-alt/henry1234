@@ -558,7 +558,7 @@ function Prompter({
       {panel === "settings" && (
         <Popover onClose={() => setPanel(null)}>
           <PopRow label="Speed" value={`${speed}`}>
-            <input type="range" min={10} max={250} step={5} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-full accent-amber-400" />
+            <input type="range" min={10} max={250} step={1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="slider-fluid w-full accent-amber-400" />
           </PopRow>
           <PopRow label="Width" value={`${settings.width}%`}>
             <input type="range" min={50} max={100} step={5} value={settings.width} onChange={(e) => onSettings({ ...settings, width: Number(e.target.value) })} className="w-full accent-amber-400" />
