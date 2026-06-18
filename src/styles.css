@@ -143,5 +143,58 @@
     background-color: #0a0a0a;
     color: var(--color-foreground);
     overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
+
+  button, [role="button"], a, input[type="range"] {
+    touch-action: manipulation;
+  }
+}
+
+/* Fluid, finger-friendly range slider */
+input[type="range"].slider-fluid {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 36px;
+  background: transparent;
+  touch-action: pan-y;
+  cursor: pointer;
+}
+input[type="range"].slider-fluid::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+input[type="range"].slider-fluid::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+input[type="range"].slider-fluid::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: #fbbf24;
+  border: 2px solid #1a1a1a;
+  margin-top: -10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: transform 120ms ease;
+}
+input[type="range"].slider-fluid:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+input[type="range"].slider-fluid::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: #fbbf24;
+  border: 2px solid #1a1a1a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: transform 120ms ease;
+}
+input[type="range"].slider-fluid:active::-moz-range-thumb {
+  transform: scale(1.15);
 }

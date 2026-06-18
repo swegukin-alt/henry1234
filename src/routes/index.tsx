@@ -266,11 +266,11 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
     <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
       <h2 className="text-sm font-bold uppercase tracking-widest text-neutral-400">Settings</h2>
       <div className="mt-4 space-y-4">
-        <Slider label="Font size" value={settings.fontSize} min={24} max={140} step={2} suffix="px"
+        <Slider label="Font size" value={settings.fontSize} min={24} max={140} step={1} suffix="px"
           onChange={(v) => set({ fontSize: v })} />
-        <Slider label="Scroll speed" value={settings.speed} min={10} max={250} step={5} suffix="px/s"
+        <Slider label="Scroll speed" value={settings.speed} min={10} max={250} step={1} suffix="px/s"
           onChange={(v) => set({ speed: v })} />
-        <Slider label="Text width" value={settings.width} min={50} max={100} step={5} suffix="%"
+        <Slider label="Text width" value={settings.width} min={50} max={100} step={1} suffix="%"
           onChange={(v) => set({ width: v })} />
         <div className="flex flex-wrap gap-2 pt-1">
           <Toggle on={settings.mirrorH} onClick={() => set({ mirrorH: !settings.mirrorH })}>Mirror ↔</Toggle>
@@ -306,7 +306,7 @@ function Slider({
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-2 w-full accent-amber-400"
+        className="slider-fluid mt-2 w-full accent-amber-400"
       />
     </label>
   );
@@ -558,10 +558,10 @@ function Prompter({
       {panel === "settings" && (
         <Popover onClose={() => setPanel(null)}>
           <PopRow label="Speed" value={`${speed}`}>
-            <input type="range" min={10} max={250} step={5} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-full accent-amber-400" />
+            <input type="range" min={10} max={250} step={1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="slider-fluid w-full accent-amber-400" />
           </PopRow>
           <PopRow label="Width" value={`${settings.width}%`}>
-            <input type="range" min={50} max={100} step={5} value={settings.width} onChange={(e) => onSettings({ ...settings, width: Number(e.target.value) })} className="w-full accent-amber-400" />
+            <input type="range" min={50} max={100} step={1} value={settings.width} onChange={(e) => onSettings({ ...settings, width: Number(e.target.value) })} className="slider-fluid w-full accent-amber-400" />
           </PopRow>
           <div className="flex gap-2 pt-1">
             {(["black", "white", "sepia"] as const).map((b) => (
@@ -576,7 +576,7 @@ function Prompter({
       {panel === "size" && (
         <Popover onClose={() => setPanel(null)}>
           <PopRow label="Font size" value={`${fontSize}px`}>
-            <input type="range" min={24} max={140} step={2} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="w-full accent-amber-400" />
+            <input type="range" min={24} max={140} step={1} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="slider-fluid w-full accent-amber-400" />
           </PopRow>
         </Popover>
       )}
