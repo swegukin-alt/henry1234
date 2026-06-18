@@ -486,19 +486,31 @@ function Prompter({
     return () => { document.removeEventListener("visibilitychange", onVis); try { wakeLock?.release(); } catch {} };
   }, []);
 
-  // Ensure correct starting scroll position when entering play or toggling mirror
+  // On first mount, position scroll based on initial mirror state.
+  const didInitScrollRef = useRef(false);
   useEffect(() => {
+    if (didInitScrollRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
     const max = el.scrollHeight - el.clientHeight;
-    if (mirrorV && max > 0) {
-      el.scrollTop = max;
-    } else {
-      el.scrollTop = 0;
-    }
+    el.scrollTop = mirrorV && max > 0 ? max : 0;
     setProgress(0);
+    didInitScrollRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mirrorV]);
+  }, []);
+
+  // Toggle mirror while preserving the user's place in the script.
+  // Flipping the text upside-down also reverses scroll direction, so we
+  // mirror scrollTop (max - current) so the same line stays on screen.
+  const toggleMirror = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) {
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) el.scrollTop = max - el.scrollTop;
+    }
+    setMirrorV((v) => !v);
+    setProgress((p) => p); // keep progress; computeProgress will resync on next scroll/tick
+  }, []);
 
   const onScroll = () => { if (!playing) setProgress(computeProgress()); };
   const remaining = Math.round((1 - progress) * 100);
@@ -572,14 +584,14 @@ function Prompter({
         <Popover onClose={() => setPanel(null)}>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
-            <button onClick={() => setMirrorV((v) => !v)} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
+            <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
           </div>
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
         </Popover>
       )}
 
       {/* % remaining — always visible */}
-      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums backdrop-blur-sm" style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}>
+      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-amber-300 tabular-nums backdrop-blur-sm" style={{ fontFamily: "var(--font-sans)", transform: mirrorV ? "scaleY(-1)" : undefined }}>
         {remaining}% left
       </div>
 
@@ -611,7 +623,7 @@ function Prompter({
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
-              <button onClick={() => setMirrorV((v) => !v)} className={iconBtn} aria-label="Mirror vertically for beam splitter">
+              <button onClick={toggleMirror} className={iconBtn} aria-label="Mirror vertically for beam splitter">
                 <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} />
               </button>
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
