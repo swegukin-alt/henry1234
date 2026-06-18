@@ -526,7 +526,7 @@ function Prompter({
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
-          <div className="whitespace-pre-wrap font-bold leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorV ? "scaleY(-1)" : undefined }}>
+          <div className="whitespace-pre-wrap font-medium leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorV ? "scaleY(-1)" : undefined }}>
             {script.body}
           </div>
           <div style={{ height: "80vh" }} />
@@ -579,7 +579,7 @@ function Prompter({
       )}
 
       {/* % remaining — always visible */}
-      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums backdrop-blur-sm">
+      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-2.5 py-1 text-xs font-bold text-amber-300 tabular-nums backdrop-blur-sm" style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}>
         {remaining}% left
       </div>
 
