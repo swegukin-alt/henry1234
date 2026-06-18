@@ -306,7 +306,7 @@ function Slider({
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-2 w-full accent-amber-400"
+        className="slider-fluid mt-2 w-full accent-amber-400"
       />
     </label>
   );
