@@ -5,7 +5,7 @@ import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreH
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Prompter — Teleprompter for iPhone" },
+      { title: "Swegukin, let's kick some ass" },
       { name: "description", content: "A clean, easy-to-read teleprompter with mirror mode, live progress, and Korean support." },
       { name: "theme-color", content: "#0a0a0a" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
