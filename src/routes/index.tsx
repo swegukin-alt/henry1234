@@ -10,7 +10,7 @@ export const Route = createFileRoute("/")({
       { name: "theme-color", content: "#0a0a0a" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { property: "og:title", content: "Prompter" },
+      { property: "og:title", content: "Swegukin, let's kick some ass" },
       { property: "og:description", content: "A clean teleprompter that runs in your browser." },
     ],
   }),
@@ -175,14 +175,14 @@ function Library({
     <div>
       <header className="flex items-center justify-between py-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight">Prompter</h1>
-          <p className="text-sm text-neutral-400">Your scripts, saved on this device.</p>
+          <h1 className="text-2xl font-black tracking-tight leading-tight">Swegukin, let's kick some ass</h1>
+          <p className="text-sm text-neutral-400 mt-1">Never give up. Remember where you came from</p>
         </div>
         <button
           onClick={onCreate}
           className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black active:scale-95 transition"
         >
-          + New
+          Let's go
         </button>
       </header>
 
@@ -210,7 +210,7 @@ function Library({
         ))}
         {scripts.length === 0 && (
           <li className="rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-neutral-400">
-            No scripts yet. Tap <span className="text-amber-400 font-bold">+ New</span> to start.
+            No scripts yet. Tap <span className="text-amber-400 font-bold">Let's go</span> to start.
           </li>
         )}
       </ul>
