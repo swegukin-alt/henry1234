@@ -591,7 +591,7 @@ function Prompter({
       )}
 
       {/* % remaining — always visible */}
-      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-amber-300 tabular-nums backdrop-blur-sm" style={{ fontFamily: "var(--font-sans)", transform: mirrorV ? "scaleY(-1)" : undefined }}>
+      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm" style={{ fontFamily: "var(--font-sans)", transform: mirrorV ? "scaleY(-1)" : undefined }}>
         {remaining}% left
       </div>
 
