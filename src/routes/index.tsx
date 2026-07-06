@@ -420,9 +420,18 @@ function Prompter({
           facingMode: "user",
           width: { ideal: dims.width },
           height: { ideal: dims.height },
-          frameRate: { ideal: 30 },
+          // Prefer 60fps for the smoothest, sharpest capture; the camera
+          // will fall back to 30 automatically if 60 isn't available at
+          // the chosen resolution.
+          frameRate: { ideal: 60, min: 30 },
         },
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 2,
+        },
       };
     };
     const start = async () => {
