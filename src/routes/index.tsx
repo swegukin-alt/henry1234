@@ -1137,41 +1137,59 @@ function ClipsSheet({
 
       {playingClip && playUrl && (
         <div
-          className="fixed inset-0 z-[60] flex flex-col bg-black"
-          style={{
-            paddingTop: "env(safe-area-inset-top, 0px)",
-            paddingBottom: "env(safe-area-inset-bottom, 0px)",
-            paddingLeft: "env(safe-area-inset-left, 0px)",
-            paddingRight: "env(safe-area-inset-right, 0px)",
-          }}
+          className="fixed inset-0 z-[60] bg-black"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between px-3 py-2">
-            <div className="text-sm font-semibold text-neutral-200 truncate">
-              Take {clips.findIndex((c) => c.id === playingClip.id) + 1} · {fmtDuration(playingClip.durationMs)}
-            </div>
-            <button onClick={() => setPlayingClip(null)} className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white" aria-label="Close player">
-              <X className="h-5 w-5" />
-            </button>
+          {/* Video fills the whole screen and is centered by object-contain */}
+          <video
+            key={playingClip.id}
+            src={playUrl}
+            controls
+            autoPlay
+            playsInline
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+
+          {/* Floating close button — top-right, safe-area aware */}
+          <button
+            onClick={() => setPlayingClip(null)}
+            className="absolute z-10 grid h-10 w-10 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm active:scale-90"
+            style={{
+              top: "calc(env(safe-area-inset-top, 0px) + 0.5rem)",
+              right: "calc(env(safe-area-inset-right, 0px) + 0.5rem)",
+            }}
+            aria-label="Close player"
+          >
+            <X className="h-5 w-5" />
+          </button>
+
+          {/* Floating take label — top-left */}
+          <div
+            className="absolute z-10 rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-neutral-100 backdrop-blur-sm max-w-[60vw] truncate"
+            style={{
+              top: "calc(env(safe-area-inset-top, 0px) + 0.5rem)",
+              left: "calc(env(safe-area-inset-left, 0px) + 0.5rem)",
+            }}
+          >
+            Take {clips.findIndex((c) => c.id === playingClip.id) + 1} · {fmtDuration(playingClip.durationMs)}
           </div>
-          <div className="flex-1 min-h-0 grid place-items-center">
-            <video
-              key={playingClip.id}
-              src={playUrl}
-              controls
-              autoPlay
-              playsInline
-              className="h-full w-full object-contain"
-            />
-          </div>
-          <div className="flex gap-2 border-t border-white/10 p-3">
-            <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">
+
+          {/* Floating action row — bottom, above native video controls */}
+          <div
+            className="absolute z-10 left-0 right-0 flex gap-2 px-3"
+            style={{
+              bottom: "calc(env(safe-area-inset-bottom, 0px) + 3.75rem)",
+              paddingLeft: "calc(env(safe-area-inset-left, 0px) + 0.75rem)",
+              paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
+            }}
+          >
+            <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black shadow-lg">
               <Share2 className="h-4 w-4" /> Save / Share
             </button>
             <div className="flex-1" />
             <button
               onClick={() => { const c = playingClip; if (confirm("Delete this clip?")) { onDelete(c.id); setPlayingClip(null); } }}
-              className="inline-flex items-center gap-1.5 rounded-full border border-red-400/50 px-4 py-2 text-sm text-red-300"
+              className="inline-flex items-center gap-1.5 rounded-full bg-black/70 border border-red-400/50 px-4 py-2 text-sm text-red-300 backdrop-blur-sm"
             >
               <Trash2 className="h-4 w-4" /> Delete
             </button>
