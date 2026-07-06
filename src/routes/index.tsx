@@ -1125,6 +1125,26 @@ function Prompter({
         </button>
       )}
 
+      {/* Mic pill — shows the active audio input; highlights when external (USB / DJI Mic 2 / wireless). */}
+      {videoMode && camReady && activeMicLabel && (
+        <div
+          className={`absolute z-40 inline-flex max-w-[60vw] items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-sm ${
+            micIsExternal ? "bg-emerald-500/90 text-black" : "bg-black/60 text-neutral-100"
+          }`}
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+            left: "50%",
+            transform: `translateX(-50%)${mirrorV ? " scaleY(-1)" : ""}`,
+          }}
+          aria-label={`Active microphone: ${activeMicLabel}`}
+        >
+          <Mic className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{micIsExternal ? activeMicLabel : "Built-in mic"}</span>
+        </div>
+      )}
+
+
+
       {/* % remaining — always visible */}
       <div
         className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm"
