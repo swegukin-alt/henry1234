@@ -939,9 +939,11 @@ function Prompter({
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
-              <button onClick={toggleMirror} className={iconBtn} aria-label="Mirror vertically for beam splitter">
-                <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} />
-              </button>
+              {!videoMode && (
+                <button onClick={toggleMirror} className={iconBtn} aria-label="Mirror vertically for beam splitter">
+                  <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} />
+                </button>
+              )}
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
                 {playing
                   ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
