@@ -840,14 +840,59 @@ function Prompter({
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
             <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
           </div>
+          {videoMode && (
+            <div className="mt-3">
+              <div className="mb-1 text-xs text-neutral-300">Recording quality</div>
+              <div className="flex gap-2">
+                {(["720p", "1080p", "4k"] as const).map((q) => (
+                  <button key={q} disabled={recording} onClick={() => setQuality(q)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {q === "4k" ? "4K (try)" : q}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
+            </div>
+          )}
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
         </Popover>
+      )}
+
+      {/* REC pill — top-left when recording */}
+      {videoMode && recording && (
+        <div className="absolute top-3 left-3 z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm" style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}>
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
+          REC {fmtDuration(elapsedMs)}
+        </div>
+      )}
+
+      {/* Clips chip — top-left when NOT recording */}
+      {videoMode && !recording && (
+        <button onClick={(e) => { e.stopPropagation(); setClipsOpen(true); }}
+          className="absolute top-3 left-3 z-40 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-neutral-100 backdrop-blur-sm active:scale-95"
+          style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}
+          aria-label="Clips"
+        >
+          <Film className="h-4 w-4 text-amber-300" /> Clips {clips.length > 0 && <span className="text-amber-300">({clips.length})</span>}
+        </button>
       )}
 
       {/* % remaining — always visible */}
       <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm" style={{ fontFamily: "var(--font-sans)", transform: mirrorV ? "scaleY(-1)" : undefined }}>
         {remaining}% left
       </div>
+
+      {/* Clips sheet */}
+      {videoMode && clipsOpen && (
+        <ClipsSheet
+          clips={clips}
+          onClose={() => setClipsOpen(false)}
+          onDelete={async (id) => { await deleteClip(id); setClips((cs) => cs.filter((c) => c.id !== id)); }}
+          onDeleteAll={async () => { await deleteAllForScript(script.id); setClips([]); }}
+          onExport={exportClips}
+        />
+      )}
+
 
       {/* Tiny reveal pill — only thing on screen when controls are hidden */}
       {!controlsVisible && (
