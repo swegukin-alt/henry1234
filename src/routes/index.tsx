@@ -1125,15 +1125,21 @@ function ClipsSheet({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectedClips = clips.filter((c) => selected.has(c.id));
 
-  useEffect(() => {
-    if (!playingClip) { setPlayUrl(null); return; }
-    const url = URL.createObjectURL(playingClip.blob);
-    setPlayUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [playingClip]);
+  // Open a clip: create the object URL SYNCHRONOUSLY inside the click handler
+  // so iOS Safari treats the subsequent video.play() as a user-gesture.
+  const openClip = useCallback((c: ClipRecord) => {
+    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
+    setPlayingClip(c);
+  }, []);
+  const closePlayer = useCallback(() => {
+    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setPlayingClip(null);
+  }, []);
+  useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
 
   return (
     <>
@@ -1154,7 +1160,7 @@ function ClipsSheet({
               {clips.map((c, i) => (
                 <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
                   <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
-                  <button onClick={() => setPlayingClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
+                  <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
                       <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> Take {i + 1}
                     </div>
@@ -1192,19 +1198,23 @@ function ClipsSheet({
           className="fixed inset-0 z-[60] bg-black"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Video fills the whole screen and is centered by object-contain */}
+          {/* Video fills the whole screen and is centered by object-contain.
+              Try to play as soon as it can; if the browser blocks it the
+              native controls remain visible so the user can tap play. */}
           <video
             key={playingClip.id}
+            ref={videoElRef}
             src={playUrl}
             controls
-            autoPlay
             playsInline
+            preload="auto"
+            onCanPlay={() => { videoElRef.current?.play().catch(() => {}); }}
             className="absolute inset-0 h-full w-full object-contain"
           />
 
           {/* Floating close button — top-right, safe-area aware */}
           <button
-            onClick={() => setPlayingClip(null)}
+            onClick={closePlayer}
             className="absolute z-10 grid h-10 w-10 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm active:scale-90"
             style={{
               top: "calc(env(safe-area-inset-top, 0px) + 0.5rem)",
@@ -1240,7 +1250,7 @@ function ClipsSheet({
             </button>
             <div className="flex-1" />
             <button
-              onClick={() => { const c = playingClip; if (confirm("Delete this clip?")) { onDelete(c.id); setPlayingClip(null); } }}
+              onClick={() => { const c = playingClip; if (confirm("Delete this clip?")) { onDelete(c.id); closePlayer(); } }}
               className="inline-flex items-center gap-1.5 rounded-full bg-black/70 border border-red-400/50 px-4 py-2 text-sm text-red-300 backdrop-blur-sm"
             >
               <Trash2 className="h-4 w-4" /> Delete
