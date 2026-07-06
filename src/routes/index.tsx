@@ -575,7 +575,13 @@ function Prompter({
     // Stop the script when recording stops
     setPlaying(false);
     setControlsVisible(true);
-  }, []);
+    // Persist scroll position IMMEDIATELY so it survives an app close / reload.
+    // The debounced scheduleSaveState may not fire before the page unloads.
+    const el = scrollRef.current;
+    if (el) {
+      try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: el.scrollTop, updatedAt: Date.now() })); } catch {}
+    }
+  }, [readerStateKey]);
 
   // Stop recording cleanly if user backgrounds the app
   useEffect(() => {
