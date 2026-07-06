@@ -741,7 +741,7 @@ function Prompter({
     setProgress((p) => p); // keep progress; computeProgress will resync on next scroll/tick
   }, []);
 
-  const onScroll = () => { if (!playing) setProgress(computeProgress()); };
+  const onScroll = () => { if (!playing) setProgress(computeProgress()); scheduleSaveState(); };
   const remaining = Math.round((1 - progress) * 100);
 
   // Portrait detection for hint only (no auto-rotate)
