@@ -935,7 +935,8 @@ function Prompter({
       {!controlsVisible && (
         <button
           onClick={(e) => { e.stopPropagation(); setControlsVisible(true); }}
-          className="absolute top-3 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
+          className="absolute left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)" }}
           aria-label="Show controls"
         >
           •••
@@ -945,17 +946,24 @@ function Prompter({
       {controlsVisible && (
         <>
           {/* Thin progress line above toolbar */}
-          <div className="absolute bottom-[64px] left-0 right-0 z-20 h-[2px] bg-white/10">
-            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%` }} />
+          <div
+            className="absolute left-0 right-0 z-20 h-[2px] bg-white/10"
+            style={{ bottom: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
+          >
+            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%`, willChange: "width" }} />
           </div>
 
           {/* Bottom toolbar */}
           <div
             className="absolute bottom-0 left-0 right-0 z-30 bg-black/85 backdrop-blur-md"
-            style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}
+            style={{
+              paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)",
+              paddingLeft: "env(safe-area-inset-left, 0px)",
+              paddingRight: "env(safe-area-inset-right, 0px)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-3 py-2">
+            <div className="flex items-center justify-between gap-1 px-2 py-2 sm:px-3">
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
