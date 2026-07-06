@@ -361,7 +361,8 @@ function Prompter({
   const [fontSize, setFontSize] = useState(settings.fontSize);
   // Beam-splitter teleprompter rig: horizontal flip so text reads correctly
   // through the angled glass.
-  const [mirrorV, setMirrorV] = useState(settings.mirrorV);
+  // Mirror flip is disabled in video mode — the script should always read naturally on camera.
+  const [mirrorV, setMirrorV] = useState(videoMode ? false : settings.mirrorV);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
