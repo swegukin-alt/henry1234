@@ -562,17 +562,26 @@ function Prompter({
       }
     };
     start();
+    // Re-pick mic whenever devices change (plug/unplug DJI Mic 2, AirPods, etc.).
+    const onDeviceChange = () => { refineAudioTrack(); };
+    try { navigator.mediaDevices.addEventListener("devicechange", onDeviceChange); } catch {}
     return () => {
       cancelled = true;
+      try { navigator.mediaDevices.removeEventListener("devicechange", onDeviceChange); } catch {}
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         try { recorderRef.current.stop(); } catch {}
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       setCamReady(false);
+      setActiveMicLabel("");
+      setMicIsExternal(false);
+      currentMicIdRef.current = "";
     };
     // Re-acquire on quality change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoMode, quality]);
+
 
   // Load existing clips, recover any orphan session from a prior crash / close,
   // and ask for persistent storage so recordings survive eviction.
