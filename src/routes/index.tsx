@@ -373,7 +373,8 @@ function Prompter({
   const [camError, setCamError] = useState<string | null>(null);
   const [camReady, setCamReady] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const recordingIdRef = useRef<string | null>(null);
+  const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
