@@ -548,26 +548,33 @@ function Prompter({
     const stream = streamRef.current;
     if (!stream || recording) return;
     const mimeType = pickMime();
-    // No artificial cap. Bitrate scales with quality; MediaRecorder produces
-    // an unbounded stream and chunks are flushed to IndexedDB as they arrive
-    // so length is limited only by device storage.
-    const bps = quality === "4k" ? 20_000_000 : quality === "1080p" ? 6_000_000 : 3_000_000;
+    // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
+    // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
+    // as good as the native Camera app.
+    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    const audioBps = 192_000;
     let rec: MediaRecorder;
     try {
-      rec = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps });
+      rec = new MediaRecorder(stream, mimeType
+        ? { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: audioBps }
+        : { videoBitsPerSecond: bps, audioBitsPerSecond: audioBps });
     } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
 
     const recordingId = Math.random().toString(36).slice(2, 12);
     const track = stream.getVideoTracks()[0];
     const s = track?.getSettings?.() || {};
     const finalMime = rec.mimeType || mimeType || "video/mp4";
+    const startedAt = Date.now();
+    // In-memory chunks give us instant playback the moment the user hits Stop
+    // (no wait for IndexedDB read-back). The DB copy is the crash-safety net.
+    const memChunks: Blob[] = [];
 
     try {
       await createSession({
         id: recordingId,
         scriptId: script.id,
         mimeType: finalMime,
-        startedAt: Date.now(),
+        startedAt,
         width: (s.width as number) || 0,
         height: (s.height as number) || 0,
       });
@@ -576,42 +583,58 @@ function Prompter({
     recordingIdRef.current = recordingId;
     appendQueueRef.current = Promise.resolve();
 
-    // Serialize appends so chunk order in the DB matches wire order even
-    // under rapid ondataavailable bursts.
+    // Serialize DB appends so chunk order matches wire order; keep a memory
+    // copy in parallel for instant playback.
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
       const blob = e.data;
+      memChunks.push(blob);
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
         .then(() => appendChunk(recordingId, blob).catch(() => {}));
     };
 
+    const buildInstantClip = (): ClipRecord | null => {
+      if (memChunks.length === 0) return null;
+      const blob = new Blob(memChunks, { type: finalMime });
+      return {
+        id: recordingId,
+        scriptId: script.id,
+        mimeType: finalMime,
+        durationMs: Math.max(0, Date.now() - recordStartRef.current),
+        sizeBytes: blob.size,
+        createdAt: startedAt,
+        width: (s.width as number) || 0,
+        height: (s.height as number) || 0,
+        blob,
+      };
+    };
+
     rec.onerror = () => {
-      // Don't lose what we have — finalize whatever's stored.
-      const id = recordingIdRef.current;
-      if (!id) return;
-      appendQueueRef.current
-        .catch(() => {})
-        .then(() => finalizeSession(id, { durationMs: Date.now() - recordStartRef.current }))
-        .then((clip) => { if (clip) setClips((cs) => [...cs, clip]); })
-        .catch(() => {});
+      const clip = buildInstantClip();
+      if (clip) setClips((cs) => cs.some((c) => c.id === clip.id) ? cs : [...cs, clip]);
       recorderRef.current = null;
       recordingIdRef.current = null;
       setRecording(false);
       setPlaying(false);
       setControlsVisible(true);
+      // Background DB cleanup — the in-memory clip is already the source of truth for playback.
+      appendQueueRef.current
+        .catch(() => {})
+        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
+        .catch(() => {});
     };
 
-    rec.onstop = async () => {
-      const id = recordingIdRef.current;
-      if (!id) return;
+    rec.onstop = () => {
       recordingIdRef.current = null;
-      try {
-        // Wait for the last queued append to land before finalizing.
-        await appendQueueRef.current.catch(() => {});
-        const clip = await finalizeSession(id, { durationMs: Date.now() - recordStartRef.current });
-        if (clip) setClips((cs) => [...cs, clip]);
-      } catch {}
+      // Instant: assemble from memory and push into the list right now.
+      const clip = buildInstantClip();
+      if (clip) setClips((cs) => cs.some((c) => c.id === clip.id) ? cs : [...cs, clip]);
+      // Background: finalize the persisted copy so a future page load has it.
+      appendQueueRef.current
+        .catch(() => {})
+        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
+        .catch(() => {});
     };
 
     recordStartRef.current = Date.now();
