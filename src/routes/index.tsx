@@ -938,6 +938,8 @@ function Prompter({
                   aria-label={recording ? "Stop recording" : "Start recording"}
                 >
                   {recording ? <Square className="h-5 w-5" fill="currentColor" /> : <Circle className="h-6 w-6" fill="currentColor" />}
+                </button>
+              )}
               <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
                 <SlidersHorizontal className="h-6 w-6" />
               </button>
