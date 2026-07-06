@@ -1126,7 +1126,7 @@ function Prompter({
       )}
 
       {/* Mic pill — shows the active audio input; highlights when external (USB / DJI Mic 2 / wireless). */}
-      {videoMode && camReady && activeMicLabel && (
+      {videoMode && camReady && activeMicLabel && controlsVisible && (
         <div
           className={`absolute z-40 inline-flex max-w-[60vw] items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-sm ${
             micIsExternal ? "bg-emerald-500/90 text-black" : "bg-black/60 text-neutral-100"
