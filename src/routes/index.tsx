@@ -1125,15 +1125,21 @@ function ClipsSheet({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectedClips = clips.filter((c) => selected.has(c.id));
 
-  useEffect(() => {
-    if (!playingClip) { setPlayUrl(null); return; }
-    const url = URL.createObjectURL(playingClip.blob);
-    setPlayUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [playingClip]);
+  // Open a clip: create the object URL SYNCHRONOUSLY inside the click handler
+  // so iOS Safari treats the subsequent video.play() as a user-gesture.
+  const openClip = useCallback((c: ClipRecord) => {
+    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
+    setPlayingClip(c);
+  }, []);
+  const closePlayer = useCallback(() => {
+    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setPlayingClip(null);
+  }, []);
+  useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
 
   return (
     <>
