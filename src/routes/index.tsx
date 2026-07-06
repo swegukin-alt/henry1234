@@ -53,6 +53,16 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// Unified landscape entry — same call from both Play and Video buttons.
+// Must run synchronously inside the user gesture for iOS to honor fullscreen.
+function enterLandscape() {
+  if (typeof document === "undefined") return;
+  const el: any = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
+  try { req?.call(el)?.catch?.(() => {}); } catch {}
+  try { (screen as any).orientation?.lock?.("landscape")?.catch?.(() => {}); } catch {}
+}
+
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
