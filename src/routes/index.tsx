@@ -1010,8 +1010,18 @@ function ClipsSheet({
   onExport: (subset?: ClipRecord[]) => void | Promise<void>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
+  const [playUrl, setPlayUrl] = useState<string | null>(null);
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectedClips = clips.filter((c) => selected.has(c.id));
+
+  useEffect(() => {
+    if (!playingClip) { setPlayUrl(null); return; }
+    const url = URL.createObjectURL(playingClip.blob);
+    setPlayUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [playingClip]);
+
   return (
     <>
       <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={onClose} />
@@ -1031,12 +1041,14 @@ function ClipsSheet({
               {clips.map((c, i) => (
                 <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
                   <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">Take {i + 1}</div>
+                  <button onClick={() => setPlayingClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
+                    <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> Take {i + 1}
+                    </div>
                     <div className="text-[11px] text-neutral-400">
                       {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
-                  </div>
+                  </button>
                   <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Share this clip">
                     <Share2 className="h-4 w-4" />
                   </button>
