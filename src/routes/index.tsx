@@ -151,6 +151,12 @@ function Index() {
             try { req?.call(el).catch?.(() => {}); } catch {}
             setMode("play");
           }}
+          onVideo={() => {
+            const el: any = document.documentElement;
+            const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
+            try { req?.call(el).catch?.(() => {}); } catch {}
+            setMode("video");
+          }}
         />
       )}
     </Shell>
