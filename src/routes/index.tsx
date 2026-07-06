@@ -413,9 +413,7 @@ function Prompter({
       const dims = q === "4k" ? { width: 3840, height: 2160 }
                 : q === "1080p" ? { width: 1920, height: 1080 }
                 : { width: 1280, height: 720 };
-      // The "zoom" and "advanced" constraints are real per the Media Capture spec
-      // but not yet in the default DOM lib types; cast to avoid TS errors.
-      const videoConstraints = {
+      const videoConstraints: any = {
         // Use the front camera, but let the browser fall back if it can't
         // satisfy every ideal constraint.
         facingMode: { ideal: "user" },
@@ -431,9 +429,9 @@ function Prompter({
         zoom: { ideal: 1, min: 1 },
         // Advanced fallback: try to lock zoom exactly at 1x if supported.
         advanced: [{ zoom: 1 }],
-      } as MediaTrackConstraints;
+      };
       return {
-        video: videoConstraints,
+        video: videoConstraints as MediaTrackConstraints,
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
