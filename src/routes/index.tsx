@@ -1160,7 +1160,7 @@ function ClipsSheet({
               {clips.map((c, i) => (
                 <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
                   <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
-                  <button onClick={() => setPlayingClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
+                  <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
                       <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> Take {i + 1}
                     </div>
