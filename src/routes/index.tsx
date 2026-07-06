@@ -115,11 +115,12 @@ function Index() {
 
   if (!hydrated) return <div className="min-h-screen bg-[#0a0a0a]" />;
 
-  if (mode === "play" && active) {
+  if ((mode === "play" || mode === "video") && active) {
     return (
       <Prompter
         script={active}
         settings={settings}
+        videoMode={mode === "video"}
         onExit={() => setMode("edit")}
         onSettings={setSettings}
       />
