@@ -361,7 +361,8 @@ function Prompter({
   const [fontSize, setFontSize] = useState(settings.fontSize);
   // Beam-splitter teleprompter rig: horizontal flip so text reads correctly
   // through the angled glass.
-  const [mirrorV, setMirrorV] = useState(settings.mirrorV);
+  // Mirror flip is disabled in video mode — the script should always read naturally on camera.
+  const [mirrorV, setMirrorV] = useState(videoMode ? false : settings.mirrorV);
   const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
@@ -557,6 +558,10 @@ function Prompter({
     try { rec.start(250); } catch { try { rec.start(); } catch { return; } }
     recorderRef.current = rec;
     setRecording(true);
+    // Start the script rolling in sync with the recording
+    setPlaying(true);
+    setControlsVisible(false);
+    setPanel(null);
   }, [quality, recording, script.id]);
 
   const stopRecording = useCallback(() => {
@@ -565,6 +570,9 @@ function Prompter({
     try { if (rec.state !== "inactive") rec.stop(); } catch {}
     recorderRef.current = null;
     setRecording(false);
+    // Stop the script when recording stops
+    setPlaying(false);
+    setControlsVisible(true);
   }, []);
 
   // Stop recording cleanly if user backgrounds the app
@@ -843,9 +851,11 @@ function Prompter({
       )}
       {panel === "more" && (
         <Popover onClose={() => setPanel(null)}>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={videoMode ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2"}>
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
-            <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
+            {!videoMode && (
+              <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
+            )}
           </div>
           {videoMode && (
             <div className="mt-3">
@@ -929,9 +939,11 @@ function Prompter({
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
-              <button onClick={toggleMirror} className={iconBtn} aria-label="Mirror vertically for beam splitter">
-                <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} />
-              </button>
+              {!videoMode && (
+                <button onClick={toggleMirror} className={iconBtn} aria-label="Mirror vertically for beam splitter">
+                  <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} />
+                </button>
+              )}
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
                 {playing
                   ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
@@ -998,8 +1010,18 @@ function ClipsSheet({
   onExport: (subset?: ClipRecord[]) => void | Promise<void>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
+  const [playUrl, setPlayUrl] = useState<string | null>(null);
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectedClips = clips.filter((c) => selected.has(c.id));
+
+  useEffect(() => {
+    if (!playingClip) { setPlayUrl(null); return; }
+    const url = URL.createObjectURL(playingClip.blob);
+    setPlayUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [playingClip]);
+
   return (
     <>
       <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={onClose} />
@@ -1019,12 +1041,14 @@ function ClipsSheet({
               {clips.map((c, i) => (
                 <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
                   <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">Take {i + 1}</div>
+                  <button onClick={() => setPlayingClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
+                    <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> Take {i + 1}
+                    </div>
                     <div className="text-[11px] text-neutral-400">
                       {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
-                  </div>
+                  </button>
                   <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Share this clip">
                     <Share2 className="h-4 w-4" />
                   </button>
@@ -1049,6 +1073,41 @@ function ClipsSheet({
           </div>
         )}
       </div>
+
+      {playingClip && playUrl && (
+        <div className="absolute inset-0 z-[60] flex flex-col bg-black" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-3 py-2">
+            <div className="text-sm font-semibold text-neutral-200 truncate">
+              Take {clips.findIndex((c) => c.id === playingClip.id) + 1} · {fmtDuration(playingClip.durationMs)}
+            </div>
+            <button onClick={() => setPlayingClip(null)} className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white" aria-label="Close player">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 grid place-items-center">
+            <video
+              key={playingClip.id}
+              src={playUrl}
+              controls
+              autoPlay
+              playsInline
+              className="h-full w-full object-contain"
+            />
+          </div>
+          <div className="flex gap-2 border-t border-white/10 p-3">
+            <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">
+              <Share2 className="h-4 w-4" /> Save / Share
+            </button>
+            <div className="flex-1" />
+            <button
+              onClick={() => { const c = playingClip; if (confirm("Delete this clip?")) { onDelete(c.id); setPlayingClip(null); } }}
+              className="inline-flex items-center gap-1.5 rounded-full border border-red-400/50 px-4 py-2 text-sm text-red-300"
+            >
+              <Trash2 className="h-4 w-4" /> Delete
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
