@@ -623,7 +623,8 @@ function Prompter({
     const dir = scrollDirectionRef.current;
     el.scrollTop += dir * speed * dt;
     const p = computeProgress();
-    setProgress(p);
+    // Throttle React updates — only re-render when the visible % actually shifts.
+    setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
     rafRef.current = requestAnimationFrame(tick);
   }, [speed, computeProgress]);
