@@ -350,8 +350,8 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
 }
 
 function Prompter({
-  script, settings, onExit, onSettings,
-}: { script: Script; settings: Settings; onExit: () => void; onSettings: (s: Settings) => void }) {
+  script, settings, onExit, onSettings, videoMode = false,
+}: { script: Script; settings: Settings; onExit: () => void; onSettings: (s: Settings) => void; videoMode?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number>(0);
