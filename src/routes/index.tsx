@@ -557,6 +557,10 @@ function Prompter({
     try { rec.start(250); } catch { try { rec.start(); } catch { return; } }
     recorderRef.current = rec;
     setRecording(true);
+    // Start the script rolling in sync with the recording
+    setPlaying(true);
+    setControlsVisible(false);
+    setPanel(null);
   }, [quality, recording, script.id]);
 
   const stopRecording = useCallback(() => {
@@ -565,6 +569,9 @@ function Prompter({
     try { if (rec.state !== "inactive") rec.stop(); } catch {}
     recorderRef.current = null;
     setRecording(false);
+    // Stop the script when recording stops
+    setPlaying(false);
+    setControlsVisible(true);
   }, []);
 
   // Stop recording cleanly if user backgrounds the app
