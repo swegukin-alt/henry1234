@@ -231,7 +231,7 @@ function Library({
 }
 
 function Editor({
-  script, settings, onChange, onSettings, onBack, onPlay,
+  script, settings, onChange, onSettings, onBack, onPlay, onVideo,
 }: {
   script: Script;
   settings: Settings;
@@ -239,19 +239,31 @@ function Editor({
   onSettings: (s: Settings) => void;
   onBack: () => void;
   onPlay: () => void;
+  onVideo: () => void;
 }) {
+  const disabled = !script.body.trim();
   return (
     <div>
-      <header className="flex items-center justify-between py-3">
+      <header className="flex items-center justify-between py-3 gap-2">
         <button onClick={onBack} className="text-sm text-neutral-400 hover:text-white">‹ Scripts</button>
-        <button
-          onClick={onPlay}
-          disabled={!script.body.trim()}
-          className="rounded-full bg-amber-400 px-5 py-2 text-sm font-bold text-black disabled:opacity-40 active:scale-95 transition"
-        >
-          ▶ Play
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onVideo}
+            disabled={disabled}
+            className="rounded-full border border-amber-400/60 bg-amber-400/10 px-4 py-2 text-sm font-bold text-amber-300 disabled:opacity-40 active:scale-95 transition inline-flex items-center gap-1.5"
+          >
+            <Video className="h-4 w-4" /> Video
+          </button>
+          <button
+            onClick={onPlay}
+            disabled={disabled}
+            className="rounded-full bg-amber-400 px-5 py-2 text-sm font-bold text-black disabled:opacity-40 active:scale-95 transition"
+          >
+            ▶ Play
+          </button>
+        </div>
       </header>
+
 
       <input
         value={script.title}
