@@ -453,6 +453,11 @@ function Prompter({
           catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
         }
         if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
+        // Lock the camera at 1x zoom after acquisition as a safety net; some
+        // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
+        stream.getVideoTracks().forEach(track => {
+          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any); } catch {}
+        });
         streamRef.current = stream;
         if (videoElRef.current) {
           videoElRef.current.srcObject = stream;
