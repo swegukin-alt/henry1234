@@ -851,9 +851,11 @@ function Prompter({
       )}
       {panel === "more" && (
         <Popover onClose={() => setPanel(null)}>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={videoMode ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2"}>
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
-            <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
+            {!videoMode && (
+              <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
+            )}
           </div>
           {videoMode && (
             <div className="mt-3">
