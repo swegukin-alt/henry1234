@@ -415,13 +415,21 @@ function Prompter({
                 : { width: 1280, height: 720 };
       return {
         video: {
-          facingMode: "user",
+          // Use the front camera, but let the browser fall back if it can't
+          // satisfy every ideal constraint.
+          facingMode: { ideal: "user" },
           width: { ideal: dims.width },
           height: { ideal: dims.height },
           // Prefer 60fps for the smoothest, sharpest capture; the camera
           // will fall back to 30 automatically if 60 isn't available at
           // the chosen resolution.
           frameRate: { ideal: 60, min: 30 },
+          // Explicitly request 1x zoom (no digital crop/zoom). WebRTC on iOS
+          // does not let us pick a specific physical lens, but this prevents
+          // the browser from applying a digital zoom / crop.
+          zoom: { ideal: 1, min: 1 },
+          // Advanced fallback: try to lock zoom exactly at 1x if supported.
+          advanced: [{ zoom: 1 }],
         },
         audio: {
           echoCancellation: true,
