@@ -623,7 +623,8 @@ function Prompter({
     const dir = scrollDirectionRef.current;
     el.scrollTop += dir * speed * dt;
     const p = computeProgress();
-    setProgress(p);
+    // Throttle React updates — only re-render when the visible % actually shifts.
+    setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
     rafRef.current = requestAnimationFrame(tick);
   }, [speed, computeProgress]);
@@ -768,7 +769,7 @@ function Prompter({
     return () => { mq.removeEventListener?.("change", update); };
   }, []);
 
-  const iconBtn = "grid h-11 w-11 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
+  const iconBtn = "grid h-10 w-10 sm:h-11 sm:w-11 shrink-0 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
 
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
@@ -778,7 +779,7 @@ function Prompter({
           <video
             ref={videoElRef}
             className="absolute inset-0 h-full w-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
+            style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform" }}
             autoPlay
             muted
             playsInline
@@ -803,7 +804,7 @@ function Prompter({
         onScroll={onScroll}
         onClick={() => { togglePlay(); }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
-        style={{ WebkitOverflowScrolling: "touch" }}
+        style={{ WebkitOverflowScrolling: "touch", contain: "layout paint", willChange: "scroll-position" }}
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
@@ -877,7 +878,14 @@ function Prompter({
 
       {/* REC pill — top-left when recording */}
       {videoMode && recording && (
-        <div className="absolute top-3 left-3 z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm" style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}>
+        <div
+          className="absolute z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm"
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+            left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
+            transform: mirrorV ? "scaleY(-1)" : undefined,
+          }}
+        >
           <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
           REC {fmtDuration(elapsedMs)}
         </div>
@@ -886,8 +894,12 @@ function Prompter({
       {/* Clips chip — top-left when NOT recording */}
       {videoMode && !recording && (
         <button onClick={(e) => { e.stopPropagation(); setClipsOpen(true); }}
-          className="absolute top-3 left-3 z-40 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-neutral-100 backdrop-blur-sm active:scale-95"
-          style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}
+          className="absolute z-40 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-neutral-100 backdrop-blur-sm active:scale-95"
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+            left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
+            transform: mirrorV ? "scaleY(-1)" : undefined,
+          }}
           aria-label="Clips"
         >
           <Film className="h-4 w-4 text-amber-300" /> Clips {clips.length > 0 && <span className="text-amber-300">({clips.length})</span>}
@@ -895,7 +907,15 @@ function Prompter({
       )}
 
       {/* % remaining — always visible */}
-      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm" style={{ fontFamily: "var(--font-sans)", transform: mirrorV ? "scaleY(-1)" : undefined }}>
+      <div
+        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm"
+        style={{
+          top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+          right: "calc(env(safe-area-inset-right, 0px) + 0.6rem)",
+          fontFamily: "var(--font-sans)",
+          transform: mirrorV ? "scaleY(-1)" : undefined,
+        }}
+      >
         {remaining}% left
       </div>
 
@@ -915,7 +935,8 @@ function Prompter({
       {!controlsVisible && (
         <button
           onClick={(e) => { e.stopPropagation(); setControlsVisible(true); }}
-          className="absolute top-3 left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
+          className="absolute left-1/2 z-40 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-[10px] font-semibold text-white/60 backdrop-blur-sm active:scale-90"
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)" }}
           aria-label="Show controls"
         >
           •••
@@ -925,17 +946,24 @@ function Prompter({
       {controlsVisible && (
         <>
           {/* Thin progress line above toolbar */}
-          <div className="absolute bottom-[64px] left-0 right-0 z-20 h-[2px] bg-white/10">
-            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%` }} />
+          <div
+            className="absolute left-0 right-0 z-20 h-[2px] bg-white/10"
+            style={{ bottom: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
+          >
+            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%`, willChange: "width" }} />
           </div>
 
           {/* Bottom toolbar */}
           <div
             className="absolute bottom-0 left-0 right-0 z-30 bg-black/85 backdrop-blur-md"
-            style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}
+            style={{
+              paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)",
+              paddingLeft: "env(safe-area-inset-left, 0px)",
+              paddingRight: "env(safe-area-inset-right, 0px)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-3 py-2">
+            <div className="flex items-center justify-between gap-1 px-2 py-2 sm:px-3">
               <button onClick={onExit} className={iconBtn} aria-label="Back">
                 <ChevronLeft className="h-6 w-6 text-sky-400" strokeWidth={2.5} />
               </button>
@@ -981,7 +1009,10 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
   return (
     <>
       <div className="absolute inset-0 z-30" onClick={onClose} />
-      <div className="absolute bottom-[72px] left-1/2 z-40 w-[min(92vw,420px)] -translate-x-1/2 rounded-2xl border border-white/10 bg-black/90 p-3 text-neutral-100 backdrop-blur-md">
+      <div
+        className="absolute left-1/2 z-40 w-[min(92vw,420px)] -translate-x-1/2 rounded-2xl border border-white/10 bg-black/90 p-3 text-neutral-100 backdrop-blur-md"
+        style={{ bottom: "calc(72px + env(safe-area-inset-bottom, 0px))" }}
+      >
         {children}
       </div>
     </>
@@ -1026,7 +1057,7 @@ function ClipsSheet({
     <>
       <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
-        onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}>
+        onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
           <div className="text-base font-bold">Clips <span className="text-neutral-400 font-normal">({clips.length})</span></div>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
