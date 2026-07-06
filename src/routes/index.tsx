@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X } from "lucide-react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic } from "lucide-react";
 import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, type ClipRecord } from "@/lib/clip-store";
 
 export const Route = createFileRoute("/")({
@@ -370,6 +370,11 @@ function Prompter({
   const streamRef = useRef<MediaStream | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [camReady, setCamReady] = useState(false);
+  // Mic state: label of the currently-active audio input + whether it's external.
+  const [activeMicLabel, setActiveMicLabel] = useState<string>("");
+  const [micIsExternal, setMicIsExternal] = useState(false);
+  const currentMicIdRef = useRef<string>("");
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingIdRef = useRef<string | null>(null);
   const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -406,6 +411,86 @@ function Prompter({
     : "bg-black text-neutral-50";
 
   // ==== Video mode: camera acquisition ====
+  // Regexes for detecting external USB / wireless mics vs the iPhone built-in.
+  // iOS Safari exposes labels like "DJI MIC 2 (Bluetooth)", "USB Audio Device",
+  // "iPhone Microphone", etc. after mic permission is granted.
+  const EXTERNAL_MIC_RE = /usb|dji|rode|røde|shure|sennheiser|zoom |comica|hollyland|godox|saramonic|maono|movo|boya|blue snowball|blue yeti|wireless|lavalier|lav mic|external|mic 2|mic pro|airpods|beats|bose|sony|jbl|bluetooth/i;
+  const BUILTIN_MIC_RE = /built.?in|iphone|internal|default/i;
+
+  const pickBestAudioInput = async (): Promise<{ id: string; label: string; external: boolean } | null> => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === "audioinput" && d.deviceId);
+      if (inputs.length === 0) return null;
+      // 1) explicit external hint in the label
+      const ext = inputs.find((d) => d.label && EXTERNAL_MIC_RE.test(d.label));
+      if (ext) return { id: ext.deviceId, label: ext.label, external: true };
+      // 2) any non-default non-builtin labeled device when multiple exist
+      const other = inputs.find(
+        (d) => d.deviceId !== "default" && d.label && !BUILTIN_MIC_RE.test(d.label)
+      );
+      if (other && inputs.length > 1) return { id: other.deviceId, label: other.label, external: true };
+      // 3) fallback to built-in
+      const builtin = inputs.find((d) => BUILTIN_MIC_RE.test(d.label)) || inputs[0];
+      return { id: builtin.deviceId, label: builtin.label || "Built-in mic", external: false };
+    } catch {
+      return null;
+    }
+  };
+
+  // Replace the audio track on the live stream with the preferred mic.
+  // External mics get raw audio (no processing) for max fidelity; built-in
+  // gets echo/noise/gain processing on. Only runs when NOT recording so
+  // MediaRecorder sync is never disturbed mid-clip.
+  const refineAudioTrack = async (): Promise<void> => {
+    const stream = streamRef.current;
+    if (!stream || recordingRef.current) return;
+    const pick = await pickBestAudioInput();
+    if (!pick) return;
+    const currentTrack = stream.getAudioTracks()[0];
+    const currentId = currentTrack?.getSettings?.().deviceId as string | undefined;
+    if (currentId === pick.id && currentMicIdRef.current === pick.id) {
+      setActiveMicLabel(pick.label);
+      setMicIsExternal(pick.external);
+      return;
+    }
+    try {
+      const audioConstraints: MediaTrackConstraints = pick.external
+        ? {
+            deviceId: { exact: pick.id },
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 48000,
+            channelCount: 2,
+          } as any
+        : {
+            deviceId: { exact: pick.id },
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 48000,
+            channelCount: 2,
+          } as any;
+      const newAudio = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+      const newTrack = newAudio.getAudioTracks()[0];
+      if (!newTrack) return;
+      // Swap tracks atomically on the same stream so the video element and
+      // any future MediaRecorder see a single continuous stream.
+      if (currentTrack) {
+        stream.removeTrack(currentTrack);
+        try { currentTrack.stop(); } catch {}
+      }
+      stream.addTrack(newTrack);
+      currentMicIdRef.current = pick.id;
+      setActiveMicLabel(pick.label);
+      setMicIsExternal(pick.external);
+    } catch {
+      // Keep whatever audio track we have if the swap fails.
+    }
+  };
+
+
   useEffect(() => {
     if (!videoMode) return;
     let cancelled = false;
@@ -460,6 +545,10 @@ function Prompter({
         }
         setCamReady(true);
         setCamError(null);
+        // Now that mic permission is granted, labels are visible — pick the
+        // best available input (external USB / wireless mic if present).
+        refineAudioTrack();
+
         // iOS drops out of fullscreen when the camera-permission prompt appears
         // on first grant. Re-request landscape now that the prompt is gone so
         // video mode behaves identically to text mode.
@@ -473,17 +562,26 @@ function Prompter({
       }
     };
     start();
+    // Re-pick mic whenever devices change (plug/unplug DJI Mic 2, AirPods, etc.).
+    const onDeviceChange = () => { refineAudioTrack(); };
+    try { navigator.mediaDevices.addEventListener("devicechange", onDeviceChange); } catch {}
     return () => {
       cancelled = true;
+      try { navigator.mediaDevices.removeEventListener("devicechange", onDeviceChange); } catch {}
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         try { recorderRef.current.stop(); } catch {}
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       setCamReady(false);
+      setActiveMicLabel("");
+      setMicIsExternal(false);
+      currentMicIdRef.current = "";
     };
     // Re-acquire on quality change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoMode, quality]);
+
 
   // Load existing clips, recover any orphan session from a prior crash / close,
   // and ask for persistent storage so recordings survive eviction.
@@ -1026,6 +1124,26 @@ function Prompter({
           <Film className="h-4 w-4 text-amber-300" /> Clips {clips.length > 0 && <span className="text-amber-300">({clips.length})</span>}
         </button>
       )}
+
+      {/* Mic pill — shows the active audio input; highlights when external (USB / DJI Mic 2 / wireless). */}
+      {videoMode && camReady && activeMicLabel && (
+        <div
+          className={`absolute z-40 inline-flex max-w-[60vw] items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-sm ${
+            micIsExternal ? "bg-emerald-500/90 text-black" : "bg-black/60 text-neutral-100"
+          }`}
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+            left: "50%",
+            transform: `translateX(-50%)${mirrorV ? " scaleY(-1)" : ""}`,
+          }}
+          aria-label={`Active microphone: ${activeMicLabel}`}
+        >
+          <Mic className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{micIsExternal ? activeMicLabel : "Built-in mic"}</span>
+        </div>
+      )}
+
+
 
       {/* % remaining — always visible */}
       <div
