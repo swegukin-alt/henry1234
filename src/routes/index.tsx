@@ -6,12 +6,12 @@ import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, create
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Swegukin, let's kick some ass" },
+      { title: "Let's kick some ass" },
       { name: "description", content: "A clean, easy-to-read teleprompter with mirror mode, live progress, and Korean support." },
       { name: "theme-color", content: "#0a0a0a" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { property: "og:title", content: "Swegukin, let's kick some ass" },
+      { property: "og:title", content: "Let's kick some ass" },
       { property: "og:description", content: "A clean teleprompter that runs in your browser." },
     ],
   }),
@@ -182,9 +182,7 @@ function Library({
     <div>
       <header className="pt-6 pb-5">
         <h1 className="text-[26px] sm:text-3xl font-black tracking-tight leading-[1.15] bg-gradient-to-br from-amber-300 to-amber-500 bg-clip-text text-transparent">
-          Swegukin,
-          <br />
-          let's kick some ass
+          Let's kick some ass
         </h1>
         <p className="text-[13px] text-neutral-400 mt-2 leading-snug">
           Never give up. Remember where you came from.
