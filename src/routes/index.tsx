@@ -411,6 +411,86 @@ function Prompter({
     : "bg-black text-neutral-50";
 
   // ==== Video mode: camera acquisition ====
+  // Regexes for detecting external USB / wireless mics vs the iPhone built-in.
+  // iOS Safari exposes labels like "DJI MIC 2 (Bluetooth)", "USB Audio Device",
+  // "iPhone Microphone", etc. after mic permission is granted.
+  const EXTERNAL_MIC_RE = /usb|dji|rode|røde|shure|sennheiser|zoom |comica|hollyland|godox|saramonic|maono|movo|boya|blue snowball|blue yeti|wireless|lavalier|lav mic|external|mic 2|mic pro|airpods|beats|bose|sony|jbl|bluetooth/i;
+  const BUILTIN_MIC_RE = /built.?in|iphone|internal|default/i;
+
+  const pickBestAudioInput = async (): Promise<{ id: string; label: string; external: boolean } | null> => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === "audioinput" && d.deviceId);
+      if (inputs.length === 0) return null;
+      // 1) explicit external hint in the label
+      const ext = inputs.find((d) => d.label && EXTERNAL_MIC_RE.test(d.label));
+      if (ext) return { id: ext.deviceId, label: ext.label, external: true };
+      // 2) any non-default non-builtin labeled device when multiple exist
+      const other = inputs.find(
+        (d) => d.deviceId !== "default" && d.label && !BUILTIN_MIC_RE.test(d.label)
+      );
+      if (other && inputs.length > 1) return { id: other.deviceId, label: other.label, external: true };
+      // 3) fallback to built-in
+      const builtin = inputs.find((d) => BUILTIN_MIC_RE.test(d.label)) || inputs[0];
+      return { id: builtin.deviceId, label: builtin.label || "Built-in mic", external: false };
+    } catch {
+      return null;
+    }
+  };
+
+  // Replace the audio track on the live stream with the preferred mic.
+  // External mics get raw audio (no processing) for max fidelity; built-in
+  // gets echo/noise/gain processing on. Only runs when NOT recording so
+  // MediaRecorder sync is never disturbed mid-clip.
+  const refineAudioTrack = async (): Promise<void> => {
+    const stream = streamRef.current;
+    if (!stream || recordingRef.current) return;
+    const pick = await pickBestAudioInput();
+    if (!pick) return;
+    const currentTrack = stream.getAudioTracks()[0];
+    const currentId = currentTrack?.getSettings?.().deviceId as string | undefined;
+    if (currentId === pick.id && currentMicIdRef.current === pick.id) {
+      setActiveMicLabel(pick.label);
+      setMicIsExternal(pick.external);
+      return;
+    }
+    try {
+      const audioConstraints: MediaTrackConstraints = pick.external
+        ? {
+            deviceId: { exact: pick.id },
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 48000,
+            channelCount: 2,
+          } as any
+        : {
+            deviceId: { exact: pick.id },
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 48000,
+            channelCount: 2,
+          } as any;
+      const newAudio = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+      const newTrack = newAudio.getAudioTracks()[0];
+      if (!newTrack) return;
+      // Swap tracks atomically on the same stream so the video element and
+      // any future MediaRecorder see a single continuous stream.
+      if (currentTrack) {
+        stream.removeTrack(currentTrack);
+        try { currentTrack.stop(); } catch {}
+      }
+      stream.addTrack(newTrack);
+      currentMicIdRef.current = pick.id;
+      setActiveMicLabel(pick.label);
+      setMicIsExternal(pick.external);
+    } catch {
+      // Keep whatever audio track we have if the swap fails.
+    }
+  };
+
+
   useEffect(() => {
     if (!videoMode) return;
     let cancelled = false;
