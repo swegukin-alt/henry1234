@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X } from "lucide-react";
-import { saveClip, listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, type ClipRecord } from "@/lib/clip-store";
+import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, type ClipRecord } from "@/lib/clip-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
