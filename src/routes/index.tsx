@@ -1009,7 +1009,10 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
   return (
     <>
       <div className="absolute inset-0 z-30" onClick={onClose} />
-      <div className="absolute bottom-[72px] left-1/2 z-40 w-[min(92vw,420px)] -translate-x-1/2 rounded-2xl border border-white/10 bg-black/90 p-3 text-neutral-100 backdrop-blur-md">
+      <div
+        className="absolute left-1/2 z-40 w-[min(92vw,420px)] -translate-x-1/2 rounded-2xl border border-white/10 bg-black/90 p-3 text-neutral-100 backdrop-blur-md"
+        style={{ bottom: "calc(72px + env(safe-area-inset-bottom, 0px))" }}
+      >
         {children}
       </div>
     </>
