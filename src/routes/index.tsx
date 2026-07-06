@@ -413,16 +413,25 @@ function Prompter({
       const dims = q === "4k" ? { width: 3840, height: 2160 }
                 : q === "1080p" ? { width: 1920, height: 1080 }
                 : { width: 1280, height: 720 };
+      const videoConstraints: any = {
+        // Use the front camera, but let the browser fall back if it can't
+        // satisfy every ideal constraint.
+        facingMode: { ideal: "user" },
+        width: { ideal: dims.width },
+        height: { ideal: dims.height },
+        // Prefer 60fps for the smoothest, sharpest capture; the camera
+        // will fall back to 30 automatically if 60 isn't available at
+        // the chosen resolution.
+        frameRate: { ideal: 60, min: 30 },
+        // Explicitly request 1x zoom (no digital crop/zoom). WebRTC on iOS
+        // does not let us pick a specific physical lens, but this prevents
+        // the browser from applying a digital zoom / crop.
+        zoom: { ideal: 1, min: 1 },
+        // Advanced fallback: try to lock zoom exactly at 1x if supported.
+        advanced: [{ zoom: 1 }],
+      };
       return {
-        video: {
-          facingMode: "user",
-          width: { ideal: dims.width },
-          height: { ideal: dims.height },
-          // Prefer 60fps for the smoothest, sharpest capture; the camera
-          // will fall back to 30 automatically if 60 isn't available at
-          // the chosen resolution.
-          frameRate: { ideal: 60, min: 30 },
-        },
+        video: videoConstraints as MediaTrackConstraints,
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -444,6 +453,11 @@ function Prompter({
           catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
         }
         if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
+        // Lock the camera at 1x zoom after acquisition as a safety net; some
+        // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
+        stream.getVideoTracks().forEach(track => {
+          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any); } catch {}
+        });
         streamRef.current = stream;
         if (videoElRef.current) {
           videoElRef.current.srcObject = stream;
