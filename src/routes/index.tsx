@@ -1198,13 +1198,17 @@ function ClipsSheet({
           className="fixed inset-0 z-[60] bg-black"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Video fills the whole screen and is centered by object-contain */}
+          {/* Video fills the whole screen and is centered by object-contain.
+              Try to play as soon as it can; if the browser blocks it the
+              native controls remain visible so the user can tap play. */}
           <video
             key={playingClip.id}
+            ref={videoElRef}
             src={playUrl}
             controls
-            autoPlay
             playsInline
+            preload="auto"
+            onCanPlay={() => { videoElRef.current?.play().catch(() => {}); }}
             className="absolute inset-0 h-full w-full object-contain"
           />
 
