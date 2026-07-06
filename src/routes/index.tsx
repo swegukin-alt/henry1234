@@ -779,7 +779,7 @@ function Prompter({
           <video
             ref={videoElRef}
             className="absolute inset-0 h-full w-full object-cover"
-            style={{ transform: "scaleX(-1)" }}
+            style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform" }}
             autoPlay
             muted
             playsInline
