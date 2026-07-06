@@ -769,7 +769,7 @@ function Prompter({
     return () => { mq.removeEventListener?.("change", update); };
   }, []);
 
-  const iconBtn = "grid h-11 w-11 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
+  const iconBtn = "grid h-10 w-10 sm:h-11 sm:w-11 shrink-0 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
 
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
