@@ -376,6 +376,8 @@ function Prompter({
   const chunksRef = useRef<Blob[]>([]);
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
+  const recordingRef = useRef(false);
+  useEffect(() => { recordingRef.current = recording; }, [recording]);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [clips, setClips] = useState<ClipRecord[]>([]);
   const [clipsOpen, setClipsOpen] = useState(false);
