@@ -545,6 +545,10 @@ function Prompter({
         }
         setCamReady(true);
         setCamError(null);
+        // Now that mic permission is granted, labels are visible — pick the
+        // best available input (external USB / wireless mic if present).
+        refineAudioTrack();
+
         // iOS drops out of fullscreen when the camera-permission prompt appears
         // on first grant. Re-request landscape now that the prompt is gone so
         // video mode behaves identically to text mode.
