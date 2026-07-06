@@ -397,9 +397,195 @@ function Prompter({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speed, fontSize, mirrorV]);
 
-  const bgClass = settings.bg === "white" ? "bg-white text-neutral-900"
+  // In video mode, use transparent background so the camera shows through.
+  const bgClass = videoMode
+    ? "bg-black text-neutral-50"
+    : settings.bg === "white" ? "bg-white text-neutral-900"
     : settings.bg === "sepia" ? "bg-[#f5ecd7] text-[#2a1f0f]"
     : "bg-black text-neutral-50";
+
+  // ==== Video mode: camera acquisition ====
+  useEffect(() => {
+    if (!videoMode) return;
+    let cancelled = false;
+    const getConstraints = (q: Quality): MediaStreamConstraints => {
+      const dims = q === "4k" ? { width: 3840, height: 2160 }
+                : q === "1080p" ? { width: 1920, height: 1080 }
+                : { width: 1280, height: 720 };
+      return {
+        video: {
+          facingMode: "user",
+          width: { ideal: dims.width },
+          height: { ideal: dims.height },
+          frameRate: { ideal: 30 },
+        },
+        audio: true,
+      };
+    };
+    const start = async () => {
+      try {
+        // Try requested quality; fall back to 1080p then 720p on failure.
+        let stream: MediaStream | null = null;
+        const tiers: Quality[] = quality === "4k" ? ["4k", "1080p", "720p"]
+                                : quality === "1080p" ? ["1080p", "720p"]
+                                : ["720p"];
+        for (const q of tiers) {
+          try { stream = await navigator.mediaDevices.getUserMedia(getConstraints(q)); break; }
+          catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
+        }
+        if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoElRef.current) {
+          videoElRef.current.srcObject = stream;
+          try { await videoElRef.current.play(); } catch {}
+        }
+        setCamReady(true);
+        setCamError(null);
+      } catch (e: any) {
+        setCamError(e?.message || "Camera unavailable. Check Settings → Safari → Camera.");
+      }
+    };
+    start();
+    return () => {
+      cancelled = true;
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try { recorderRef.current.stop(); } catch {}
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setCamReady(false);
+    };
+    // Re-acquire on quality change
+  }, [videoMode, quality]);
+
+  // Load existing clips for this script
+  useEffect(() => {
+    if (!videoMode) return;
+    listClips(script.id).then(setClips).catch(() => {});
+  }, [videoMode, script.id]);
+
+  // Restore reader state per script in video mode (scrollTop only; other prefs already persist globally)
+  const readerStateKey = `prompter.readerState.${script.id}`;
+  useEffect(() => {
+    if (!videoMode) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    try {
+      const raw = localStorage.getItem(readerStateKey);
+      if (raw) {
+        const s = JSON.parse(raw) as { scrollTop?: number };
+        if (typeof s.scrollTop === "number") {
+          // Wait one frame so layout is measured
+          requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = s.scrollTop!; setProgress(computeProgress()); });
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoMode, script.id]);
+
+  // Persist scroll position (debounced) in video mode
+  const saveStateTimer = useRef<number | null>(null);
+  const scheduleSaveState = useCallback(() => {
+    if (!videoMode) return;
+    if (saveStateTimer.current) window.clearTimeout(saveStateTimer.current);
+    saveStateTimer.current = window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: el.scrollTop, updatedAt: Date.now() })); } catch {}
+    }, 250);
+  }, [videoMode, readerStateKey]);
+
+  // Recording timer tick
+  useEffect(() => {
+    if (!recording) return;
+    const id = window.setInterval(() => setElapsedMs(Date.now() - recordStartRef.current), 200);
+    return () => window.clearInterval(id);
+  }, [recording]);
+
+  const pickMime = (): string => {
+    const candidates = [
+      "video/mp4;codecs=h264,mp4a.40.2",
+      "video/mp4",
+      "video/webm;codecs=h264,opus",
+      "video/webm;codecs=vp9,opus",
+      "video/webm",
+    ];
+    for (const m of candidates) {
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return "";
+  };
+
+  const startRecording = useCallback(() => {
+    const stream = streamRef.current;
+    if (!stream || recording) return;
+    const mimeType = pickMime();
+    const bps = quality === "4k" ? 20_000_000 : quality === "1080p" ? 6_000_000 : 3_000_000;
+    let rec: MediaRecorder;
+    try {
+      rec = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps });
+    } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
+    chunksRef.current = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
+    rec.onstop = async () => {
+      const blob = new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "video/mp4" });
+      chunksRef.current = [];
+      const track = stream.getVideoTracks()[0];
+      const s = track?.getSettings?.() || {};
+      const rec2: ClipRecord = {
+        id: Math.random().toString(36).slice(2, 12),
+        scriptId: script.id,
+        mimeType: blob.type,
+        durationMs: Date.now() - recordStartRef.current,
+        sizeBytes: blob.size,
+        createdAt: Date.now(),
+        width: (s.width as number) || 0,
+        height: (s.height as number) || 0,
+        blob,
+      };
+      try { await saveClip(rec2); setClips((cs) => [...cs, rec2]); } catch {}
+    };
+    recordStartRef.current = Date.now();
+    setElapsedMs(0);
+    try { rec.start(250); } catch { try { rec.start(); } catch { return; } }
+    recorderRef.current = rec;
+    setRecording(true);
+  }, [quality, recording, script.id]);
+
+  const stopRecording = useCallback(() => {
+    const rec = recorderRef.current;
+    if (!rec) return;
+    try { if (rec.state !== "inactive") rec.stop(); } catch {}
+    recorderRef.current = null;
+    setRecording(false);
+  }, []);
+
+  // Stop recording cleanly if user backgrounds the app
+  useEffect(() => {
+    if (!videoMode) return;
+    const onVis = () => { if (document.visibilityState === "hidden" && recording) stopRecording(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [videoMode, recording, stopRecording]);
+
+  const exportClips = useCallback(async (subset?: ClipRecord[]) => {
+    const arr = subset && subset.length ? subset : clips;
+    if (!arr.length) return;
+    const ext = (mt: string) => mt.includes("mp4") ? "mp4" : "webm";
+    const files = arr.map((c, i) => new File([c.blob], `${script.title || "script"}-${i + 1}.${ext(c.mimeType)}`, { type: c.mimeType }));
+    const nav: any = navigator;
+    if (nav.share && nav.canShare && nav.canShare({ files })) {
+      try { await nav.share({ files, title: script.title || "Teleprompter clips" }); return; }
+      catch (e: any) { if (e?.name === "AbortError") return; }
+    }
+    // Fallback: download each
+    for (const f of files) {
+      const url = URL.createObjectURL(f);
+      const a = document.createElement("a"); a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  }, [clips, script.title]);
+
 
   const computeProgress = useCallback(() => {
     const el = scrollRef.current;
