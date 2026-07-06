@@ -367,6 +367,25 @@ function Prompter({
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
 
+  // Video-mode state
+  const videoElRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [camError, setCamError] = useState<string | null>(null);
+  const [camReady, setCamReady] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordStartRef = useRef<number>(0);
+  const [recording, setRecording] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [clips, setClips] = useState<ClipRecord[]>([]);
+  const [clipsOpen, setClipsOpen] = useState(false);
+  type Quality = "720p" | "1080p" | "4k";
+  const [quality, setQuality] = useState<Quality>(() => {
+    if (typeof window === "undefined") return "1080p";
+    return (localStorage.getItem("prompter.quality") as Quality) || "1080p";
+  });
+  useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
+
   // Update scroll direction when mirrorV changes
   useEffect(() => {
     scrollDirectionRef.current = mirrorV ? -1 : 1;
