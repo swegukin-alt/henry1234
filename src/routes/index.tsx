@@ -469,10 +469,18 @@ function Prompter({
     // Re-acquire on quality change
   }, [videoMode, quality]);
 
-  // Load existing clips for this script
+  // Load existing clips, recover any orphan session from a prior crash / close,
+  // and ask for persistent storage so recordings survive eviction.
   useEffect(() => {
     if (!videoMode) return;
-    listClips(script.id).then(setClips).catch(() => {});
+    let cancelled = false;
+    (async () => {
+      try { await requestPersistentStorage(); } catch {}
+      try { await recoverOrphanSessions(); } catch {}
+      if (cancelled) return;
+      try { const list = await listClips(script.id); if (!cancelled) setClips(list); } catch {}
+    })();
+    return () => { cancelled = true; };
   }, [videoMode, script.id]);
 
   // Restore reader state per script in video mode (scrollTop only; other prefs already persist globally)
