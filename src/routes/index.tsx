@@ -1214,7 +1214,7 @@ function ClipsSheet({
 
           {/* Floating close button — top-right, safe-area aware */}
           <button
-            onClick={() => setPlayingClip(null)}
+            onClick={closePlayer}
             className="absolute z-10 grid h-10 w-10 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm active:scale-90"
             style={{
               top: "calc(env(safe-area-inset-top, 0px) + 0.5rem)",
