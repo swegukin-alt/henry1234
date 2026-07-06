@@ -440,6 +440,14 @@ function Prompter({
         }
         setCamReady(true);
         setCamError(null);
+        // iOS drops out of fullscreen when the camera-permission prompt appears
+        // on first grant. Re-request landscape now that the prompt is gone so
+        // video mode behaves identically to text mode.
+        if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+          enterLandscape();
+        } else {
+          try { (screen as any).orientation?.lock?.("landscape")?.catch?.(() => {}); } catch {}
+        }
       } catch (e: any) {
         setCamError(e?.message || "Camera unavailable. Check Settings → Safari → Camera.");
       }
