@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X } from "lucide-react";
+import { saveClip, listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, type ClipRecord } from "@/lib/clip-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -73,7 +74,7 @@ function Index() {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [mode, setMode] = useState<"library" | "edit" | "play">("library");
+  const [mode, setMode] = useState<"library" | "edit" | "play" | "video">("library");
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -114,11 +115,12 @@ function Index() {
 
   if (!hydrated) return <div className="min-h-screen bg-[#0a0a0a]" />;
 
-  if (mode === "play" && active) {
+  if ((mode === "play" || mode === "video") && active) {
     return (
       <Prompter
         script={active}
         settings={settings}
+        videoMode={mode === "video"}
         onExit={() => setMode("edit")}
         onSettings={setSettings}
       />
@@ -148,6 +150,12 @@ function Index() {
             const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
             try { req?.call(el).catch?.(() => {}); } catch {}
             setMode("play");
+          }}
+          onVideo={() => {
+            const el: any = document.documentElement;
+            const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
+            try { req?.call(el).catch?.(() => {}); } catch {}
+            setMode("video");
           }}
         />
       )}
@@ -223,7 +231,7 @@ function Library({
 }
 
 function Editor({
-  script, settings, onChange, onSettings, onBack, onPlay,
+  script, settings, onChange, onSettings, onBack, onPlay, onVideo,
 }: {
   script: Script;
   settings: Settings;
@@ -231,19 +239,31 @@ function Editor({
   onSettings: (s: Settings) => void;
   onBack: () => void;
   onPlay: () => void;
+  onVideo: () => void;
 }) {
+  const disabled = !script.body.trim();
   return (
     <div>
-      <header className="flex items-center justify-between py-3">
+      <header className="flex items-center justify-between py-3 gap-2">
         <button onClick={onBack} className="text-sm text-neutral-400 hover:text-white">‹ Scripts</button>
-        <button
-          onClick={onPlay}
-          disabled={!script.body.trim()}
-          className="rounded-full bg-amber-400 px-5 py-2 text-sm font-bold text-black disabled:opacity-40 active:scale-95 transition"
-        >
-          ▶ Play
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onVideo}
+            disabled={disabled}
+            className="rounded-full border border-amber-400/60 bg-amber-400/10 px-4 py-2 text-sm font-bold text-amber-300 disabled:opacity-40 active:scale-95 transition inline-flex items-center gap-1.5"
+          >
+            <Video className="h-4 w-4" /> Video
+          </button>
+          <button
+            onClick={onPlay}
+            disabled={disabled}
+            className="rounded-full bg-amber-400 px-5 py-2 text-sm font-bold text-black disabled:opacity-40 active:scale-95 transition"
+          >
+            ▶ Play
+          </button>
+        </div>
       </header>
+
 
       <input
         value={script.title}
@@ -330,8 +350,8 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
 }
 
 function Prompter({
-  script, settings, onExit, onSettings,
-}: { script: Script; settings: Settings; onExit: () => void; onSettings: (s: Settings) => void }) {
+  script, settings, onExit, onSettings, videoMode = false,
+}: { script: Script; settings: Settings; onExit: () => void; onSettings: (s: Settings) => void; videoMode?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number>(0);
@@ -347,6 +367,25 @@ function Prompter({
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
 
+  // Video-mode state
+  const videoElRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [camError, setCamError] = useState<string | null>(null);
+  const [camReady, setCamReady] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordStartRef = useRef<number>(0);
+  const [recording, setRecording] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [clips, setClips] = useState<ClipRecord[]>([]);
+  const [clipsOpen, setClipsOpen] = useState(false);
+  type Quality = "720p" | "1080p" | "4k";
+  const [quality, setQuality] = useState<Quality>(() => {
+    if (typeof window === "undefined") return "1080p";
+    return (localStorage.getItem("prompter.quality") as Quality) || "1080p";
+  });
+  useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
+
   // Update scroll direction when mirrorV changes
   useEffect(() => {
     scrollDirectionRef.current = mirrorV ? -1 : 1;
@@ -358,9 +397,195 @@ function Prompter({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speed, fontSize, mirrorV]);
 
-  const bgClass = settings.bg === "white" ? "bg-white text-neutral-900"
+  // In video mode, use transparent background so the camera shows through.
+  const bgClass = videoMode
+    ? "bg-black text-neutral-50"
+    : settings.bg === "white" ? "bg-white text-neutral-900"
     : settings.bg === "sepia" ? "bg-[#f5ecd7] text-[#2a1f0f]"
     : "bg-black text-neutral-50";
+
+  // ==== Video mode: camera acquisition ====
+  useEffect(() => {
+    if (!videoMode) return;
+    let cancelled = false;
+    const getConstraints = (q: Quality): MediaStreamConstraints => {
+      const dims = q === "4k" ? { width: 3840, height: 2160 }
+                : q === "1080p" ? { width: 1920, height: 1080 }
+                : { width: 1280, height: 720 };
+      return {
+        video: {
+          facingMode: "user",
+          width: { ideal: dims.width },
+          height: { ideal: dims.height },
+          frameRate: { ideal: 30 },
+        },
+        audio: true,
+      };
+    };
+    const start = async () => {
+      try {
+        // Try requested quality; fall back to 1080p then 720p on failure.
+        let stream: MediaStream | null = null;
+        const tiers: Quality[] = quality === "4k" ? ["4k", "1080p", "720p"]
+                                : quality === "1080p" ? ["1080p", "720p"]
+                                : ["720p"];
+        for (const q of tiers) {
+          try { stream = await navigator.mediaDevices.getUserMedia(getConstraints(q)); break; }
+          catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
+        }
+        if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoElRef.current) {
+          videoElRef.current.srcObject = stream;
+          try { await videoElRef.current.play(); } catch {}
+        }
+        setCamReady(true);
+        setCamError(null);
+      } catch (e: any) {
+        setCamError(e?.message || "Camera unavailable. Check Settings → Safari → Camera.");
+      }
+    };
+    start();
+    return () => {
+      cancelled = true;
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try { recorderRef.current.stop(); } catch {}
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setCamReady(false);
+    };
+    // Re-acquire on quality change
+  }, [videoMode, quality]);
+
+  // Load existing clips for this script
+  useEffect(() => {
+    if (!videoMode) return;
+    listClips(script.id).then(setClips).catch(() => {});
+  }, [videoMode, script.id]);
+
+  // Restore reader state per script in video mode (scrollTop only; other prefs already persist globally)
+  const readerStateKey = `prompter.readerState.${script.id}`;
+  useEffect(() => {
+    if (!videoMode) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    try {
+      const raw = localStorage.getItem(readerStateKey);
+      if (raw) {
+        const s = JSON.parse(raw) as { scrollTop?: number };
+        if (typeof s.scrollTop === "number") {
+          // Wait one frame so layout is measured
+          requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = s.scrollTop!; setProgress(computeProgress()); });
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoMode, script.id]);
+
+  // Persist scroll position (debounced) in video mode
+  const saveStateTimer = useRef<number | null>(null);
+  const scheduleSaveState = useCallback(() => {
+    if (!videoMode) return;
+    if (saveStateTimer.current) window.clearTimeout(saveStateTimer.current);
+    saveStateTimer.current = window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: el.scrollTop, updatedAt: Date.now() })); } catch {}
+    }, 250);
+  }, [videoMode, readerStateKey]);
+
+  // Recording timer tick
+  useEffect(() => {
+    if (!recording) return;
+    const id = window.setInterval(() => setElapsedMs(Date.now() - recordStartRef.current), 200);
+    return () => window.clearInterval(id);
+  }, [recording]);
+
+  const pickMime = (): string => {
+    const candidates = [
+      "video/mp4;codecs=h264,mp4a.40.2",
+      "video/mp4",
+      "video/webm;codecs=h264,opus",
+      "video/webm;codecs=vp9,opus",
+      "video/webm",
+    ];
+    for (const m of candidates) {
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return "";
+  };
+
+  const startRecording = useCallback(() => {
+    const stream = streamRef.current;
+    if (!stream || recording) return;
+    const mimeType = pickMime();
+    const bps = quality === "4k" ? 20_000_000 : quality === "1080p" ? 6_000_000 : 3_000_000;
+    let rec: MediaRecorder;
+    try {
+      rec = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps });
+    } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
+    chunksRef.current = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
+    rec.onstop = async () => {
+      const blob = new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "video/mp4" });
+      chunksRef.current = [];
+      const track = stream.getVideoTracks()[0];
+      const s = track?.getSettings?.() || {};
+      const rec2: ClipRecord = {
+        id: Math.random().toString(36).slice(2, 12),
+        scriptId: script.id,
+        mimeType: blob.type,
+        durationMs: Date.now() - recordStartRef.current,
+        sizeBytes: blob.size,
+        createdAt: Date.now(),
+        width: (s.width as number) || 0,
+        height: (s.height as number) || 0,
+        blob,
+      };
+      try { await saveClip(rec2); setClips((cs) => [...cs, rec2]); } catch {}
+    };
+    recordStartRef.current = Date.now();
+    setElapsedMs(0);
+    try { rec.start(250); } catch { try { rec.start(); } catch { return; } }
+    recorderRef.current = rec;
+    setRecording(true);
+  }, [quality, recording, script.id]);
+
+  const stopRecording = useCallback(() => {
+    const rec = recorderRef.current;
+    if (!rec) return;
+    try { if (rec.state !== "inactive") rec.stop(); } catch {}
+    recorderRef.current = null;
+    setRecording(false);
+  }, []);
+
+  // Stop recording cleanly if user backgrounds the app
+  useEffect(() => {
+    if (!videoMode) return;
+    const onVis = () => { if (document.visibilityState === "hidden" && recording) stopRecording(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [videoMode, recording, stopRecording]);
+
+  const exportClips = useCallback(async (subset?: ClipRecord[]) => {
+    const arr = subset && subset.length ? subset : clips;
+    if (!arr.length) return;
+    const ext = (mt: string) => mt.includes("mp4") ? "mp4" : "webm";
+    const files = arr.map((c, i) => new File([c.blob], `${script.title || "script"}-${i + 1}.${ext(c.mimeType)}`, { type: c.mimeType }));
+    const nav: any = navigator;
+    if (nav.share && nav.canShare && nav.canShare({ files })) {
+      try { await nav.share({ files, title: script.title || "Teleprompter clips" }); return; }
+      catch (e: any) { if (e?.name === "AbortError") return; }
+    }
+    // Fallback: download each
+    for (const f of files) {
+      const url = URL.createObjectURL(f);
+      const a = document.createElement("a"); a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  }, [clips, script.title]);
+
 
   const computeProgress = useCallback(() => {
     const el = scrollRef.current;
@@ -516,7 +741,7 @@ function Prompter({
     setProgress((p) => p); // keep progress; computeProgress will resync on next scroll/tick
   }, []);
 
-  const onScroll = () => { if (!playing) setProgress(computeProgress()); };
+  const onScroll = () => { if (!playing) setProgress(computeProgress()); scheduleSaveState(); };
   const remaining = Math.round((1 - progress) * 100);
 
   // Portrait detection for hint only (no auto-rotate)
@@ -532,6 +757,31 @@ function Prompter({
 
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
+      {/* Camera preview — behind everything in video mode. Mirrored for natural feel; recorded stream is NOT mirrored. */}
+      {videoMode && (
+        <>
+          <video
+            ref={videoElRef}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ transform: "scaleX(-1)" }}
+            autoPlay
+            muted
+            playsInline
+          />
+          {/* Dark scrim so the script stays readable over the video */}
+          <div className="pointer-events-none absolute inset-0 bg-black/45" />
+          {camError && (
+            <div className="absolute inset-0 z-40 grid place-items-center bg-black/80 p-6 text-center text-sm text-neutral-200">
+              <div>
+                <div className="mb-2 font-bold text-amber-300">Camera unavailable</div>
+                <div className="mb-3 text-neutral-300">{camError}</div>
+                <button onClick={onExit} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">Back</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {/* Scrolling text — finger tap pauses and reveals controls */}
       <div
         ref={scrollRef}
@@ -590,14 +840,59 @@ function Prompter({
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
             <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
           </div>
+          {videoMode && (
+            <div className="mt-3">
+              <div className="mb-1 text-xs text-neutral-300">Recording quality</div>
+              <div className="flex gap-2">
+                {(["720p", "1080p", "4k"] as const).map((q) => (
+                  <button key={q} disabled={recording} onClick={() => setQuality(q)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {q === "4k" ? "4K (try)" : q}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
+            </div>
+          )}
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
         </Popover>
+      )}
+
+      {/* REC pill — top-left when recording */}
+      {videoMode && recording && (
+        <div className="absolute top-3 left-3 z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm" style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}>
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
+          REC {fmtDuration(elapsedMs)}
+        </div>
+      )}
+
+      {/* Clips chip — top-left when NOT recording */}
+      {videoMode && !recording && (
+        <button onClick={(e) => { e.stopPropagation(); setClipsOpen(true); }}
+          className="absolute top-3 left-3 z-40 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-neutral-100 backdrop-blur-sm active:scale-95"
+          style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}
+          aria-label="Clips"
+        >
+          <Film className="h-4 w-4 text-amber-300" /> Clips {clips.length > 0 && <span className="text-amber-300">({clips.length})</span>}
+        </button>
       )}
 
       {/* % remaining — always visible */}
       <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm" style={{ fontFamily: "var(--font-sans)", transform: mirrorV ? "scaleY(-1)" : undefined }}>
         {remaining}% left
       </div>
+
+      {/* Clips sheet */}
+      {videoMode && clipsOpen && (
+        <ClipsSheet
+          clips={clips}
+          onClose={() => setClipsOpen(false)}
+          onDelete={async (id) => { await deleteClip(id); setClips((cs) => cs.filter((c) => c.id !== id)); }}
+          onDeleteAll={async () => { await deleteAllForScript(script.id); setClips([]); }}
+          onExport={exportClips}
+        />
+      )}
+
 
       {/* Tiny reveal pill — only thing on screen when controls are hidden */}
       {!controlsVisible && (
@@ -635,6 +930,16 @@ function Prompter({
                   ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
                   : <Play className="h-7 w-7 text-sky-400" fill="currentColor" />}
               </button>
+              {videoMode && (
+                <button
+                  onClick={recording ? stopRecording : startRecording}
+                  disabled={videoMode && !camReady && !recording}
+                  className={`${iconBtn} ${recording ? "bg-red-600 text-white" : "bg-red-500/90 text-white"} disabled:opacity-40`}
+                  aria-label={recording ? "Stop recording" : "Start recording"}
+                >
+                  {recording ? <Square className="h-5 w-5" fill="currentColor" /> : <Circle className="h-6 w-6" fill="currentColor" />}
+                </button>
+              )}
               <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
                 <SlidersHorizontal className="h-6 w-6" />
               </button>
@@ -676,4 +981,68 @@ function PopRow({ label, value, children }: { label: string; value: string; chil
   );
 }
 
+function ClipsSheet({
+  clips, onClose, onDelete, onDeleteAll, onExport,
+}: {
+  clips: ClipRecord[];
+  onClose: () => void;
+  onDelete: (id: string) => void | Promise<void>;
+  onDeleteAll: () => void | Promise<void>;
+  onExport: (subset?: ClipRecord[]) => void | Promise<void>;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const selectedClips = clips.filter((c) => selected.has(c.id));
+  return (
+    <>
+      <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
+        onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}>
+        <div className="flex items-center justify-between px-4 pt-3">
+          <div className="text-base font-bold">Clips <span className="text-neutral-400 font-normal">({clips.length})</span></div>
+          <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="max-h-[55vh] overflow-y-auto px-3 py-2">
+          {clips.length === 0 ? (
+            <div className="px-3 py-10 text-center text-sm text-neutral-400">No clips yet. Tap the red record button to start.</div>
+          ) : (
+            <ul className="space-y-2">
+              {clips.map((c, i) => (
+                <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
+                  <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold truncate">Take {i + 1}</div>
+                    <div className="text-[11px] text-neutral-400">
+                      {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
+                    </div>
+                  </div>
+                  <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Share this clip">
+                    <Share2 className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {clips.length > 0 && (
+          <div className="flex gap-2 border-t border-white/10 p-3">
+            <button onClick={() => { if (confirm("Delete all clips for this script?")) onDeleteAll(); }} className="rounded-full border border-white/15 px-4 py-2 text-sm text-neutral-300">
+              Delete all
+            </button>
+            <div className="flex-1" />
+            <button onClick={() => onExport(selectedClips.length ? selectedClips : clips)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">
+              <Share2 className="h-4 w-4" />
+              {selectedClips.length ? `Export ${selectedClips.length}` : "Export all to Photos"}
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 
