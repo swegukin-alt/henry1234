@@ -1115,7 +1115,16 @@ function ClipsSheet({
       </div>
 
       {playingClip && playUrl && (
-        <div className="absolute inset-0 z-[60] flex flex-col bg-black" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-[60] flex flex-col bg-black"
+          style={{
+            paddingTop: "env(safe-area-inset-top, 0px)",
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            paddingLeft: "env(safe-area-inset-left, 0px)",
+            paddingRight: "env(safe-area-inset-right, 0px)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center justify-between px-3 py-2">
             <div className="text-sm font-semibold text-neutral-200 truncate">
               Take {clips.findIndex((c) => c.id === playingClip.id) + 1} · {fmtDuration(playingClip.durationMs)}
