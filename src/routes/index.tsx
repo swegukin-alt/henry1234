@@ -74,7 +74,7 @@ function Index() {
   const [scripts, setScripts] = useState<Script[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [mode, setMode] = useState<"library" | "edit" | "play">("library");
+  const [mode, setMode] = useState<"library" | "edit" | "play" | "video">("library");
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
