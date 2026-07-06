@@ -583,13 +583,28 @@ function Prompter({
     }
   }, [readerStateKey]);
 
-  // Stop recording cleanly if user backgrounds the app
+  // Stop recording cleanly if user backgrounds the app, and flush scroll position
   useEffect(() => {
     if (!videoMode) return;
-    const onVis = () => { if (document.visibilityState === "hidden" && recording) stopRecording(); };
+    const flush = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: el.scrollTop, updatedAt: Date.now() })); } catch {}
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        flush();
+        if (recording) stopRecording();
+      }
+    };
+    const onPageHide = () => flush();
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [videoMode, recording, stopRecording]);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [videoMode, recording, stopRecording, readerStateKey]);
 
   const exportClips = useCallback(async (subset?: ClipRecord[]) => {
     const arr = subset && subset.length ? subset : clips;
