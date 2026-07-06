@@ -1250,7 +1250,7 @@ function ClipsSheet({
             </button>
             <div className="flex-1" />
             <button
-              onClick={() => { const c = playingClip; if (confirm("Delete this clip?")) { onDelete(c.id); setPlayingClip(null); } }}
+              onClick={() => { const c = playingClip; if (confirm("Delete this clip?")) { onDelete(c.id); closePlayer(); } }}
               className="inline-flex items-center gap-1.5 rounded-full bg-black/70 border border-red-400/50 px-4 py-2 text-sm text-red-300 backdrop-blur-sm"
             >
               <Trash2 className="h-4 w-4" /> Delete
