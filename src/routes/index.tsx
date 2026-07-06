@@ -1057,7 +1057,7 @@ function ClipsSheet({
     <>
       <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
-        onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}>
+        onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
           <div className="text-base font-bold">Clips <span className="text-neutral-400 font-normal">({clips.length})</span></div>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
