@@ -878,7 +878,14 @@ function Prompter({
 
       {/* REC pill — top-left when recording */}
       {videoMode && recording && (
-        <div className="absolute top-3 left-3 z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm" style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}>
+        <div
+          className="absolute z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm"
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+            left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
+            transform: mirrorV ? "scaleY(-1)" : undefined,
+          }}
+        >
           <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
           REC {fmtDuration(elapsedMs)}
         </div>
@@ -887,8 +894,12 @@ function Prompter({
       {/* Clips chip — top-left when NOT recording */}
       {videoMode && !recording && (
         <button onClick={(e) => { e.stopPropagation(); setClipsOpen(true); }}
-          className="absolute top-3 left-3 z-40 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-neutral-100 backdrop-blur-sm active:scale-95"
-          style={{ transform: mirrorV ? "scaleY(-1)" : undefined }}
+          className="absolute z-40 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-neutral-100 backdrop-blur-sm active:scale-95"
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+            left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
+            transform: mirrorV ? "scaleY(-1)" : undefined,
+          }}
           aria-label="Clips"
         >
           <Film className="h-4 w-4 text-amber-300" /> Clips {clips.length > 0 && <span className="text-amber-300">({clips.length})</span>}
@@ -896,7 +907,15 @@ function Prompter({
       )}
 
       {/* % remaining — always visible */}
-      <div className="absolute top-3 right-3 z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm" style={{ fontFamily: "var(--font-sans)", transform: mirrorV ? "scaleY(-1)" : undefined }}>
+      <div
+        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm"
+        style={{
+          top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
+          right: "calc(env(safe-area-inset-right, 0px) + 0.6rem)",
+          fontFamily: "var(--font-sans)",
+          transform: mirrorV ? "scaleY(-1)" : undefined,
+        }}
+      >
         {remaining}% left
       </div>
 
