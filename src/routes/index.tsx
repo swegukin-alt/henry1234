@@ -981,4 +981,68 @@ function PopRow({ label, value, children }: { label: string; value: string; chil
   );
 }
 
+function ClipsSheet({
+  clips, onClose, onDelete, onDeleteAll, onExport,
+}: {
+  clips: ClipRecord[];
+  onClose: () => void;
+  onDelete: (id: string) => void | Promise<void>;
+  onDeleteAll: () => void | Promise<void>;
+  onExport: (subset?: ClipRecord[]) => void | Promise<void>;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const selectedClips = clips.filter((c) => selected.has(c.id));
+  return (
+    <>
+      <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
+        onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}>
+        <div className="flex items-center justify-between px-4 pt-3">
+          <div className="text-base font-bold">Clips <span className="text-neutral-400 font-normal">({clips.length})</span></div>
+          <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="max-h-[55vh] overflow-y-auto px-3 py-2">
+          {clips.length === 0 ? (
+            <div className="px-3 py-10 text-center text-sm text-neutral-400">No clips yet. Tap the red record button to start.</div>
+          ) : (
+            <ul className="space-y-2">
+              {clips.map((c, i) => (
+                <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
+                  <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold truncate">Take {i + 1}</div>
+                    <div className="text-[11px] text-neutral-400">
+                      {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
+                    </div>
+                  </div>
+                  <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Share this clip">
+                    <Share2 className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {clips.length > 0 && (
+          <div className="flex gap-2 border-t border-white/10 p-3">
+            <button onClick={() => { if (confirm("Delete all clips for this script?")) onDeleteAll(); }} className="rounded-full border border-white/15 px-4 py-2 text-sm text-neutral-300">
+              Delete all
+            </button>
+            <div className="flex-1" />
+            <button onClick={() => onExport(selectedClips.length ? selectedClips : clips)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">
+              <Share2 className="h-4 w-4" />
+              {selectedClips.length ? `Export ${selectedClips.length}` : "Export all to Photos"}
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 
