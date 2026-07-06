@@ -682,8 +682,15 @@ function Prompter({
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       const k = e.key, code = e.code;
 
-      // Escape / Home / font size
-      if (k === "Escape" || code === "Escape") { e.preventDefault(); onExit(); return; }
+      // Escape / Home / font size.
+      // While recording, the remote must NEVER be able to stop or exit —
+      // Escape would tear down video mode and abort the recording as a side effect.
+      if (k === "Escape" || code === "Escape") {
+        e.preventDefault();
+        if (recordingRef.current) return; // swallow — remote is text-only during recording
+        onExit();
+        return;
+      }
       if (k === "0" || k === "Home") { e.preventDefault(); reset(); return; }
       if (k === "]") { e.preventDefault(); setFontSize((s) => Math.min(140, s + 2)); return; }
       if (k === "[") { e.preventDefault(); setFontSize((s) => Math.max(24, s - 2)); return; }
