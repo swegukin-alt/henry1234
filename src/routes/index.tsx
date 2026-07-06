@@ -757,6 +757,31 @@ function Prompter({
 
   return (
     <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
+      {/* Camera preview — behind everything in video mode. Mirrored for natural feel; recorded stream is NOT mirrored. */}
+      {videoMode && (
+        <>
+          <video
+            ref={videoElRef}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ transform: "scaleX(-1)" }}
+            autoPlay
+            muted
+            playsInline
+          />
+          {/* Dark scrim so the script stays readable over the video */}
+          <div className="pointer-events-none absolute inset-0 bg-black/45" />
+          {camError && (
+            <div className="absolute inset-0 z-40 grid place-items-center bg-black/80 p-6 text-center text-sm text-neutral-200">
+              <div>
+                <div className="mb-2 font-bold text-amber-300">Camera unavailable</div>
+                <div className="mb-3 text-neutral-300">{camError}</div>
+                <button onClick={onExit} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">Back</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {/* Scrolling text — finger tap pauses and reveals controls */}
       <div
         ref={scrollRef}
