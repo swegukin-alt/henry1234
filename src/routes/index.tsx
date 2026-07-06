@@ -423,13 +423,8 @@ function Prompter({
         // will fall back to 30 automatically if 60 isn't available at
         // the chosen resolution.
         frameRate: { ideal: 60, min: 30 },
-        // Explicitly request 1x zoom (no digital crop/zoom). WebRTC on iOS
-        // does not let us pick a specific physical lens, but this prevents
-        // the browser from applying a digital zoom / crop.
-        zoom: { ideal: 1, min: 1 },
-        // Advanced fallback: try to lock zoom exactly at 1x if supported.
-        advanced: [{ zoom: 1 }],
       };
+
       return {
         video: videoConstraints as MediaTrackConstraints,
         audio: {
