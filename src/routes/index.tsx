@@ -370,6 +370,11 @@ function Prompter({
   const streamRef = useRef<MediaStream | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [camReady, setCamReady] = useState(false);
+  // Mic state: label of the currently-active audio input + whether it's external.
+  const [activeMicLabel, setActiveMicLabel] = useState<string>("");
+  const [micIsExternal, setMicIsExternal] = useState(false);
+  const currentMicIdRef = useRef<string>("");
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingIdRef = useRef<string | null>(null);
   const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
