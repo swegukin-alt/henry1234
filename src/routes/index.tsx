@@ -930,6 +930,14 @@ function Prompter({
                   ? <Pause className="h-7 w-7 text-sky-400" fill="currentColor" />
                   : <Play className="h-7 w-7 text-sky-400" fill="currentColor" />}
               </button>
+              {videoMode && (
+                <button
+                  onClick={recording ? stopRecording : startRecording}
+                  disabled={videoMode && !camReady && !recording}
+                  className={`${iconBtn} ${recording ? "bg-red-600 text-white" : "bg-red-500/90 text-white"} disabled:opacity-40`}
+                  aria-label={recording ? "Stop recording" : "Start recording"}
+                >
+                  {recording ? <Square className="h-5 w-5" fill="currentColor" /> : <Circle className="h-6 w-6" fill="currentColor" />}
               <button onClick={() => setPanel(panel === "settings" ? null : "settings")} className={iconBtn} aria-label="Settings">
                 <SlidersHorizontal className="h-6 w-6" />
               </button>
