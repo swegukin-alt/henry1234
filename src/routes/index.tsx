@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X } from "lucide-react";
-import { saveClip, listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, type ClipRecord } from "@/lib/clip-store";
+import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, type ClipRecord } from "@/lib/clip-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -373,7 +373,8 @@ function Prompter({
   const [camError, setCamError] = useState<string | null>(null);
   const [camReady, setCamReady] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const recordingIdRef = useRef<string | null>(null);
+  const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
@@ -468,10 +469,18 @@ function Prompter({
     // Re-acquire on quality change
   }, [videoMode, quality]);
 
-  // Load existing clips for this script
+  // Load existing clips, recover any orphan session from a prior crash / close,
+  // and ask for persistent storage so recordings survive eviction.
   useEffect(() => {
     if (!videoMode) return;
-    listClips(script.id).then(setClips).catch(() => {});
+    let cancelled = false;
+    (async () => {
+      try { await requestPersistentStorage(); } catch {}
+      try { await recoverOrphanSessions(); } catch {}
+      if (cancelled) return;
+      try { const list = await listClips(script.id); if (!cancelled) setClips(list); } catch {}
+    })();
+    return () => { cancelled = true; };
   }, [videoMode, script.id]);
 
   // Restore reader state per script in video mode (scrollTop only; other prefs already persist globally)
@@ -526,38 +535,81 @@ function Prompter({
     return "";
   };
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     const stream = streamRef.current;
     if (!stream || recording) return;
     const mimeType = pickMime();
+    // No artificial cap. Bitrate scales with quality; MediaRecorder produces
+    // an unbounded stream and chunks are flushed to IndexedDB as they arrive
+    // so length is limited only by device storage.
     const bps = quality === "4k" ? 20_000_000 : quality === "1080p" ? 6_000_000 : 3_000_000;
     let rec: MediaRecorder;
     try {
       rec = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps });
     } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
-    chunksRef.current = [];
-    rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
-    rec.onstop = async () => {
-      const blob = new Blob(chunksRef.current, { type: rec.mimeType || mimeType || "video/mp4" });
-      chunksRef.current = [];
-      const track = stream.getVideoTracks()[0];
-      const s = track?.getSettings?.() || {};
-      const rec2: ClipRecord = {
-        id: Math.random().toString(36).slice(2, 12),
+
+    const recordingId = Math.random().toString(36).slice(2, 12);
+    const track = stream.getVideoTracks()[0];
+    const s = track?.getSettings?.() || {};
+    const finalMime = rec.mimeType || mimeType || "video/mp4";
+
+    try {
+      await createSession({
+        id: recordingId,
         scriptId: script.id,
-        mimeType: blob.type,
-        durationMs: Date.now() - recordStartRef.current,
-        sizeBytes: blob.size,
-        createdAt: Date.now(),
+        mimeType: finalMime,
+        startedAt: Date.now(),
         width: (s.width as number) || 0,
         height: (s.height as number) || 0,
-        blob,
-      };
-      try { await saveClip(rec2); setClips((cs) => [...cs, rec2]); } catch {}
+      });
+    } catch { return; }
+
+    recordingIdRef.current = recordingId;
+    appendQueueRef.current = Promise.resolve();
+
+    // Serialize appends so chunk order in the DB matches wire order even
+    // under rapid ondataavailable bursts.
+    rec.ondataavailable = (e) => {
+      if (!e.data || e.data.size === 0) return;
+      const blob = e.data;
+      appendQueueRef.current = appendQueueRef.current
+        .catch(() => {})
+        .then(() => appendChunk(recordingId, blob).catch(() => {}));
     };
+
+    rec.onerror = () => {
+      // Don't lose what we have — finalize whatever's stored.
+      const id = recordingIdRef.current;
+      if (!id) return;
+      appendQueueRef.current
+        .catch(() => {})
+        .then(() => finalizeSession(id, { durationMs: Date.now() - recordStartRef.current }))
+        .then((clip) => { if (clip) setClips((cs) => [...cs, clip]); })
+        .catch(() => {});
+      recorderRef.current = null;
+      recordingIdRef.current = null;
+      setRecording(false);
+      setPlaying(false);
+      setControlsVisible(true);
+    };
+
+    rec.onstop = async () => {
+      const id = recordingIdRef.current;
+      if (!id) return;
+      recordingIdRef.current = null;
+      try {
+        // Wait for the last queued append to land before finalizing.
+        await appendQueueRef.current.catch(() => {});
+        const clip = await finalizeSession(id, { durationMs: Date.now() - recordStartRef.current });
+        if (clip) setClips((cs) => [...cs, clip]);
+      } catch {}
+    };
+
     recordStartRef.current = Date.now();
     setElapsedMs(0);
-    try { rec.start(250); } catch { try { rec.start(); } catch { return; } }
+    // 1s timeslice = big enough to keep write overhead low, small enough
+    // that at most ~1s of footage is ever unflushed if the process dies.
+    try { rec.start(1000); } catch { try { rec.start(); } catch { return; } }
     recorderRef.current = rec;
     setRecording(true);
     // Start the script rolling in sync with the recording
