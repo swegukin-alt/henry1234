@@ -1239,7 +1239,46 @@ function Prompter({
               <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
             </div>
           )}
+          {/* Reading assist toggles */}
+          <div className="mt-3 border-t border-white/10 pt-3">
+            <div className="mb-2 text-xs font-semibold text-neutral-300">Reading assist</div>
+            <div className="grid grid-cols-1 gap-1.5">
+              <button
+                onClick={() => setChunking((v) => !v)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${chunking ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <AlignJustify className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Chunk phrases</span>
+                <span className="text-[11px] opacity-70">{chunking ? "On" : "Off"}</span>
+              </button>
+              <button
+                onClick={() => setPauses((v) => !v)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${pauses ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <Timer className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Slow at punctuation</span>
+                <span className="text-[11px] opacity-70">{pauses ? "On" : "Off"}</span>
+              </button>
+              <button
+                onClick={() => setVoiceFollow((v) => !v)}
+                disabled={!vfSupported}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-40 ${voiceFollow ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <AudioLines className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Voice-follow highlight</span>
+                <span className="text-[11px] opacity-70">
+                  {!vfSupported ? "Unsupported" : voiceFollow ? (vfStatus === "listening" ? "Listening" : vfStatus === "error" ? "Blocked" : "On") : "Off"}
+                </span>
+              </button>
+            </div>
+            {voiceFollow && vfSupported && (
+              <p className="mt-2 text-[11px] text-neutral-400">
+                Speak naturally — a soft glow follows your voice. Scroll is untouched.
+              </p>
+            )}
+          </div>
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
+
         </Popover>
       )}
 
