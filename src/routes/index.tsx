@@ -1012,7 +1012,8 @@ function Prompter({
         // Keep the word just spoken above the eye-line, leaving the next phrase
         // in the reader's focus area. The previous 36% target was almost the
         // same as the 40% eye-line and therefore barely advanced the prompt.
-        const targetTop = wordY - sc.clientHeight * 0.27;
+        const eyeOffset = Math.max(92, sc.clientHeight * 0.27);
+        const targetTop = wordY - eyeOffset;
         voiceFrontierScrollRef.current = Math.max(
           voiceFrontierScrollRef.current ?? sc.scrollTop,
           targetTop,
