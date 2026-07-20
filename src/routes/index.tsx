@@ -416,6 +416,11 @@ function Prompter({
   const [chunking, setChunking] = useState<boolean>(settings.chunking ?? true);
   const [pauses, setPauses] = useState<boolean>(settings.pauses ?? true);
   const [readingHighlight, setReadingHighlight] = useState<boolean>(settings.readingHighlight ?? true);
+  const speedRef = useRef(speed);
+  const fontSizeRef = useRef(fontSize);
+  const mirrorVRef = useRef(mirrorV);
+  const voiceFollowRef = useRef(voiceFollow);
+  const pausesRef = useRef(pauses);
   const activeReadIdxRef = useRef<number>(-1);
   const vfSupported = useMemo(() => isVoiceFollowSupported(), []);
   const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
@@ -486,7 +491,13 @@ function Prompter({
   // Update scroll direction when mirrorV changes
   useEffect(() => {
     scrollDirectionRef.current = mirrorV ? -1 : 1;
+    mirrorVRef.current = mirrorV;
   }, [mirrorV]);
+
+  useEffect(() => { speedRef.current = speed; }, [speed]);
+  useEffect(() => { fontSizeRef.current = fontSize; }, [fontSize]);
+  useEffect(() => { voiceFollowRef.current = voiceFollow; }, [voiceFollow]);
+  useEffect(() => { pausesRef.current = pauses; }, [pauses]);
 
   // Persist live edits back to settings
   useEffect(() => {
@@ -988,6 +999,7 @@ function Prompter({
       if (raf) cancelAnimationFrame(raf);
       const prev = activeReadIdxRef.current;
       if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("reading-word");
+      activeReadIdxRef.current = -1;
     };
   }, [readingHighlight, tokens, fontSize, settings.width, mirrorV]);
 
@@ -1046,9 +1058,9 @@ function Prompter({
     const raw = el.scrollTop / max;
     // When mirrored we start at the bottom and scroll toward top,
     // so invert the raw ratio so progress still goes 0 -> 1.
-    const p = mirrorV ? 1 - raw : raw;
+    const p = mirrorVRef.current ? 1 - raw : raw;
     return Math.min(1, Math.max(0, p));
-  }, [mirrorV]);
+  }, []);
 
   const tick = useCallback((ts: number) => {
     const el = scrollRef.current;
@@ -1059,13 +1071,15 @@ function Prompter({
     const dt = Math.min((ts - lastTsRef.current) / 1000, 0.05);
     lastTsRef.current = ts;
     const dir = scrollDirectionRef.current;
+    const currentMirrorV = mirrorVRef.current;
+    const currentVoiceFollow = voiceFollowRef.current;
     // Punctuation assist only eases the base speed; it can never stop it.
     let mult = 1;
-    if (pauses) {
+    if (pausesRef.current) {
       const anchors = pauseAnchorsRef.current;
       if (anchors.length) {
         const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-        const logicalScrollTop = mirrorV ? maxScroll - el.scrollTop : el.scrollTop;
+        const logicalScrollTop = currentMirrorV ? maxScroll - el.scrollTop : el.scrollTop;
         const readY = logicalScrollTop + el.clientHeight * 0.4;
         // Binary-search last anchor with y <= readY.
         let lo = 0, hi = anchors.length - 1, idx = -1;
@@ -1074,7 +1088,7 @@ function Prompter({
           if (anchors[m].y <= readY) { idx = m; lo = m + 1; } else hi = m - 1;
         }
         if (idx >= 0) {
-          const decay = Math.max(40, fontSize * 1.4);
+            const decay = Math.max(40, fontSizeRef.current * 1.4);
           const dist = readY - anchors[idx].y;
           if (dist >= 0 && dist < decay) {
             const t01 = dist / decay; // 0 = at punctuation → 1 = fully past
@@ -1088,9 +1102,9 @@ function Prompter({
     }
     // Auto-scroll always remains active. Voice-follow only adds a gentle
     // forward correction, so delayed/blocked recognition can never freeze it.
-    let frameAdvance = playingRef.current ? dir * speed * dt * mult : 0;
+    let frameAdvance = playingRef.current ? dir * speedRef.current * dt * mult : 0;
     const voiceTarget = voiceTargetScrollRef.current;
-    if (voiceFollow && voiceTarget !== null) {
+    if (currentVoiceFollow && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
       if (Math.abs(gap) > 0.5) {
         // React quickly when speech gets ahead, then ease gently into the
@@ -1113,7 +1127,7 @@ function Prompter({
     } else {
       rafRef.current = null;
     }
-  }, [speed, computeProgress, pauses, mirrorV, fontSize, voiceFollow]);
+  }, [computeProgress]);
 
   // Voice-follow can smoothly advance the prompt even while ordinary timed
   // playback is paused. It uses the same rAF writer, avoiding competing native
@@ -1141,7 +1155,10 @@ function Prompter({
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    };
   }, [playing, tick]);
 
   // iOS can occasionally drop a pending animation frame after a system UI,
