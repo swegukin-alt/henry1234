@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
 import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, type ClipRecord } from "@/lib/clip-store";
+import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
+import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -27,6 +30,10 @@ type Settings = {
   bg: string; // 'black' | 'white' | 'sepia'
   countdown: number; // seconds
   width: number; // max width % 50-100
+  // Reading assist
+  voiceFollow: boolean; // soft highlight follows your voice (mic)
+  chunking: boolean;    // break script into breath-groups at natural pauses
+  pauses: boolean;      // briefly slow scroll at commas / sentence ends
 };
 
 const STORAGE_SCRIPTS = "prompter.scripts.v1";
@@ -42,7 +49,11 @@ const DEFAULT_SETTINGS: Settings = {
   bg: "black",
   countdown: 3,
   width: 82,
+  voiceFollow: false,
+  chunking: true,
+  pauses: true,
 };
+
 
 const SAMPLE = `여러분, 안녕하세요. 오늘 이 자리에 함께해 주셔서 감사합니다.
 
@@ -372,9 +383,44 @@ function Prompter({
   // through the angled glass.
   // Mirror flip is disabled in video mode — the script should always read naturally on camera.
   const [mirrorV, setMirrorV] = useState(videoMode ? false : settings.mirrorV);
-  const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
+  const [panel, setPanel] = useState<null | "settings" | "size" | "more" | "assist">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
+
+  // ==== Reading-assist features ====
+  const [voiceFollow, setVoiceFollow] = useState<boolean>(settings.voiceFollow ?? false);
+  const [chunking, setChunking] = useState<boolean>(settings.chunking ?? true);
+  const [pauses, setPauses] = useState<boolean>(settings.pauses ?? true);
+  const vfSupported = useMemo(() => isVoiceFollowSupported(), []);
+  const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
+  const words = useMemo(() => wordListFromTokens(tokens), [tokens]);
+  const lang = useMemo(() => detectLang(script.body), [script.body]);
+  const { anchorWordIndex, status: vfStatus } = useVoiceFollow({ enabled: voiceFollow && vfSupported, words, lang });
+  const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
+  const prevAnchorRef = useRef<number>(-1);
+  const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
+  const textInnerRef = useRef<HTMLDivElement | null>(null);
+
+  // Render tokens as spans so we can attach refs for highlight + pause anchors.
+  // Rebuilt only when tokens change; refs are re-collected inline.
+  const scriptNodes = useMemo(() => {
+    wordRefsRef.current = [];
+    return tokens.map((t, i) => {
+      if (t.kind === "break") return <br key={`b${i}`} />;
+      if (t.kind === "space") return t.text;
+      const idx = t.wordIndex;
+      return (
+        <span
+          key={`w${idx}`}
+          ref={(el) => { wordRefsRef.current[idx] = el; }}
+          data-pause={t.pauseAfter ?? undefined}
+        >{t.text}</span>
+      );
+    });
+  }, [tokens]);
+
+
+
 
   // Video-mode state
   const videoElRef = useRef<HTMLVideoElement>(null);
@@ -410,9 +456,10 @@ function Prompter({
 
   // Persist live edits back to settings
   useEffect(() => {
-    onSettings({ ...settings, speed, fontSize, mirrorV });
+    onSettings({ ...settings, speed, fontSize, mirrorV, voiceFollow, chunking, pauses });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speed, fontSize, mirrorV]);
+  }, [speed, fontSize, mirrorV, voiceFollow, chunking, pauses]);
+
 
   // In video mode, use transparent background so the camera shows through.
   const bgClass = videoMode
@@ -825,6 +872,50 @@ function Prompter({
   }, [clips, script.title]);
 
 
+  // Recompute pause-anchor Y positions when layout may have shifted.
+  useLayoutEffect(() => {
+    const sc = scrollRef.current;
+    const inner = textInnerRef.current;
+    if (!sc || !inner) return;
+    let raf = 0;
+    const compute = () => {
+      const scRect = sc.getBoundingClientRect();
+      const anchors: Array<{ y: number; kind: "strong" | "soft" }> = [];
+      for (const t of tokens) {
+        if (t.kind !== "word" || !t.pauseAfter) continue;
+        const el = wordRefsRef.current[t.wordIndex];
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        anchors.push({ y: r.bottom - scRect.top + sc.scrollTop, kind: t.pauseAfter });
+      }
+      anchors.sort((a, b) => a.y - b.y);
+      pauseAnchorsRef.current = anchors;
+    };
+    // Wait one frame so fonts / wrapping settle before measuring.
+    raf = requestAnimationFrame(compute);
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(compute);
+    });
+    ro.observe(inner);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [tokens, fontSize, settings.width, mirrorV]);
+
+  // Voice-follow: toggle the amber highlight on the current anchor word
+  // imperatively so we don't re-render the whole script on every match.
+  useEffect(() => {
+    const prev = prevAnchorRef.current;
+    if (prev >= 0 && prev !== anchorWordIndex) {
+      const p = wordRefsRef.current[prev];
+      if (p) p.classList.remove("vf-anchor");
+    }
+    if (anchorWordIndex >= 0) {
+      const el = wordRefsRef.current[anchorWordIndex];
+      if (el) el.classList.add("vf-anchor");
+    }
+    prevAnchorRef.current = anchorWordIndex;
+  }, [anchorWordIndex]);
+
   const computeProgress = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return 0;
@@ -844,13 +935,38 @@ function Prompter({
     const dt = (ts - lastTsRef.current) / 1000;
     lastTsRef.current = ts;
     const dir = scrollDirectionRef.current;
-    el.scrollTop += dir * speed * dt;
+    // Punctuation pauses: slow briefly when a strong/soft anchor sits near
+    // the reader's eye-line (40% down the viewport). Disabled when mirrored.
+    let mult = 1;
+    if (pauses && !mirrorV) {
+      const anchors = pauseAnchorsRef.current;
+      if (anchors.length) {
+        const readY = el.scrollTop + el.clientHeight * 0.4;
+        // Binary-search last anchor with y <= readY.
+        let lo = 0, hi = anchors.length - 1, idx = -1;
+        while (lo <= hi) {
+          const m = (lo + hi) >> 1;
+          if (anchors[m].y <= readY) { idx = m; lo = m + 1; } else hi = m - 1;
+        }
+        if (idx >= 0) {
+          const decay = Math.max(40, fontSize * 1.4);
+          const dist = readY - anchors[idx].y;
+          if (dist >= 0 && dist < decay) {
+            const t01 = dist / decay; // 0 = at punctuation → 1 = fully past
+            const base = anchors[idx].kind === "strong" ? 0.35 : 0.6;
+            mult = base + (1 - base) * t01;
+          }
+        }
+      }
+    }
+    el.scrollTop += dir * speed * dt * mult;
     const p = computeProgress();
     // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
     rafRef.current = requestAnimationFrame(tick);
-  }, [speed, computeProgress]);
+  }, [speed, computeProgress, pauses, mirrorV, fontSize]);
+
 
   useEffect(() => {
     if (playing) {
@@ -1039,6 +1155,7 @@ function Prompter({
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
           <div
+            ref={textInnerRef}
             className="whitespace-pre-wrap"
             style={{
               fontSize: `${fontSize}px`,
@@ -1057,8 +1174,9 @@ function Prompter({
               transform: mirrorV ? "scaleY(-1)" : undefined,
             } as React.CSSProperties}
           >
-            {script.body}
+            {scriptNodes}
           </div>
+
 
           <div style={{ height: "80vh" }} />
         </div>
@@ -1121,7 +1239,46 @@ function Prompter({
               <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
             </div>
           )}
+          {/* Reading assist toggles */}
+          <div className="mt-3 border-t border-white/10 pt-3">
+            <div className="mb-2 text-xs font-semibold text-neutral-300">Reading assist</div>
+            <div className="grid grid-cols-1 gap-1.5">
+              <button
+                onClick={() => setChunking((v) => !v)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${chunking ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <AlignJustify className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Chunk phrases</span>
+                <span className="text-[11px] opacity-70">{chunking ? "On" : "Off"}</span>
+              </button>
+              <button
+                onClick={() => setPauses((v) => !v)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${pauses ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <Timer className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Slow at punctuation</span>
+                <span className="text-[11px] opacity-70">{pauses ? "On" : "Off"}</span>
+              </button>
+              <button
+                onClick={() => setVoiceFollow((v) => !v)}
+                disabled={!vfSupported}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-40 ${voiceFollow ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <AudioLines className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Voice-follow highlight</span>
+                <span className="text-[11px] opacity-70">
+                  {!vfSupported ? "Unsupported" : voiceFollow ? (vfStatus === "listening" ? "Listening" : vfStatus === "error" ? "Blocked" : "On") : "Off"}
+                </span>
+              </button>
+            </div>
+            {voiceFollow && vfSupported && (
+              <p className="mt-2 text-[11px] text-neutral-400">
+                Speak naturally — a soft glow follows your voice. Scroll is untouched.
+              </p>
+            )}
+          </div>
           <p className="mt-2 text-[11px] text-neutral-400">Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.</p>
+
         </Popover>
       )}
 

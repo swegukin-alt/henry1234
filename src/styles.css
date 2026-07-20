@@ -199,3 +199,12 @@ input[type="range"].slider-fluid::-moz-range-thumb {
 input[type="range"].slider-fluid:active::-moz-range-thumb {
   transform: scale(1.15);
 }
+
+/* Voice-follow: soft amber highlight on the current spoken word. */
+.vf-anchor {
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.22), rgba(251, 191, 36, 0.10));
+  border-radius: 6px;
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.08);
+  transition: background 180ms ease, box-shadow 220ms ease;
+}
+
