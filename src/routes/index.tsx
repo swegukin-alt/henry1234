@@ -1123,27 +1123,39 @@ function Prompter({
     }
     // Auto-scroll always remains active. Voice-follow only adds a gentle
     // forward correction, so delayed/blocked recognition can never freeze it.
-    let frameAdvance = playingRef.current ? dir * speedRef.current * dt * mult : 0;
+    let frameAdvance = playingRef.current ? dir * speedRef.current * mult * dt : 0;
     const voiceTarget = voiceTargetScrollRef.current;
     if (currentVoiceFollow && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
-      if (Math.abs(gap) > 0.5) {
-        // React quickly when speech gets ahead, then ease gently into the
-        // eye-line. This lets the prompt match speaking pace without jumps.
-        const urgency = Math.min(1, Math.abs(gap) / Math.max(1, el.clientHeight * 0.32));
-        const eased = Math.abs(gap) * Math.min(1, dt * (9 + urgency * 11));
-        const maxStep = el.clientHeight * (1.25 + urgency * 1.8) * dt;
-        frameAdvance += Math.sign(gap) * Math.min(Math.abs(gap), eased, maxStep);
+      const absGap = Math.abs(gap);
+      if (absGap > 0.5 || Math.abs(voiceVelocityRef.current) > 4) {
+        // Desired velocity: close the gap over ~0.55 s while staying inside
+        // a sane top speed. Ramp the actual velocity toward the desired one
+        // with a ~180 ms time constant so speed changes glide instead of
+        // jumping. This is what turns catch-up from a shove into a slide.
+        const H = el.clientHeight;
+        const maxVoiceVel = H * 2.4; // px/s cap — fast but never disorienting.
+        const desired = Math.sign(gap) * Math.min(maxVoiceVel, absGap / 0.55);
+        const alpha = Math.min(1, dt * 5.5);
+        voiceVelocityRef.current += (desired - voiceVelocityRef.current) * alpha;
+        // Do not let a single frame overshoot the remaining gap.
+        const step = voiceVelocityRef.current * dt;
+        frameAdvance += Math.abs(step) > absGap ? gap : step;
       } else {
         voiceTargetScrollRef.current = null;
+        voiceVelocityRef.current = 0;
       }
+    } else if (voiceVelocityRef.current !== 0) {
+      // Gentle decay when there's no target so nothing lingers.
+      voiceVelocityRef.current *= Math.max(0, 1 - dt * 6);
+      if (Math.abs(voiceVelocityRef.current) < 2) voiceVelocityRef.current = 0;
     }
     el.scrollTop += frameAdvance;
     const p = computeProgress();
     // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
-    if (playingRef.current || voiceTargetScrollRef.current !== null) {
+    if (playingRef.current || voiceTargetScrollRef.current !== null || Math.abs(voiceVelocityRef.current) > 0.5) {
       rafRef.current = requestAnimationFrame(tick);
     } else {
       rafRef.current = null;
