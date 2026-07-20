@@ -309,6 +309,24 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
           <Toggle on={settings.mirrorH} onClick={() => set({ mirrorH: !settings.mirrorH })}>Mirror ↔</Toggle>
           <Toggle on={settings.mirrorV} onClick={() => set({ mirrorV: !settings.mirrorV })}>Mirror ↕</Toggle>
         </div>
+        <div className="pt-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-500">Reading assist</div>
+          <div className="flex flex-wrap gap-2">
+            <Toggle on={settings.chunking ?? true} onClick={() => set({ chunking: !(settings.chunking ?? true) })}>
+              <AlignJustify className="mr-1 inline h-3.5 w-3.5" /> Chunk phrases
+            </Toggle>
+            <Toggle on={settings.pauses ?? true} onClick={() => set({ pauses: !(settings.pauses ?? true) })}>
+              <Timer className="mr-1 inline h-3.5 w-3.5" /> Slow at punctuation
+            </Toggle>
+            <Toggle on={settings.voiceFollow ?? false} onClick={() => set({ voiceFollow: !(settings.voiceFollow ?? false) })}>
+              <AudioLines className="mr-1 inline h-3.5 w-3.5" /> Voice-follow
+            </Toggle>
+          </div>
+          <p className="mt-2 text-[11px] text-neutral-500">
+            Chunk phrases breaks sentences at natural breath points. Slow at punctuation eases scroll at commas &amp; periods. Voice-follow softly highlights the word you&apos;re saying (needs mic).
+          </p>
+        </div>
+
         <div className="flex gap-2 pt-1">
           {(["black", "white", "sepia"] as const).map((b) => (
             <button
