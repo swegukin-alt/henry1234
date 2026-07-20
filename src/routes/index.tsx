@@ -411,6 +411,7 @@ function Prompter({
   const [voiceFollow, setVoiceFollow] = useState<boolean>(settings.voiceFollow ?? false);
   const [chunking, setChunking] = useState<boolean>(settings.chunking ?? true);
   const [pauses, setPauses] = useState<boolean>(settings.pauses ?? true);
+  const [readingHighlight, setReadingHighlight] = useState<boolean>(settings.readingHighlight ?? true);
   const vfSupported = useMemo(() => isVoiceFollowSupported(), []);
   const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
   const words = useMemo(() => wordListFromTokens(tokens), [tokens]);
