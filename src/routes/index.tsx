@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
 import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, type ClipRecord } from "@/lib/clip-store";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
-import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow";
+import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
 
 
 export const Route = createFileRoute("/")({
@@ -937,7 +937,7 @@ function Prompter({
         const scRect = sc.getBoundingClientRect();
         const wordRect = el.getBoundingClientRect();
         const wordY = wordRect.top - scRect.top + sc.scrollTop;
-        const targetTop = wordY - sc.clientHeight * 0.38;
+        const targetTop = wordY - sc.clientHeight * 0.36;
         // Only advance forward; ignore backward jitter from re-recognition.
         if (targetTop > sc.scrollTop + 2) {
           voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
@@ -999,8 +999,8 @@ function Prompter({
       if (gap > 0.5) {
         // Time-based damping is frame-rate independent. The cap prevents a
         // delayed response from ever producing a visible page jump.
-        const eased = gap * Math.min(1, dt * 3.2);
-        const maxStep = el.clientHeight * 0.75 * dt;
+        const eased = gap * Math.min(1, dt * 5.5);
+        const maxStep = el.clientHeight * 0.95 * dt;
         frameAdvance += Math.min(gap, eased, maxStep);
       } else {
         voiceTargetScrollRef.current = null;
