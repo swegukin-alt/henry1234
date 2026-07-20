@@ -180,8 +180,10 @@ export function useVoiceFollow({
         if (context) body.append("prompt", context);
         const response = await fetch("/api/public/transcribe", { method: "POST", body });
         if (response.ok && sequence > latestAppliedSequence) {
-          await readEvents(response, sequence);
+          // The newest window wins immediately. Older overlapping streams may
+          // finish later, but can no longer pull the cursor toward stale words.
           latestAppliedSequence = sequence;
+          await readEvents(response, sequence);
         }
       } catch {} finally { inFlight--; }
     };
@@ -199,7 +201,7 @@ export function useVoiceFollow({
       };
       const silent = context!.createGain(); silent.gain.value = 0;
       source.connect(processor); processor.connect(silent); silent.connect(context!.destination);
-      setStatus("listening"); window.setTimeout(send, 240); timer = window.setInterval(send, 260);
+      setStatus("listening"); window.setTimeout(send, 360); timer = window.setInterval(send, 260);
     })();
 
     return () => {
