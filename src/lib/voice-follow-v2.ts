@@ -86,6 +86,7 @@ export function useVoiceFollow({
     let source: MediaStreamAudioSourceNode | null = null, processor: ScriptProcessorNode | null = null;
     let recognition: any = null, chunks: Float32Array[] = [], samples = 0, rate = 48000, timer = 0, inFlight = 0;
     let requestSequence = 0, latestAppliedSequence = 0;
+    let previousInterim = "", stableInterimHits = 0;
     const firstVisible = Math.max(0, visibleWordIndexRef?.current ?? 0);
     anchor.current = Math.min(firstVisible, Math.max(0, wordList.current.length - 1));
     setAnchorWordIndex(wordList.current.length ? anchor.current : -1);
@@ -133,7 +134,19 @@ export function useVoiceFollow({
       recognition.onresult = (event: any) => {
         let transcript = "";
         for (let i = event.resultIndex; i < event.results.length; i++) transcript += ` ${event.results[i][0]?.transcript || ""}`;
-        if (transcript.trim()) advance(transcript, true);
+        const normalized = transcript.split(/\s+/).map(normalizeWord).filter(Boolean).join("");
+        if (!normalized) return;
+        if (lang.startsWith("ko")) {
+          // Korean browser interim recognition is fast but noisy. Require two
+          // consecutive hypotheses to share a stable suffix before it may move
+          // the cursor; the model stream remains the accuracy authority.
+          const width = Math.min(previousInterim.length, normalized.length, 10);
+          const agrees = width >= 3 && similarity(previousInterim.slice(-width), normalized.slice(-width)) >= 0.72;
+          stableInterimHits = agrees ? stableInterimHits + 1 : 0;
+          previousInterim = normalized;
+          if (stableInterimHits < 1) return;
+        }
+        advance(transcript, true);
       };
       recognition.onend = () => { if (!stopped) try { recognition.start(); } catch {} };
       recognition.start();
