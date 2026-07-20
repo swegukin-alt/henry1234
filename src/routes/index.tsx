@@ -408,6 +408,10 @@ function Prompter({
   const [panel, setPanel] = useState<null | "settings" | "size" | "more" | "assist">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
+  // True while the user's finger is on the scroller (or momentum is still settling).
+  // Auto-advance yields to the touch so drag/momentum never fights the rAF writes.
+  const userScrollingRef = useRef<boolean>(false);
+  const userScrollReleaseTimerRef = useRef<number | null>(null);
 
   // ==== Reading-assist features ====
   const [voiceFollow, setVoiceFollow] = useState<boolean>(settings.voiceFollow ?? false);
