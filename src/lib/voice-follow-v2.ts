@@ -249,7 +249,7 @@ export function useVoiceFollow({
       };
       const silent = context!.createGain(); silent.gain.value = 0;
       source.connect(processor); processor.connect(silent); silent.connect(context!.destination);
-      setStatus("listening"); window.setTimeout(send, 440); timer = window.setInterval(send, 180);
+      setStatus("listening"); window.setTimeout(send, 360); timer = window.setInterval(send, 140);
     })();
 
     return () => {
