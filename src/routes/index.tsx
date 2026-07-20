@@ -906,6 +906,14 @@ function Prompter({
     const compute = () => {
       const scRect = sc.getBoundingClientRect();
       const anchors: Array<{ y: number; kind: "strong" | "soft" }> = [];
+      const ys = new Float32Array(wordRefsRef.current.length);
+      for (let i = 0; i < wordRefsRef.current.length; i++) {
+        const el = wordRefsRef.current[i];
+        if (!el) { ys[i] = Number.POSITIVE_INFINITY; continue; }
+        const r = el.getBoundingClientRect();
+        ys[i] = r.top - scRect.top + sc.scrollTop;
+      }
+      wordYsRef.current = ys;
       for (const t of tokens) {
         if (t.kind !== "word" || !t.pauseAfter) continue;
         const el = wordRefsRef.current[t.wordIndex];
