@@ -427,6 +427,7 @@ function Prompter({
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
   const voiceTargetScrollRef = useRef<number | null>(null);
+  const voiceFrontierScrollRef = useRef<number | null>(null);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
   // Y-position of each word (top edge, in scrollTop coords). Sorted ascending by index (also monotonic in y).
   const wordYsRef = useRef<Float32Array>(new Float32Array(0));
@@ -992,6 +993,7 @@ function Prompter({
       if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("vf-anchor");
       prevAnchorRef.current = -1;
       voiceTargetScrollRef.current = null;
+      voiceFrontierScrollRef.current = null;
       return;
     }
     const prev = prevAnchorRef.current;
@@ -1011,6 +1013,10 @@ function Prompter({
         // in the reader's focus area. The previous 36% target was almost the
         // same as the 40% eye-line and therefore barely advanced the prompt.
         const targetTop = wordY - sc.clientHeight * 0.27;
+        voiceFrontierScrollRef.current = Math.max(
+          voiceFrontierScrollRef.current ?? sc.scrollTop,
+          targetTop,
+        );
         // Only advance forward; ignore backward jitter from re-recognition.
         if (targetTop > sc.scrollTop + 2) {
           voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
@@ -1068,6 +1074,14 @@ function Prompter({
     // Auto-scroll always remains active. Voice-follow only adds a gentle
     // forward correction, so delayed/blocked recognition can never freeze it.
     let frameAdvance = playingRef.current ? dir * speed * dt * mult : 0;
+    if (voiceFollow && !mirrorV && playingRef.current) {
+      // Voice mode may lead the last confirmed word slightly so reading feels
+      // continuous, but it must not drift down the script while the speaker
+      // pauses. New recognized words expand this frontier immediately.
+      const frontier = voiceFrontierScrollRef.current ?? el.scrollTop;
+      const allowedLead = el.clientHeight * 0.075;
+      frameAdvance = Math.min(frameAdvance, Math.max(0, frontier + allowedLead - el.scrollTop));
+    }
     const voiceTarget = voiceTargetScrollRef.current;
     if (voiceFollow && !mirrorV && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
