@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
 import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, type ClipRecord } from "@/lib/clip-store";
+import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
+import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -27,6 +30,10 @@ type Settings = {
   bg: string; // 'black' | 'white' | 'sepia'
   countdown: number; // seconds
   width: number; // max width % 50-100
+  // Reading assist
+  voiceFollow: boolean; // soft highlight follows your voice (mic)
+  chunking: boolean;    // break script into breath-groups at natural pauses
+  pauses: boolean;      // briefly slow scroll at commas / sentence ends
 };
 
 const STORAGE_SCRIPTS = "prompter.scripts.v1";
@@ -42,7 +49,11 @@ const DEFAULT_SETTINGS: Settings = {
   bg: "black",
   countdown: 3,
   width: 82,
+  voiceFollow: false,
+  chunking: true,
+  pauses: true,
 };
+
 
 const SAMPLE = `여러분, 안녕하세요. 오늘 이 자리에 함께해 주셔서 감사합니다.
 
