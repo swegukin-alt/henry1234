@@ -34,13 +34,14 @@ const STORAGE_ACTIVE = "prompter.active.v1";
 const STORAGE_SETTINGS = "prompter.settings.v1";
 
 const DEFAULT_SETTINGS: Settings = {
-  fontSize: 64,
-  speed: 60,
+  fontSize: 72,
+  speed: 70,
+
   mirrorH: false,
   mirrorV: false,
   bg: "black",
   countdown: 3,
-  width: 90,
+  width: 82,
 };
 
 const SAMPLE = `여러분, 안녕하세요. 오늘 이 자리에 함께해 주셔서 감사합니다.
