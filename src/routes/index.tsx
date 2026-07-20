@@ -434,11 +434,14 @@ function Prompter({
   });
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
-  const voiceTargetScrollRef = useRef<number | null>(null);
-  // Current voice-driven scroll velocity in px/second. Ramped smoothly toward
-  // a target velocity so catching up to speech feels like an easing glide
-  // instead of the previous stepwise jumps.
-  const voiceVelocityRef = useRef(0);
+  // Voice-paced mode: the prompt auto-scrolls at the user's base speed and
+  // the mic listens to speed it up or slow it down instead of jumping to
+  // specific words. `voicePaceMultRef` is the current live multiplier,
+  // eased toward `voicePaceTargetRef` for a smooth "gliding" feel.
+  const voicePaceMultRef = useRef(1);
+  const voicePaceTargetRef = useRef(1);
+  const anchorWordIndexRef = useRef(-1);
+  useEffect(() => { anchorWordIndexRef.current = anchorWordIndex; }, [anchorWordIndex]);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
   // Y-position of each word (top edge, in scrollTop coords). Sorted ascending by index (also monotonic in y).
   const wordYsRef = useRef<Float32Array>(new Float32Array(0));
