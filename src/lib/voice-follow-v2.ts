@@ -37,10 +37,11 @@ function wav(pcm: Float32Array) {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-function peak(input: Float32Array) {
-  let result = 0;
-  for (const value of input) result = Math.max(result, Math.abs(value));
-  return result;
+function rms(input: Float32Array) {
+  if (!input.length) return 0;
+  let sum = 0;
+  for (const value of input) sum += value * value;
+  return Math.sqrt(sum / input.length);
 }
 
 function similarity(a: string, b: string) {
@@ -84,9 +85,12 @@ export function useVoiceFollow({
     if (!isVoiceFollowSupported()) { setStatus("error"); return; }
     let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null;
     let source: MediaStreamAudioSourceNode | null = null, processor: ScriptProcessorNode | null = null;
-    let recognition: any = null, chunks: Float32Array[] = [], samples = 0, rate = 48000, timer = 0, inFlight = 0;
+    let recognition: any = null, chunks: Float32Array[] = [], samples = 0, newSamples = 0, rate = 48000, timer = 0, inFlight = 0;
     let requestSequence = 0, latestAppliedSequence = 0;
     let previousInterim = "", stableInterimHits = 0;
+    let hasSentAudio = false, consecutiveFailures = 0;
+    let noiseFloor = 0.0012;
+    const requestControllers = new Map<number, AbortController>();
     const firstVisible = Math.max(0, visibleWordIndexRef?.current ?? 0);
     anchor.current = Math.min(firstVisible, Math.max(0, wordList.current.length - 1));
     setAnchorWordIndex(wordList.current.length ? anchor.current : -1);
@@ -105,7 +109,7 @@ export function useVoiceFollow({
       const heard = heardWords.join("");
       if (!list.length || heard.length < (interim ? 3 : 2)) return;
       const from = Math.max(0, Math.min(cursor, visible) - 4);
-      const lookAhead = interim ? 16 : 30;
+      const lookAhead = interim ? 18 : 44;
       const to = Math.min(list.length - 1, Math.max(cursor, visible) + lookAhead);
       let bestEnd = -1, best = 0;
       for (let start = from; start <= Math.min(Math.max(cursor, visible) + 3, to); start++) {
@@ -121,7 +125,7 @@ export function useVoiceFollow({
         }
       }
       if (bestEnd <= cursor || best < (interim ? 0.74 : 0.56)) return;
-      const next = Math.min(bestEnd, cursor + (interim ? 6 : 16));
+      const next = Math.min(bestEnd, cursor + (interim ? 7 : 20));
       anchor.current = next;
       setAnchorWordIndex(next);
     };
@@ -165,40 +169,71 @@ export function useVoiceFollow({
           const data = JSON.parse(line.slice(5).trim());
           if (sequence < latestAppliedSequence) continue;
           if (data.type === "transcript.text.delta" && data.delta) { transcript += data.delta; advance(transcript, false); }
-          if (data.type === "transcript.text.done" && data.text) advance(data.text, false);
+          if (data.type === "transcript.text.done" && data.text) {
+            latestAppliedSequence = Math.max(latestAppliedSequence, sequence);
+            advance(data.text, false);
+          }
         } catch {}
       }
     };
 
     const send = async () => {
-      if (stopped || inFlight >= 2 || samples < rate * 0.22) return;
-      const count = Math.min(samples, Math.floor(rate * 0.95)), audio = new Float32Array(count);
+      const minimumFreshAudio = rate * (hasSentAudio ? 0.18 : 0.42);
+      if (stopped || inFlight >= 2 || newSamples < minimumFreshAudio) return;
+      const count = Math.min(samples, Math.floor(rate * 0.72)), audio = new Float32Array(count);
       let need = count, pos = count;
       for (let i = chunks.length - 1; i >= 0 && need; i--) {
         const take = Math.min(need, chunks[i].length);
         audio.set(chunks[i].subarray(chunks[i].length - take), pos - take); pos -= take; need -= take;
       }
-      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.42)));
+      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.34)));
       chunks = [overlap]; samples = overlap.length;
-      if (peak(audio) < 0.008) return;
+      newSamples = 0;
+      const level = rms(audio);
+      // Adapt to the current iPhone/external-mic noise floor. A fixed peak
+      // threshold discarded quiet Korean speech when the phone was mounted
+      // sideways and farther from the speaker.
+      if (level < noiseFloor * 1.55) {
+        noiseFloor = noiseFloor * 0.92 + level * 0.08;
+        return;
+      }
+      noiseFloor = Math.min(0.012, noiseFloor * 0.985 + Math.min(level, noiseFloor * 2) * 0.015);
       const audioFile = wav(downsample(audio, rate));
       const sequence = ++requestSequence;
+      const controller = new AbortController();
+      requestControllers.set(sequence, controller);
       inFlight++;
       try {
         const body = new FormData(); body.append("file", audioFile, "speech.wav");
         body.append("language", lang.startsWith("ko") ? "ko" : "en");
-        const visible = Math.max(0, visibleWordIndexRef?.current ?? anchor.current);
-        const contextStart = Math.max(0, Math.min(anchor.current, visible) - 5);
-        const context = wordList.current.slice(contextStart, contextStart + 42).map((word) => word.norm).join(" ");
-        if (context) body.append("prompt", context);
-        const response = await fetch("/api/public/transcribe", { method: "POST", body });
-        if (response.ok && sequence > latestAppliedSequence) {
+        // Do not prime transcription with the script itself. Short noisy windows
+        // can otherwise be completed from the prompt instead of the microphone,
+        // creating false advances during pauses or off-script speech. Visible
+        // context is applied only by the sequential matcher in advance().
+        const response = await fetch("/api/public/transcribe", { method: "POST", body, signal: controller.signal });
+        if (response.ok && sequence >= latestAppliedSequence) {
           // The newest window wins immediately. Older overlapping streams may
           // finish later, but can no longer pull the cursor toward stale words.
           latestAppliedSequence = sequence;
+          // Once a newer stream has reached response headers, older overlapping
+          // streams cannot improve alignment and only consume scarce iOS
+          // connection/decoder time.
+          requestControllers.forEach((pending, pendingSequence) => {
+            if (pendingSequence < sequence) pending.abort();
+          });
           await readEvents(response, sequence);
+          consecutiveFailures = 0;
+          hasSentAudio = true;
+          if (!stopped) setStatus("listening");
+        } else if (!response.ok) {
+          consecutiveFailures++;
+          if (consecutiveFailures >= 3 && !stopped) setStatus("error");
         }
-      } catch {} finally { inFlight--; }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        consecutiveFailures++;
+        if (consecutiveFailures >= 3 && !stopped) setStatus("error");
+      } finally { requestControllers.delete(sequence); inFlight--; }
     };
 
     (async () => {
@@ -209,16 +244,18 @@ export function useVoiceFollow({
       context = new AC(); await context!.resume(); rate = context!.sampleRate;
       source = context!.createMediaStreamSource(stream); processor = context!.createScriptProcessor(1024, 1, 1);
       processor.onaudioprocess = (event) => {
-        const copy = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(copy); samples += copy.length;
+        const copy = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(copy); samples += copy.length; newSamples += copy.length;
         while (samples > rate * 2 && chunks.length > 1) samples -= chunks.shift()!.length;
       };
       const silent = context!.createGain(); silent.gain.value = 0;
       source.connect(processor); processor.connect(silent); silent.connect(context!.destination);
-      setStatus("listening"); window.setTimeout(send, 360); timer = window.setInterval(send, 260);
+      setStatus("listening"); window.setTimeout(send, 440); timer = window.setInterval(send, 180);
     })();
 
     return () => {
       stopped = true; window.clearInterval(timer);
+      requestControllers.forEach((controller) => controller.abort());
+      requestControllers.clear();
       try { recognition?.abort(); processor?.disconnect(); source?.disconnect(); } catch {}
       try { stream?.getTracks().forEach((track) => track.stop()); context?.close(); } catch {}
       setStatus("off");

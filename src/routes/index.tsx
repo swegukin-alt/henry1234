@@ -427,6 +427,7 @@ function Prompter({
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
   const voiceTargetScrollRef = useRef<number | null>(null);
+  const voiceFrontierScrollRef = useRef<number | null>(null);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
   // Y-position of each word (top edge, in scrollTop coords). Sorted ascending by index (also monotonic in y).
   const wordYsRef = useRef<Float32Array>(new Float32Array(0));
@@ -992,6 +993,7 @@ function Prompter({
       if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("vf-anchor");
       prevAnchorRef.current = -1;
       voiceTargetScrollRef.current = null;
+      voiceFrontierScrollRef.current = null;
       return;
     }
     const prev = prevAnchorRef.current;
@@ -1007,7 +1009,15 @@ function Prompter({
         const scRect = sc.getBoundingClientRect();
         const wordRect = el.getBoundingClientRect();
         const wordY = wordRect.top - scRect.top + sc.scrollTop;
-        const targetTop = wordY - sc.clientHeight * 0.36;
+        // Keep the word just spoken above the eye-line, leaving the next phrase
+        // in the reader's focus area. The previous 36% target was almost the
+        // same as the 40% eye-line and therefore barely advanced the prompt.
+        const eyeOffset = Math.max(92, sc.clientHeight * 0.27);
+        const targetTop = wordY - eyeOffset;
+        voiceFrontierScrollRef.current = Math.max(
+          voiceFrontierScrollRef.current ?? sc.scrollTop,
+          targetTop,
+        );
         // Only advance forward; ignore backward jitter from re-recognition.
         if (targetTop > sc.scrollTop + 2) {
           voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
@@ -1065,15 +1075,24 @@ function Prompter({
     // Auto-scroll always remains active. Voice-follow only adds a gentle
     // forward correction, so delayed/blocked recognition can never freeze it.
     let frameAdvance = playingRef.current ? dir * speed * dt * mult : 0;
+    if (voiceFollow && !mirrorV && playingRef.current) {
+      // Voice mode may lead the last confirmed word slightly so reading feels
+      // continuous, but it must not drift down the script while the speaker
+      // pauses. New recognized words expand this frontier immediately.
+      if (voiceFrontierScrollRef.current === null) voiceFrontierScrollRef.current = el.scrollTop;
+      const frontier = voiceFrontierScrollRef.current;
+      const allowedLead = el.clientHeight * 0.075;
+      frameAdvance = Math.min(frameAdvance, Math.max(0, frontier + allowedLead - el.scrollTop));
+    }
     const voiceTarget = voiceTargetScrollRef.current;
     if (voiceFollow && !mirrorV && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
       if (gap > 0.5) {
         // React quickly when speech gets ahead, then ease gently into the
         // eye-line. This lets the prompt match speaking pace without jumps.
-        const urgency = Math.min(1, gap / Math.max(1, el.clientHeight * 0.45));
-        const eased = gap * Math.min(1, dt * (6 + urgency * 8));
-        const maxStep = el.clientHeight * (0.9 + urgency * 1.35) * dt;
+        const urgency = Math.min(1, gap / Math.max(1, el.clientHeight * 0.32));
+        const eased = gap * Math.min(1, dt * (9 + urgency * 11));
+        const maxStep = el.clientHeight * (1.25 + urgency * 1.8) * dt;
         frameAdvance += Math.min(gap, eased, maxStep);
       } else {
         voiceTargetScrollRef.current = null;
