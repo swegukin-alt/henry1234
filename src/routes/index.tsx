@@ -1078,7 +1078,8 @@ function Prompter({
       // Voice mode may lead the last confirmed word slightly so reading feels
       // continuous, but it must not drift down the script while the speaker
       // pauses. New recognized words expand this frontier immediately.
-      const frontier = voiceFrontierScrollRef.current ?? el.scrollTop;
+      if (voiceFrontierScrollRef.current === null) voiceFrontierScrollRef.current = el.scrollTop;
+      const frontier = voiceFrontierScrollRef.current;
       const allowedLead = el.clientHeight * 0.075;
       frameAdvance = Math.min(frameAdvance, Math.max(0, frontier + allowedLead - el.scrollTop));
     }
