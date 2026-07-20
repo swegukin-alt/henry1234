@@ -178,15 +178,15 @@ export function useVoiceFollow({
     };
 
     const send = async () => {
-      const minimumFreshAudio = rate * (hasSentAudio ? 0.18 : 0.42);
+      const minimumFreshAudio = rate * (hasSentAudio ? 0.14 : 0.36);
       if (stopped || inFlight >= 2 || newSamples < minimumFreshAudio) return;
-      const count = Math.min(samples, Math.floor(rate * 0.72)), audio = new Float32Array(count);
+      const count = Math.min(samples, Math.floor(rate * 0.6)), audio = new Float32Array(count);
       let need = count, pos = count;
       for (let i = chunks.length - 1; i >= 0 && need; i--) {
         const take = Math.min(need, chunks[i].length);
         audio.set(chunks[i].subarray(chunks[i].length - take), pos - take); pos -= take; need -= take;
       }
-      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.34)));
+      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.28)));
       chunks = [overlap]; samples = overlap.length;
       newSamples = 0;
       const level = rms(audio);
