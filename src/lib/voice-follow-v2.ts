@@ -65,7 +65,12 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
   useEffect(() => { anchor.current = -1; setAnchorWordIndex(-1); }, [words]);
 
   useEffect(() => {
-    if (!enabled) { setStatus("off"); return; }
+    if (!enabled) {
+      anchor.current = -1;
+      setAnchorWordIndex(-1);
+      setStatus("off");
+      return;
+    }
     if (!isVoiceFollowSupported()) { setStatus("error"); return; }
     let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null;
     let source: MediaStreamAudioSourceNode | null = null, processor: ScriptProcessorNode | null = null;
