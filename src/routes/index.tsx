@@ -435,6 +435,10 @@ function Prompter({
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
   const voiceTargetScrollRef = useRef<number | null>(null);
+  // Current voice-driven scroll velocity in px/second. Ramped smoothly toward
+  // a target velocity so catching up to speech feels like an easing glide
+  // instead of the previous stepwise jumps.
+  const voiceVelocityRef = useRef(0);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
   // Y-position of each word (top edge, in scrollTop coords). Sorted ascending by index (also monotonic in y).
   const wordYsRef = useRef<Float32Array>(new Float32Array(0));
@@ -1013,6 +1017,7 @@ function Prompter({
       if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("vf-anchor");
       prevAnchorRef.current = -1;
       voiceTargetScrollRef.current = null;
+      voiceVelocityRef.current = 0;
       return;
     }
     const prev = prevAnchorRef.current;
@@ -1028,15 +1033,31 @@ function Prompter({
         const inner = textInnerRef.current;
         if (!inner) return;
         const wordY = el.offsetTop + inner.offsetTop;
-        // Keep the word just spoken above the eye-line, leaving the next phrase
-        // in the reader's focus area. The previous 36% target was almost the
-        // same as the 40% eye-line and therefore barely advanced the prompt.
-        const eyeOffset = Math.max(92, sc.clientHeight * 0.27);
-        const logicalTarget = wordY - eyeOffset;
-        const maxScroll = Math.max(0, sc.scrollHeight - sc.clientHeight);
+        const H = sc.clientHeight;
+        // Baseline: keep the spoken word a bit above the eye-line so the
+        // reader always has upcoming text (not just the current word) in
+        // focus. 22% leaves ~78% of the viewport for what's next.
+        const eyeOffset = Math.max(84, H * 0.22);
+        const baselineLogical = wordY - eyeOffset;
+        // Smart target: guarantee that the next sentence-end sits high
+        // enough in the viewport that a real slice of the sentence AFTER
+        // it is still on screen. Solves the "I hit the last line and have
+        // no runway" complaint without ever scrolling past the speaker.
+        const anchors = pauseAnchorsRef.current;
+        let nextStrongY = -1;
+        for (let i = 0; i < anchors.length; i++) {
+          if (anchors[i].kind === "strong" && anchors[i].y > wordY + 8) {
+            nextStrongY = anchors[i].y;
+            break;
+          }
+        }
+        // Place the next sentence end no lower than 62% of the viewport so
+        // at least ~38% of the following sentence is always readable ahead.
+        const smartLogical = nextStrongY > 0 ? nextStrongY - H * 0.62 : baselineLogical;
+        const logicalTarget = Math.max(baselineLogical, smartLogical);
+        const maxScroll = Math.max(0, sc.scrollHeight - H);
         const targetTop = mirrorV ? maxScroll - logicalTarget : logicalTarget;
         if (mirrorV) {
-          // Mirrored playback advances toward scrollTop 0.
           if (targetTop < sc.scrollTop - 2) {
             voiceTargetScrollRef.current = Math.min(voiceTargetScrollRef.current ?? maxScroll, targetTop);
           }
@@ -1102,27 +1123,39 @@ function Prompter({
     }
     // Auto-scroll always remains active. Voice-follow only adds a gentle
     // forward correction, so delayed/blocked recognition can never freeze it.
-    let frameAdvance = playingRef.current ? dir * speedRef.current * dt * mult : 0;
+    let frameAdvance = playingRef.current ? dir * speedRef.current * mult * dt : 0;
     const voiceTarget = voiceTargetScrollRef.current;
     if (currentVoiceFollow && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
-      if (Math.abs(gap) > 0.5) {
-        // React quickly when speech gets ahead, then ease gently into the
-        // eye-line. This lets the prompt match speaking pace without jumps.
-        const urgency = Math.min(1, Math.abs(gap) / Math.max(1, el.clientHeight * 0.32));
-        const eased = Math.abs(gap) * Math.min(1, dt * (9 + urgency * 11));
-        const maxStep = el.clientHeight * (1.25 + urgency * 1.8) * dt;
-        frameAdvance += Math.sign(gap) * Math.min(Math.abs(gap), eased, maxStep);
+      const absGap = Math.abs(gap);
+      if (absGap > 0.5 || Math.abs(voiceVelocityRef.current) > 4) {
+        // Desired velocity: close the gap over ~0.55 s while staying inside
+        // a sane top speed. Ramp the actual velocity toward the desired one
+        // with a ~180 ms time constant so speed changes glide instead of
+        // jumping. This is what turns catch-up from a shove into a slide.
+        const H = el.clientHeight;
+        const maxVoiceVel = H * 2.4; // px/s cap — fast but never disorienting.
+        const desired = Math.sign(gap) * Math.min(maxVoiceVel, absGap / 0.55);
+        const alpha = Math.min(1, dt * 5.5);
+        voiceVelocityRef.current += (desired - voiceVelocityRef.current) * alpha;
+        // Do not let a single frame overshoot the remaining gap.
+        const step = voiceVelocityRef.current * dt;
+        frameAdvance += Math.abs(step) > absGap ? gap : step;
       } else {
         voiceTargetScrollRef.current = null;
+        voiceVelocityRef.current = 0;
       }
+    } else if (voiceVelocityRef.current !== 0) {
+      // Gentle decay when there's no target so nothing lingers.
+      voiceVelocityRef.current *= Math.max(0, 1 - dt * 6);
+      if (Math.abs(voiceVelocityRef.current) < 2) voiceVelocityRef.current = 0;
     }
     el.scrollTop += frameAdvance;
     const p = computeProgress();
     // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
-    if (playingRef.current || voiceTargetScrollRef.current !== null) {
+    if (playingRef.current || voiceTargetScrollRef.current !== null || Math.abs(voiceVelocityRef.current) > 0.5) {
       rafRef.current = requestAnimationFrame(tick);
     } else {
       rafRef.current = null;
