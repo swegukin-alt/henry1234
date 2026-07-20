@@ -1017,6 +1017,7 @@ function Prompter({
       if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("vf-anchor");
       prevAnchorRef.current = -1;
       voiceTargetScrollRef.current = null;
+      voiceVelocityRef.current = 0;
       return;
     }
     const prev = prevAnchorRef.current;
@@ -1032,15 +1033,31 @@ function Prompter({
         const inner = textInnerRef.current;
         if (!inner) return;
         const wordY = el.offsetTop + inner.offsetTop;
-        // Keep the word just spoken above the eye-line, leaving the next phrase
-        // in the reader's focus area. The previous 36% target was almost the
-        // same as the 40% eye-line and therefore barely advanced the prompt.
-        const eyeOffset = Math.max(92, sc.clientHeight * 0.27);
-        const logicalTarget = wordY - eyeOffset;
-        const maxScroll = Math.max(0, sc.scrollHeight - sc.clientHeight);
+        const H = sc.clientHeight;
+        // Baseline: keep the spoken word a bit above the eye-line so the
+        // reader always has upcoming text (not just the current word) in
+        // focus. 22% leaves ~78% of the viewport for what's next.
+        const eyeOffset = Math.max(84, H * 0.22);
+        const baselineLogical = wordY - eyeOffset;
+        // Smart target: guarantee that the next sentence-end sits high
+        // enough in the viewport that a real slice of the sentence AFTER
+        // it is still on screen. Solves the "I hit the last line and have
+        // no runway" complaint without ever scrolling past the speaker.
+        const anchors = pauseAnchorsRef.current;
+        let nextStrongY = -1;
+        for (let i = 0; i < anchors.length; i++) {
+          if (anchors[i].kind === "strong" && anchors[i].y > wordY + 8) {
+            nextStrongY = anchors[i].y;
+            break;
+          }
+        }
+        // Place the next sentence end no lower than 62% of the viewport so
+        // at least ~38% of the following sentence is always readable ahead.
+        const smartLogical = nextStrongY > 0 ? nextStrongY - H * 0.62 : baselineLogical;
+        const logicalTarget = Math.max(baselineLogical, smartLogical);
+        const maxScroll = Math.max(0, sc.scrollHeight - H);
         const targetTop = mirrorV ? maxScroll - logicalTarget : logicalTarget;
         if (mirrorV) {
-          // Mirrored playback advances toward scrollTop 0.
           if (targetTop < sc.scrollTop - 2) {
             voiceTargetScrollRef.current = Math.min(voiceTargetScrollRef.current ?? maxScroll, targetTop);
           }
