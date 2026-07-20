@@ -1360,6 +1360,14 @@ function Prompter({
             <div className="mb-2 text-xs font-semibold text-neutral-300">Reading assist</div>
             <div className="grid grid-cols-1 gap-1.5">
               <button
+                onClick={() => setReadingHighlight((v) => !v)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${readingHighlight ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <AudioLines className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Reading highlight</span>
+                <span className="text-[11px] opacity-70">{readingHighlight ? "On" : "Off"}</span>
+              </button>
+              <button
                 onClick={() => setChunking((v) => !v)}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${chunking ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
               >
