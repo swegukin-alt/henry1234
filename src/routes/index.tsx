@@ -1049,6 +1049,15 @@ function Prompter({
     // Clamp long frames so returning from an iOS interruption never jumps.
     const dt = Math.min((ts - lastTsRef.current) / 1000, 0.05);
     lastTsRef.current = ts;
+    // While the user is actively dragging (or momentum is settling), don't
+    // write to scrollTop — iOS's native touch scroll would fight our rAF
+    // writes and produce a visible twitch/slow-down. Keep the loop alive.
+    if (userScrollingRef.current) {
+      const p = computeProgress();
+      setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
+      if (playingRef.current) rafRef.current = requestAnimationFrame(tick);
+      return;
+    }
     const dir = scrollDirectionRef.current;
     // Punctuation pauses: slow briefly when a strong/soft anchor sits near
     // the reader's eye-line (40% down the viewport). Disabled when mirrored.
