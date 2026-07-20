@@ -993,6 +993,13 @@ function Prompter({
   // set a forward target for the animation loop so spoken words settle near
   // the reader's eye-line without competing CSS and rAF scroll animations.
   useEffect(() => {
+    if (!voiceFollow) {
+      const prev = prevAnchorRef.current;
+      if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("vf-anchor");
+      prevAnchorRef.current = -1;
+      voiceTargetScrollRef.current = null;
+      return;
+    }
     const prev = prevAnchorRef.current;
     if (prev >= 0 && prev !== anchorWordIndex) {
       const p = wordRefsRef.current[prev];
@@ -1002,7 +1009,7 @@ function Prompter({
       const el = wordRefsRef.current[anchorWordIndex];
       if (el) el.classList.add("vf-anchor");
       const sc = scrollRef.current;
-      if (voiceFollow && el && sc && !mirrorV) {
+      if (el && sc && !mirrorV) {
         const scRect = sc.getBoundingClientRect();
         const wordRect = el.getBoundingClientRect();
         const wordY = wordRect.top - scRect.top + sc.scrollTop;
@@ -1032,7 +1039,8 @@ function Prompter({
     const el = scrollRef.current;
     if (!el) return;
     if (!lastTsRef.current) lastTsRef.current = ts;
-    const dt = (ts - lastTsRef.current) / 1000;
+    // Clamp long frames so returning from an iOS interruption never jumps.
+    const dt = Math.min((ts - lastTsRef.current) / 1000, 0.05);
     lastTsRef.current = ts;
     const dir = scrollDirectionRef.current;
     // Punctuation pauses: slow briefly when a strong/soft anchor sits near
@@ -1059,17 +1067,17 @@ function Prompter({
         }
       }
     }
-    // In voice-follow mode the spoken position owns scrolling. Running the
-    // regular timer at the same time makes the page drift, then snap backward.
-    let frameAdvance = voiceFollow && !mirrorV ? 0 : dir * speed * dt * mult;
+    // Auto-scroll always remains active. Voice-follow only adds a gentle
+    // forward correction, so delayed/blocked recognition can never freeze it.
+    let frameAdvance = dir * speed * dt * mult;
     const voiceTarget = voiceTargetScrollRef.current;
     if (voiceFollow && !mirrorV && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
       if (gap > 0.5) {
         // Time-based damping is frame-rate independent. The cap prevents a
         // delayed response from ever producing a visible page jump.
-        const eased = gap * Math.min(1, dt * 5.5);
-        const maxStep = el.clientHeight * 0.95 * dt;
+        const eased = gap * Math.min(1, dt * 3.5);
+        const maxStep = el.clientHeight * 0.55 * dt;
         frameAdvance += Math.min(gap, eased, maxStep);
       } else {
         voiceTargetScrollRef.current = null;
