@@ -383,9 +383,23 @@ function Prompter({
   // through the angled glass.
   // Mirror flip is disabled in video mode — the script should always read naturally on camera.
   const [mirrorV, setMirrorV] = useState(videoMode ? false : settings.mirrorV);
-  const [panel, setPanel] = useState<null | "settings" | "size" | "more">(null);
+  const [panel, setPanel] = useState<null | "settings" | "size" | "more" | "assist">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
+
+  // ==== Reading-assist features ====
+  const [voiceFollow, setVoiceFollow] = useState<boolean>(settings.voiceFollow ?? false);
+  const [chunking, setChunking] = useState<boolean>(settings.chunking ?? true);
+  const [pauses, setPauses] = useState<boolean>(settings.pauses ?? true);
+  const vfSupported = useMemo(() => isVoiceFollowSupported(), []);
+  const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
+  const words = useMemo(() => wordListFromTokens(tokens), [tokens]);
+  const lang = useMemo(() => detectLang(script.body), [script.body]);
+  const { anchorWordIndex, status: vfStatus } = useVoiceFollow({ enabled: voiceFollow && vfSupported, words, lang });
+  const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
+  const prevAnchorRef = useRef<number>(-1);
+  const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
+
 
   // Video-mode state
   const videoElRef = useRef<HTMLVideoElement>(null);
