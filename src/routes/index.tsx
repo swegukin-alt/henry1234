@@ -421,6 +421,9 @@ function Prompter({
   const prevAnchorRef = useRef<number>(-1);
   const voiceTargetScrollRef = useRef<number | null>(null);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
+  // Y-position of each word (top edge, in scrollTop coords). Sorted ascending by index (also monotonic in y).
+  const wordYsRef = useRef<Float32Array>(new Float32Array(0));
+  const activeReadIdxRef = useRef<number>(-1);
   const textInnerRef = useRef<HTMLDivElement | null>(null);
 
   // Render tokens as spans so we can attach refs for highlight + pause anchors.
