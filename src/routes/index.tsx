@@ -1090,6 +1090,7 @@ function Prompter({
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
           <div
+            ref={textInnerRef}
             className="whitespace-pre-wrap"
             style={{
               fontSize: `${fontSize}px`,
@@ -1108,8 +1109,9 @@ function Prompter({
               transform: mirrorV ? "scaleY(-1)" : undefined,
             } as React.CSSProperties}
           >
-            {script.body}
+            {scriptNodes}
           </div>
+
 
           <div style={{ height: "80vh" }} />
         </div>
