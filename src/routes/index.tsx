@@ -41,7 +41,7 @@ const DEFAULT_SETTINGS: Settings = {
   mirrorV: false,
   bg: "black",
   countdown: 3,
-  width: 90,
+  width: 82,
 };
 
 const SAMPLE = `여러분, 안녕하세요. 오늘 이 자리에 함께해 주셔서 감사합니다.
