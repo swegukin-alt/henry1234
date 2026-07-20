@@ -416,6 +416,7 @@ function Prompter({
   const { anchorWordIndex, status: vfStatus } = useVoiceFollow({ enabled: voiceFollow && vfSupported, words, lang });
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
+  const voiceTargetScrollRef = useRef<number | null>(null);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
   const textInnerRef = useRef<HTMLDivElement | null>(null);
 
@@ -920,8 +921,8 @@ function Prompter({
   }, [tokens, fontSize, settings.width, mirrorV]);
 
   // Voice-follow: toggle the amber highlight on the current anchor word AND
-  // gently scroll the container so the spoken word sits near the reader's
-  // eye-line (~38% down the viewport). Never scrolls backward.
+  // set a forward target for the animation loop so spoken words settle near
+  // the reader's eye-line without competing CSS and rAF scroll animations.
   useEffect(() => {
     const prev = prevAnchorRef.current;
     if (prev >= 0 && prev !== anchorWordIndex) {
@@ -939,7 +940,7 @@ function Prompter({
         const targetTop = wordY - sc.clientHeight * 0.38;
         // Only advance forward; ignore backward jitter from re-recognition.
         if (targetTop > sc.scrollTop + 2) {
-          sc.scrollTo({ top: targetTop, behavior: "smooth" });
+          voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
         }
       }
     }
@@ -989,13 +990,24 @@ function Prompter({
         }
       }
     }
-    el.scrollTop += dir * speed * dt * mult;
+    let frameAdvance = dir * speed * dt * mult;
+    const voiceTarget = voiceTargetScrollRef.current;
+    if (voiceFollow && !mirrorV && voiceTarget !== null) {
+      const gap = voiceTarget - el.scrollTop;
+      if (gap > 1) {
+        // Ease toward speech at a capped rate: responsive without a jarring jump.
+        frameAdvance += Math.min(gap, Math.max(2, gap * 0.12, el.clientHeight * dt * 0.9));
+      } else {
+        voiceTargetScrollRef.current = null;
+      }
+    }
+    el.scrollTop += frameAdvance;
     const p = computeProgress();
     // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
     rafRef.current = requestAnimationFrame(tick);
-  }, [speed, computeProgress, pauses, mirrorV, fontSize]);
+  }, [speed, computeProgress, pauses, mirrorV, fontSize, voiceFollow]);
 
 
   useEffect(() => {

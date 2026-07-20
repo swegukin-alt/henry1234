@@ -2,7 +2,7 @@
 //
 // The browser Web Speech API (webkitSpeechRecognition) is unreliable on iOS,
 // especially for Korean. Instead we capture PCM through the Web Audio API,
-// encode a ~3s WAV window every ~1.6s, POST it to /api/public/transcribe,
+// encode a short overlapping WAV window, POST it to /api/public/transcribe,
 // and match the returned text against the script's word list to advance
 // the highlight anchor.
 
@@ -76,6 +76,35 @@ function peak(buf: Float32Array): number {
   return m;
 }
 
+function commonPrefixLength(a: string, b: string): number {
+  const limit = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < limit && a[i] === b[i]) i++;
+  return i;
+}
+
+function commonSuffixLength(a: string, b: string): number {
+  const limit = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < limit && a[a.length - 1 - i] === b[b.length - 1 - i]) i++;
+  return i;
+}
+
+// Korean transcription spacing is not stable (e.g. "할 수" / "할수"), so
+// compare a joined Hangul stream as well as normal whitespace-delimited words.
+function joinedSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  const edge = Math.max(commonPrefixLength(a, b), commonSuffixLength(a, b));
+  const aPairs = new Set<string>();
+  for (let i = 0; i < a.length - 1; i++) aPairs.add(a.slice(i, i + 2));
+  let shared = 0;
+  for (let i = 0; i < b.length - 1; i++) if (aPairs.has(b.slice(i, i + 2))) shared++;
+  const dice = (2 * shared) / Math.max(1, a.length + b.length - 2);
+  return Math.max(dice, edge / Math.max(a.length, b.length));
+}
+
 // ---- Hook -----------------------------------------------------------------
 
 export function useVoiceFollow(opts: {
@@ -111,7 +140,9 @@ export function useVoiceFollow(opts: {
     let ringSamples = 0;
     let inRate = 48000;
     let windowTimer: number | null = null;
-    let inFlight = false;
+    let inFlight = 0;
+    let requestSequence = 0;
+    let latestAppliedSequence = 0;
 
     setStatus("starting");
 
@@ -133,27 +164,36 @@ export function useVoiceFollow(opts: {
       const heard = heardRaw.trim().split(/\s+/).map(normalizeWord).filter(Boolean);
       if (heard.length === 0) return;
       const anchor = anchorRef.current;
-      const from = Math.max(0, anchor - 2);
-      const to = Math.min(wordsList.length, from + 200);
-      const tail = heard.slice(-14);
+      const from = Math.max(0, anchor - 3);
+      const to = Math.min(wordsList.length, from + 120);
+      const tail = heard.slice(-10);
       let bestIdx = -1;
       let bestScore = 0;
-      for (let i = from; i < to; i++) {
-        const wnorm = wordsList[i].norm;
-        if (!wnorm) continue;
-        let score = 0;
-        for (const t of tail) {
-          if (wnorm === t) { score += 3; continue; }
-          if (t.length >= 2 && wnorm.length >= 2 && (wnorm.startsWith(t) || t.startsWith(wnorm))) score += 1;
-        }
-        if (score >= 2 && (score > bestScore || i > bestIdx)) {
-          bestIdx = i;
-          bestScore = score;
+      const heardJoined = tail.join("");
+      // Align short script phrases against the joined transcript. This is
+      // resilient to Korean spacing and particles while strongly preferring
+      // the next words after the current anchor.
+      for (let start = from; start < to; start++) {
+        let candidate = "";
+        for (let end = start; end < Math.min(to, start + 10); end++) {
+          candidate += wordsList[end].norm;
+          if (candidate.length < 2) continue;
+          const sample = candidate.length > heardJoined.length
+            ? candidate.slice(-heardJoined.length)
+            : candidate;
+          const heardSample = heardJoined.slice(-Math.max(sample.length, Math.min(heardJoined.length, 4)));
+          const similarity = joinedSimilarity(sample, heardSample);
+          const forwardBias = anchor < 0 ? 0 : Math.min(0.08, Math.max(0, end - anchor) * 0.002);
+          const score = similarity + forwardBias;
+          if (similarity >= (sample.length <= 3 ? 0.99 : 0.64) && score >= bestScore) {
+            bestIdx = end;
+            bestScore = score;
+          }
         }
       }
       if (bestIdx < 0) return;
       if (bestIdx < anchor - 2) return;
-      if (anchor >= 0 && bestIdx - anchor > 60) return;
+      if (anchor >= 0 && bestIdx - anchor > 35) return;
       if (bestIdx === anchor) return;
       anchorRef.current = bestIdx;
       setAnchorWordIndex(bestIdx);
@@ -162,9 +202,10 @@ export function useVoiceFollow(opts: {
     };
 
     const sendWindow = async () => {
-      if (inFlight || cancelled) return;
-      // Take the most recent ~3.2s of audio and reset the ring.
-      const wantSamples = Math.floor(inRate * 3.2);
+      if (inFlight >= 2 || cancelled) return;
+      // A 1.35 s window gives the model enough Korean context without forcing
+      // the reader to wait several seconds before every update.
+      const wantSamples = Math.floor(inRate * 1.35);
       let flat: Float32Array;
       if (ringSamples >= wantSamples) {
         flat = new Float32Array(wantSamples);
@@ -185,9 +226,8 @@ export function useVoiceFollow(opts: {
       } else {
         return;
       }
-      // Drop the OLDEST ~1.6s so successive windows overlap ~1.6s (good for
-      // Korean where words often cross boundaries) and don't grow unbounded.
-      const keepFromEnd = Math.floor(inRate * 1.6);
+      // Keep 0.75 s so adjacent requests overlap across Korean word endings.
+      const keepFromEnd = Math.floor(inRate * 0.75);
       if (ringSamples > keepFromEnd) {
         const merged = new Float32Array(keepFromEnd);
         let need = keepFromEnd, pos = keepFromEnd;
@@ -209,18 +249,25 @@ export function useVoiceFollow(opts: {
       const wav = encodeWav(down, 16000);
       if (wav.size < 2048) return;
 
-      inFlight = true;
+      const sequence = ++requestSequence;
+      inFlight++;
       try {
         const fd = new FormData();
         fd.append("file", wav, "window.wav");
         if (langCode) fd.append("language", langCode);
+        const contextStart = Math.max(0, anchorRef.current - 3);
+        const context = wordsRef.current.slice(contextStart, contextStart + 45).map((word) => word.norm).join(" ");
+        if (context) fd.append("prompt", context);
         const res = await fetch("/api/public/transcribe", { method: "POST", body: fd });
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
         const text: string = data?.text || "";
-        if (text) advanceAnchor(text);
+        if (text && sequence > latestAppliedSequence) {
+          advanceAnchor(text);
+          latestAppliedSequence = sequence;
+        }
       } catch { /* network hiccup — the next window will try again */ }
-      finally { inFlight = false; }
+      finally { inFlight--; }
     };
 
     (async () => {
@@ -235,7 +282,7 @@ export function useVoiceFollow(opts: {
       ctx = new AC();
       inRate = ctx!.sampleRate;
       source = ctx!.createMediaStreamSource(stream);
-      processor = ctx!.createScriptProcessor(4096, 1, 1);
+       processor = ctx!.createScriptProcessor(2048, 1, 1);
       processor.onaudioprocess = (e) => {
         const ch = e.inputBuffer.getChannelData(0);
         // Copy — the underlying buffer is reused by the audio engine.
@@ -259,7 +306,10 @@ export function useVoiceFollow(opts: {
       silent.connect(ctx!.destination);
 
       setStatus("listening");
-      windowTimer = window.setInterval(sendWindow, 1600);
+       // First result can begin after ~0.8 s; subsequent overlapping windows
+       // are dispatched every 600 ms, with at most two requests in flight.
+       window.setTimeout(sendWindow, 800);
+       windowTimer = window.setInterval(sendWindow, 600);
     })();
 
     return () => {

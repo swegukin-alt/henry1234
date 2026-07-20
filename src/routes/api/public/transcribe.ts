@@ -38,11 +38,13 @@ export const Route = createFileRoute("/api/public/transcribe")({
         }
 
         const lang = (form.get("language") as string | null) || "";
+        const prompt = ((form.get("prompt") as string | null) || "").slice(0, 1200);
 
         const upstream = new FormData();
         upstream.append("model", "openai/gpt-4o-transcribe");
         upstream.append("file", file, file.name || "window.wav");
         if (lang) upstream.append("language", lang);
+        if (prompt) upstream.append("prompt", prompt);
 
         const res = await fetch(
           "https://ai.gateway.lovable.dev/v1/audio/transcriptions",
