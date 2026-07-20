@@ -917,8 +917,10 @@ function Prompter({
       for (let i = 0; i < wordRefsRef.current.length; i++) {
         const el = wordRefsRef.current[i];
         if (!el) { ys[i] = Number.POSITIVE_INFINITY; continue; }
-        const r = el.getBoundingClientRect();
-        ys[i] = r.top - scRect.top + sc.scrollTop;
+        // offsetTop is not affected by the beam-splitter transform. Using
+        // getBoundingClientRect here made the array run backward in mirror
+        // mode, which broke the binary search and voice cursor completely.
+        ys[i] = el.offsetTop + inner.offsetTop;
       }
       wordYsRef.current = ys;
       for (const t of tokens) {
@@ -956,7 +958,9 @@ function Prompter({
       const ys = wordYsRef.current;
       if (!ys.length) return;
       // Eye-line: about 40% down the viewport (matches punctuation-pause line).
-      const eyeY = sc.scrollTop + sc.clientHeight * 0.4;
+      const maxScroll = Math.max(0, sc.scrollHeight - sc.clientHeight);
+      const logicalScrollTop = mirrorV ? maxScroll - sc.scrollTop : sc.scrollTop;
+      const eyeY = logicalScrollTop + sc.clientHeight * 0.4;
       // Binary search: last word with y <= eyeY.
       let lo = 0, hi = ys.length - 1, idx = 0;
       while (lo <= hi) {
@@ -1005,22 +1009,34 @@ function Prompter({
       const el = wordRefsRef.current[anchorWordIndex];
       if (el) el.classList.add("vf-anchor");
       const sc = scrollRef.current;
-      if (el && sc && !mirrorV) {
-        const scRect = sc.getBoundingClientRect();
-        const wordRect = el.getBoundingClientRect();
-        const wordY = wordRect.top - scRect.top + sc.scrollTop;
+      if (el && sc) {
+        const inner = textInnerRef.current;
+        if (!inner) return;
+        const wordY = el.offsetTop + inner.offsetTop;
         // Keep the word just spoken above the eye-line, leaving the next phrase
         // in the reader's focus area. The previous 36% target was almost the
         // same as the 40% eye-line and therefore barely advanced the prompt.
         const eyeOffset = Math.max(92, sc.clientHeight * 0.27);
-        const targetTop = wordY - eyeOffset;
-        voiceFrontierScrollRef.current = Math.max(
-          voiceFrontierScrollRef.current ?? sc.scrollTop,
-          targetTop,
-        );
-        // Only advance forward; ignore backward jitter from re-recognition.
-        if (targetTop > sc.scrollTop + 2) {
-          voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
+        const logicalTarget = wordY - eyeOffset;
+        const maxScroll = Math.max(0, sc.scrollHeight - sc.clientHeight);
+        const targetTop = mirrorV ? maxScroll - logicalTarget : logicalTarget;
+        if (mirrorV) {
+          voiceFrontierScrollRef.current = Math.min(
+            voiceFrontierScrollRef.current ?? sc.scrollTop,
+            targetTop,
+          );
+          // Mirrored playback advances toward scrollTop 0.
+          if (targetTop < sc.scrollTop - 2) {
+            voiceTargetScrollRef.current = Math.min(voiceTargetScrollRef.current ?? maxScroll, targetTop);
+          }
+        } else {
+          voiceFrontierScrollRef.current = Math.max(
+            voiceFrontierScrollRef.current ?? sc.scrollTop,
+            targetTop,
+          );
+          if (targetTop > sc.scrollTop + 2) {
+            voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
+          }
         }
       }
     }
@@ -1075,25 +1091,27 @@ function Prompter({
     // Auto-scroll always remains active. Voice-follow only adds a gentle
     // forward correction, so delayed/blocked recognition can never freeze it.
     let frameAdvance = playingRef.current ? dir * speed * dt * mult : 0;
-    if (voiceFollow && !mirrorV && playingRef.current) {
+    if (voiceFollow && playingRef.current) {
       // Voice mode may lead the last confirmed word slightly so reading feels
       // continuous, but it must not drift down the script while the speaker
       // pauses. New recognized words expand this frontier immediately.
       if (voiceFrontierScrollRef.current === null) voiceFrontierScrollRef.current = el.scrollTop;
       const frontier = voiceFrontierScrollRef.current;
       const allowedLead = el.clientHeight * 0.075;
-      frameAdvance = Math.min(frameAdvance, Math.max(0, frontier + allowedLead - el.scrollTop));
+      frameAdvance = mirrorV
+        ? Math.max(frameAdvance, Math.min(0, frontier - allowedLead - el.scrollTop))
+        : Math.min(frameAdvance, Math.max(0, frontier + allowedLead - el.scrollTop));
     }
     const voiceTarget = voiceTargetScrollRef.current;
-    if (voiceFollow && !mirrorV && voiceTarget !== null) {
+    if (voiceFollow && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
-      if (gap > 0.5) {
+      if (Math.abs(gap) > 0.5) {
         // React quickly when speech gets ahead, then ease gently into the
         // eye-line. This lets the prompt match speaking pace without jumps.
-        const urgency = Math.min(1, gap / Math.max(1, el.clientHeight * 0.32));
-        const eased = gap * Math.min(1, dt * (9 + urgency * 11));
+        const urgency = Math.min(1, Math.abs(gap) / Math.max(1, el.clientHeight * 0.32));
+        const eased = Math.abs(gap) * Math.min(1, dt * (9 + urgency * 11));
         const maxStep = el.clientHeight * (1.25 + urgency * 1.8) * dt;
-        frameAdvance += Math.min(gap, eased, maxStep);
+        frameAdvance += Math.sign(gap) * Math.min(Math.abs(gap), eased, maxStep);
       } else {
         voiceTargetScrollRef.current = null;
       }
@@ -1114,7 +1132,7 @@ function Prompter({
   // playback is paused. It uses the same rAF writer, avoiding competing native
   // smooth-scroll animations and keeping touch/remote controls responsive.
   useEffect(() => {
-    if (!voiceFollow || mirrorV || voiceTargetScrollRef.current === null || rafRef.current !== null) return;
+    if (!voiceFollow || voiceTargetScrollRef.current === null || rafRef.current !== null) return;
     lastTsRef.current = 0;
     rafRef.current = requestAnimationFrame(tick);
     return () => {
