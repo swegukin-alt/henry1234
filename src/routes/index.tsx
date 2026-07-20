@@ -53,6 +53,7 @@ const DEFAULT_SETTINGS: Settings = {
   voiceFollow: false,
   chunking: true,
   pauses: true,
+  readingHighlight: true,
 };
 
 
