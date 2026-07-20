@@ -311,6 +311,16 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
             </button>
           ))}
         </div>
+        <div className="pt-2">
+          <button
+            onClick={() => {
+              if (confirm("Reset all teleprompter settings to defaults?")) onChange({ ...DEFAULT_SETTINGS });
+            }}
+            className="w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-sm font-semibold text-neutral-300 transition hover:border-amber-400/50 hover:text-amber-300"
+          >
+            Reset to defaults
+          </button>
+        </div>
       </div>
     </section>
   );
