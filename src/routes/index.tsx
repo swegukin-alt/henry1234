@@ -1027,9 +1027,24 @@ function Prompter({
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
-          <div className="whitespace-pre-wrap font-medium leading-[1.4] tracking-tight" style={{ fontSize: `${fontSize}px`, transform: mirrorV ? "scaleY(-1)" : undefined }}>
+          <div
+            className="whitespace-pre-wrap font-medium"
+            style={{
+              fontSize: `${fontSize}px`,
+              lineHeight: 1.55,
+              letterSpacing: "-0.01em",
+              wordBreak: "keep-all",
+              overflowWrap: "break-word",
+              WebkitHyphens: "none",
+              hyphens: "none",
+              lineBreak: "strict",
+              textWrap: "pretty",
+              transform: mirrorV ? "scaleY(-1)" : undefined,
+            } as React.CSSProperties}
+          >
             {script.body}
           </div>
+
           <div style={{ height: "80vh" }} />
         </div>
       </div>
