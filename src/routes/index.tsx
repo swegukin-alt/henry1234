@@ -34,8 +34,9 @@ const STORAGE_ACTIVE = "prompter.active.v1";
 const STORAGE_SETTINGS = "prompter.settings.v1";
 
 const DEFAULT_SETTINGS: Settings = {
-  fontSize: 64,
-  speed: 60,
+  fontSize: 72,
+  speed: 70,
+
   mirrorH: false,
   mirrorV: false,
   bg: "black",
