@@ -408,6 +408,10 @@ function Prompter({
   const [panel, setPanel] = useState<null | "settings" | "size" | "more" | "assist">(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const scrollDirectionRef = useRef<1 | -1>(1); // 1 = increasing scrollTop, -1 = decreasing
+  // True while the user's finger is on the scroller (or momentum is still settling).
+  // Auto-advance yields to the touch so drag/momentum never fights the rAF writes.
+  const userScrollingRef = useRef<boolean>(false);
+  const userScrollReleaseTimerRef = useRef<number | null>(null);
 
   // ==== Reading-assist features ====
   const [voiceFollow, setVoiceFollow] = useState<boolean>(settings.voiceFollow ?? false);
@@ -1045,6 +1049,15 @@ function Prompter({
     // Clamp long frames so returning from an iOS interruption never jumps.
     const dt = Math.min((ts - lastTsRef.current) / 1000, 0.05);
     lastTsRef.current = ts;
+    // While the user is actively dragging (or momentum is settling), don't
+    // write to scrollTop — iOS's native touch scroll would fight our rAF
+    // writes and produce a visible twitch/slow-down. Keep the loop alive.
+    if (userScrollingRef.current) {
+      const p = computeProgress();
+      setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
+      if (playingRef.current) rafRef.current = requestAnimationFrame(tick);
+      return;
+    }
     const dir = scrollDirectionRef.current;
     // Punctuation pauses: slow briefly when a strong/soft anchor sits near
     // the reader's eye-line (40% down the viewport). Disabled when mirrored.
@@ -1307,6 +1320,28 @@ function Prompter({
         ref={scrollRef}
         onScroll={onScroll}
         onClick={() => { togglePlay(); }}
+        onTouchStart={() => {
+          userScrollingRef.current = true;
+          if (userScrollReleaseTimerRef.current) {
+            window.clearTimeout(userScrollReleaseTimerRef.current);
+            userScrollReleaseTimerRef.current = null;
+          }
+        }}
+        onTouchEnd={() => {
+          // Wait past iOS momentum before resuming auto-advance writes.
+          if (userScrollReleaseTimerRef.current) window.clearTimeout(userScrollReleaseTimerRef.current);
+          userScrollReleaseTimerRef.current = window.setTimeout(() => {
+            userScrollingRef.current = false;
+            userScrollReleaseTimerRef.current = null;
+            lastTsRef.current = 0; // avoid accumulated dt jump
+          }, 220);
+        }}
+        onTouchCancel={() => {
+          if (userScrollReleaseTimerRef.current) window.clearTimeout(userScrollReleaseTimerRef.current);
+          userScrollingRef.current = false;
+          userScrollReleaseTimerRef.current = null;
+          lastTsRef.current = 0;
+        }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: "touch", contain: "layout paint", willChange: "scroll-position" }}
       >
