@@ -84,9 +84,10 @@ export function useVoiceFollow({
     if (!isVoiceFollowSupported()) { setStatus("error"); return; }
     let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null;
     let source: MediaStreamAudioSourceNode | null = null, processor: ScriptProcessorNode | null = null;
-    let recognition: any = null, chunks: Float32Array[] = [], samples = 0, rate = 48000, timer = 0, inFlight = 0;
+    let recognition: any = null, chunks: Float32Array[] = [], samples = 0, newSamples = 0, rate = 48000, timer = 0, inFlight = 0;
     let requestSequence = 0, latestAppliedSequence = 0;
     let previousInterim = "", stableInterimHits = 0;
+    let hasSentAudio = false, consecutiveFailures = 0;
     const firstVisible = Math.max(0, visibleWordIndexRef?.current ?? 0);
     anchor.current = Math.min(firstVisible, Math.max(0, wordList.current.length - 1));
     setAnchorWordIndex(wordList.current.length ? anchor.current : -1);
@@ -165,21 +166,26 @@ export function useVoiceFollow({
           const data = JSON.parse(line.slice(5).trim());
           if (sequence < latestAppliedSequence) continue;
           if (data.type === "transcript.text.delta" && data.delta) { transcript += data.delta; advance(transcript, false); }
-          if (data.type === "transcript.text.done" && data.text) advance(data.text, false);
+          if (data.type === "transcript.text.done" && data.text) {
+            latestAppliedSequence = Math.max(latestAppliedSequence, sequence);
+            advance(data.text, false);
+          }
         } catch {}
       }
     };
 
     const send = async () => {
-      if (stopped || inFlight >= 2 || samples < rate * 0.22) return;
-      const count = Math.min(samples, Math.floor(rate * 0.95)), audio = new Float32Array(count);
+      const minimumFreshAudio = rate * (hasSentAudio ? 0.18 : 0.42);
+      if (stopped || inFlight >= 2 || newSamples < minimumFreshAudio) return;
+      const count = Math.min(samples, Math.floor(rate * 0.72)), audio = new Float32Array(count);
       let need = count, pos = count;
       for (let i = chunks.length - 1; i >= 0 && need; i--) {
         const take = Math.min(need, chunks[i].length);
         audio.set(chunks[i].subarray(chunks[i].length - take), pos - take); pos -= take; need -= take;
       }
-      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.42)));
+      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.34)));
       chunks = [overlap]; samples = overlap.length;
+      newSamples = 0;
       if (peak(audio) < 0.008) return;
       const audioFile = wav(downsample(audio, rate));
       const sequence = ++requestSequence;
@@ -192,13 +198,22 @@ export function useVoiceFollow({
         const context = wordList.current.slice(contextStart, contextStart + 42).map((word) => word.norm).join(" ");
         if (context) body.append("prompt", context);
         const response = await fetch("/api/public/transcribe", { method: "POST", body });
-        if (response.ok && sequence > latestAppliedSequence) {
+        if (response.ok && sequence >= latestAppliedSequence) {
           // The newest window wins immediately. Older overlapping streams may
           // finish later, but can no longer pull the cursor toward stale words.
           latestAppliedSequence = sequence;
           await readEvents(response, sequence);
+          consecutiveFailures = 0;
+          hasSentAudio = true;
+          if (!stopped) setStatus("listening");
+        } else if (!response.ok) {
+          consecutiveFailures++;
+          if (consecutiveFailures >= 3 && !stopped) setStatus("error");
         }
-      } catch {} finally { inFlight--; }
+      } catch {
+        consecutiveFailures++;
+        if (consecutiveFailures >= 3 && !stopped) setStatus("error");
+      } finally { inFlight--; }
     };
 
     (async () => {
@@ -209,12 +224,12 @@ export function useVoiceFollow({
       context = new AC(); await context!.resume(); rate = context!.sampleRate;
       source = context!.createMediaStreamSource(stream); processor = context!.createScriptProcessor(1024, 1, 1);
       processor.onaudioprocess = (event) => {
-        const copy = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(copy); samples += copy.length;
+        const copy = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(copy); samples += copy.length; newSamples += copy.length;
         while (samples > rate * 2 && chunks.length > 1) samples -= chunks.shift()!.length;
       };
       const silent = context!.createGain(); silent.gain.value = 0;
       source.connect(processor); processor.connect(silent); silent.connect(context!.destination);
-      setStatus("listening"); window.setTimeout(send, 360); timer = window.setInterval(send, 260);
+      setStatus("listening"); window.setTimeout(send, 440); timer = window.setInterval(send, 180);
     })();
 
     return () => {

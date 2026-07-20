@@ -1007,7 +1007,10 @@ function Prompter({
         const scRect = sc.getBoundingClientRect();
         const wordRect = el.getBoundingClientRect();
         const wordY = wordRect.top - scRect.top + sc.scrollTop;
-        const targetTop = wordY - sc.clientHeight * 0.36;
+        // Keep the word just spoken above the eye-line, leaving the next phrase
+        // in the reader's focus area. The previous 36% target was almost the
+        // same as the 40% eye-line and therefore barely advanced the prompt.
+        const targetTop = wordY - sc.clientHeight * 0.27;
         // Only advance forward; ignore backward jitter from re-recognition.
         if (targetTop > sc.scrollTop + 2) {
           voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
@@ -1071,9 +1074,9 @@ function Prompter({
       if (gap > 0.5) {
         // React quickly when speech gets ahead, then ease gently into the
         // eye-line. This lets the prompt match speaking pace without jumps.
-        const urgency = Math.min(1, gap / Math.max(1, el.clientHeight * 0.45));
-        const eased = gap * Math.min(1, dt * (6 + urgency * 8));
-        const maxStep = el.clientHeight * (0.9 + urgency * 1.35) * dt;
+        const urgency = Math.min(1, gap / Math.max(1, el.clientHeight * 0.32));
+        const eased = gap * Math.min(1, dt * (9 + urgency * 11));
+        const maxStep = el.clientHeight * (1.25 + urgency * 1.8) * dt;
         frameAdvance += Math.min(gap, eased, maxStep);
       } else {
         voiceTargetScrollRef.current = null;

@@ -53,16 +53,30 @@ export const Route = createFileRoute("/api/public/transcribe")({
           "https://ai.gateway.lovable.dev/v1/audio/transcriptions",
           {
             method: "POST",
-            headers: { Authorization: `Bearer ${apiKey}` },
+            headers: {
+              "Lovable-API-Key": apiKey,
+              "X-Lovable-AIG-SDK": "vercel-ai-sdk",
+            },
             body: upstream,
           }
         );
+        const responseHeaders = new Headers({
+          "Content-Type": res.headers.get("content-type") || "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+        });
+        res.headers.forEach((value, name) => {
+          if (name.toLowerCase().startsWith("x-lovable-aig-")) responseHeaders.set(name, value);
+        });
+        if (!res.ok) {
+          const message = await res.text();
+          return new Response(message || "Transcription failed", {
+            status: res.status,
+            headers: responseHeaders,
+          });
+        }
         return new Response(res.body, {
           status: res.status,
-          headers: {
-            "Content-Type": res.headers.get("content-type") || "text/event-stream",
-            "Cache-Control": "no-cache, no-transform",
-          },
+          headers: responseHeaders,
         });
       },
     },
