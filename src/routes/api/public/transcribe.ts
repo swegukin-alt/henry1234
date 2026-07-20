@@ -1,9 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 // Public endpoint that forwards short audio windows to the Lovable AI
-// transcription gateway. Used by the voice-follow reader — the browser's
-// webkitSpeechRecognition is unreliable for Korean, so we roll our own by
-// posting ~3s WAV windows every couple seconds and matching what came back.
+// transcription gateway. Streaming partials are passed through immediately.
 //
 // No user PII is stored; the audio is proxied straight to the Gateway and
 // only the returned transcript text is echoed back.
@@ -38,13 +36,11 @@ export const Route = createFileRoute("/api/public/transcribe")({
         }
 
         const lang = (form.get("language") as string | null) || "";
-        const prompt = ((form.get("prompt") as string | null) || "").slice(0, 1200);
-
         const upstream = new FormData();
         upstream.append("model", "openai/gpt-4o-transcribe");
         upstream.append("file", file, file.name || "window.wav");
         if (lang) upstream.append("language", lang);
-        if (prompt) upstream.append("prompt", prompt);
+        upstream.append("stream", "true");
 
         const res = await fetch(
           "https://ai.gateway.lovable.dev/v1/audio/transcriptions",
@@ -54,10 +50,12 @@ export const Route = createFileRoute("/api/public/transcribe")({
             body: upstream,
           }
         );
-        const body = await res.text();
-        return new Response(body, {
+        return new Response(res.body, {
           status: res.status,
-          headers: { "Content-Type": res.headers.get("content-type") || "application/json" },
+          headers: {
+            "Content-Type": res.headers.get("content-type") || "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+          },
         });
       },
     },
