@@ -34,6 +34,7 @@ type Settings = {
   voiceFollow: boolean; // soft highlight follows your voice (mic)
   chunking: boolean;    // break script into breath-groups at natural pauses
   pauses: boolean;      // briefly slow scroll at commas / sentence ends
+  readingHighlight: boolean; // highlight word at the eye-line (no mic, zero-latency)
 };
 
 const STORAGE_SCRIPTS = "prompter.scripts.v1";
@@ -52,6 +53,7 @@ const DEFAULT_SETTINGS: Settings = {
   voiceFollow: false,
   chunking: true,
   pauses: true,
+  readingHighlight: true,
 };
 
 
@@ -409,6 +411,7 @@ function Prompter({
   const [voiceFollow, setVoiceFollow] = useState<boolean>(settings.voiceFollow ?? false);
   const [chunking, setChunking] = useState<boolean>(settings.chunking ?? true);
   const [pauses, setPauses] = useState<boolean>(settings.pauses ?? true);
+  const [readingHighlight, setReadingHighlight] = useState<boolean>(settings.readingHighlight ?? true);
   const vfSupported = useMemo(() => isVoiceFollowSupported(), []);
   const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
   const words = useMemo(() => wordListFromTokens(tokens), [tokens]);
@@ -418,6 +421,9 @@ function Prompter({
   const prevAnchorRef = useRef<number>(-1);
   const voiceTargetScrollRef = useRef<number | null>(null);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
+  // Y-position of each word (top edge, in scrollTop coords). Sorted ascending by index (also monotonic in y).
+  const wordYsRef = useRef<Float32Array>(new Float32Array(0));
+  const activeReadIdxRef = useRef<number>(-1);
   const textInnerRef = useRef<HTMLDivElement | null>(null);
 
   // Render tokens as spans so we can attach refs for highlight + pause anchors.
@@ -475,9 +481,9 @@ function Prompter({
 
   // Persist live edits back to settings
   useEffect(() => {
-    onSettings({ ...settings, speed, fontSize, mirrorV, voiceFollow, chunking, pauses });
+    onSettings({ ...settings, speed, fontSize, mirrorV, voiceFollow, chunking, pauses, readingHighlight });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speed, fontSize, mirrorV, voiceFollow, chunking, pauses]);
+  }, [speed, fontSize, mirrorV, voiceFollow, chunking, pauses, readingHighlight]);
 
 
   // In video mode, use transparent background so the camera shows through.
@@ -900,6 +906,14 @@ function Prompter({
     const compute = () => {
       const scRect = sc.getBoundingClientRect();
       const anchors: Array<{ y: number; kind: "strong" | "soft" }> = [];
+      const ys = new Float32Array(wordRefsRef.current.length);
+      for (let i = 0; i < wordRefsRef.current.length; i++) {
+        const el = wordRefsRef.current[i];
+        if (!el) { ys[i] = Number.POSITIVE_INFINITY; continue; }
+        const r = el.getBoundingClientRect();
+        ys[i] = r.top - scRect.top + sc.scrollTop;
+      }
+      wordYsRef.current = ys;
       for (const t of tokens) {
         if (t.kind !== "word" || !t.pauseAfter) continue;
         const el = wordRefsRef.current[t.wordIndex];
@@ -919,6 +933,61 @@ function Prompter({
     ro.observe(inner);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [tokens, fontSize, settings.width, mirrorV]);
+
+  // Reading highlight: keep a soft glow on the word closest to the reader's
+  // eye-line. Purely scroll-driven — zero latency, no mic required.
+  // Uses a passive scroll listener + rAF throttle so it costs nothing when idle.
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    // If disabled, make sure any stale highlight is cleared.
+    if (!readingHighlight) {
+      const prev = activeReadIdxRef.current;
+      if (prev >= 0) {
+        const el = wordRefsRef.current[prev];
+        if (el) el.classList.remove("reading-word");
+        activeReadIdxRef.current = -1;
+      }
+      return;
+    }
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const ys = wordYsRef.current;
+      if (!ys.length) return;
+      // Eye-line: about 40% down the viewport (matches punctuation-pause line).
+      const eyeY = sc.scrollTop + sc.clientHeight * 0.4;
+      // Binary search: last word with y <= eyeY.
+      let lo = 0, hi = ys.length - 1, idx = 0;
+      while (lo <= hi) {
+        const m = (lo + hi) >> 1;
+        if (ys[m] <= eyeY) { idx = m; lo = m + 1; } else hi = m - 1;
+      }
+      const prev = activeReadIdxRef.current;
+      if (idx === prev) return;
+      if (prev >= 0) {
+        const pe = wordRefsRef.current[prev];
+        if (pe) pe.classList.remove("reading-word");
+      }
+      const el = wordRefsRef.current[idx];
+      if (el) el.classList.add("reading-word");
+      activeReadIdxRef.current = idx;
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
+    sc.addEventListener("scroll", schedule, { passive: true });
+    schedule(); // initial paint
+    return () => {
+      sc.removeEventListener("scroll", schedule);
+      if (raf) cancelAnimationFrame(raf);
+      const prev = activeReadIdxRef.current;
+      if (prev >= 0) {
+        const el = wordRefsRef.current[prev];
+        if (el) el.classList.remove("reading-word");
+        activeReadIdxRef.current = -1;
+      }
+    };
+  }, [readingHighlight, tokens, fontSize, settings.width, mirrorV]);
+
 
   // Voice-follow: toggle the amber highlight on the current anchor word AND
   // set a forward target for the animation loop so spoken words settle near
@@ -1290,6 +1359,14 @@ function Prompter({
           <div className="mt-3 border-t border-white/10 pt-3">
             <div className="mb-2 text-xs font-semibold text-neutral-300">Reading assist</div>
             <div className="grid grid-cols-1 gap-1.5">
+              <button
+                onClick={() => setReadingHighlight((v) => !v)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${readingHighlight ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+              >
+                <AudioLines className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Reading highlight</span>
+                <span className="text-[11px] opacity-70">{readingHighlight ? "On" : "Off"}</span>
+              </button>
               <button
                 onClick={() => setChunking((v) => !v)}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${chunking ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}

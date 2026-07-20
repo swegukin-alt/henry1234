@@ -208,3 +208,12 @@ input[type="range"].slider-fluid:active::-moz-range-thumb {
   transition: background 180ms ease, box-shadow 220ms ease;
 }
 
+/* Reading highlight: subtle glow on the word at the eye-line while scrolling.
+   Kept softer than .vf-anchor so both can coexist without visual clash. */
+.reading-word {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+  transition: background 120ms linear, box-shadow 160ms linear;
+}
+
