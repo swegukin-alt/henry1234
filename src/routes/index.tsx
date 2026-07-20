@@ -1011,16 +1011,15 @@ function Prompter({
   }, [readingHighlight, tokens, fontSize, settings.width, mirrorV]);
 
 
-  // Voice-follow: toggle the amber highlight on the current anchor word AND
-  // set a forward target for the animation loop so spoken words settle near
-  // the reader's eye-line without competing CSS and rAF scroll animations.
+  // Voice-paced: highlight the spoken word and let the tick loop use it to
+  // stretch/compress the base scroll speed. No jumping to positions — the
+  // prompt keeps its glide, just faster or slower to match your voice.
   useEffect(() => {
     if (!voiceFollow) {
       const prev = prevAnchorRef.current;
       if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("vf-anchor");
       prevAnchorRef.current = -1;
-      voiceTargetScrollRef.current = null;
-      voiceVelocityRef.current = 0;
+      voicePaceTargetRef.current = 1;
       return;
     }
     const prev = prevAnchorRef.current;
@@ -1031,48 +1030,9 @@ function Prompter({
     if (anchorWordIndex >= 0) {
       const el = wordRefsRef.current[anchorWordIndex];
       if (el) el.classList.add("vf-anchor");
-      const sc = scrollRef.current;
-      if (el && sc) {
-        const inner = textInnerRef.current;
-        if (!inner) return;
-        const wordY = el.offsetTop + inner.offsetTop;
-        const H = sc.clientHeight;
-        // Baseline: keep the spoken word a bit above the eye-line so the
-        // reader always has upcoming text (not just the current word) in
-        // focus. 22% leaves ~78% of the viewport for what's next.
-        const eyeOffset = Math.max(84, H * 0.22);
-        const baselineLogical = wordY - eyeOffset;
-        // Smart target: guarantee that the next sentence-end sits high
-        // enough in the viewport that a real slice of the sentence AFTER
-        // it is still on screen. Solves the "I hit the last line and have
-        // no runway" complaint without ever scrolling past the speaker.
-        const anchors = pauseAnchorsRef.current;
-        let nextStrongY = -1;
-        for (let i = 0; i < anchors.length; i++) {
-          if (anchors[i].kind === "strong" && anchors[i].y > wordY + 8) {
-            nextStrongY = anchors[i].y;
-            break;
-          }
-        }
-        // Place the next sentence end no lower than 62% of the viewport so
-        // at least ~38% of the following sentence is always readable ahead.
-        const smartLogical = nextStrongY > 0 ? nextStrongY - H * 0.62 : baselineLogical;
-        const logicalTarget = Math.max(baselineLogical, smartLogical);
-        const maxScroll = Math.max(0, sc.scrollHeight - H);
-        const targetTop = mirrorV ? maxScroll - logicalTarget : logicalTarget;
-        if (mirrorV) {
-          if (targetTop < sc.scrollTop - 2) {
-            voiceTargetScrollRef.current = Math.min(voiceTargetScrollRef.current ?? maxScroll, targetTop);
-          }
-        } else {
-          if (targetTop > sc.scrollTop + 2) {
-            voiceTargetScrollRef.current = Math.max(voiceTargetScrollRef.current ?? 0, targetTop);
-          }
-        }
-      }
     }
     prevAnchorRef.current = anchorWordIndex;
-  }, [anchorWordIndex, voiceFollow, mirrorV]);
+  }, [anchorWordIndex, voiceFollow]);
 
   const computeProgress = useCallback(() => {
     const el = scrollRef.current;
@@ -1116,69 +1076,63 @@ function Prompter({
           const dist = readY - anchors[idx].y;
           if (dist >= 0 && dist < decay) {
             const t01 = dist / decay; // 0 = at punctuation → 1 = fully past
-            // A subtle, readable ease rather than a near-pause. The previous
-            // 35% multiplier felt like playback had frozen on large text.
             const base = anchors[idx].kind === "strong" ? 0.68 : 0.82;
             mult = base + (1 - base) * t01;
           }
         }
       }
     }
-    // Auto-scroll always remains active. Voice-follow only adds a gentle
-    // forward correction, so delayed/blocked recognition can never freeze it.
-    let frameAdvance = playingRef.current ? dir * speedRef.current * mult * dt : 0;
-    const voiceTarget = voiceTargetScrollRef.current;
-    if (currentVoiceFollow && voiceTarget !== null) {
-      const gap = voiceTarget - el.scrollTop;
-      const absGap = Math.abs(gap);
-      if (absGap > 0.5 || Math.abs(voiceVelocityRef.current) > 4) {
-        // Desired velocity: close the gap over ~0.55 s while staying inside
-        // a sane top speed. Ramp the actual velocity toward the desired one
-        // with a ~180 ms time constant so speed changes glide instead of
-        // jumping. This is what turns catch-up from a shove into a slide.
+
+    // Voice-paced multiplier: compare where the speaker is (highlighted
+    // word) to where the prompt is (eye-line). Ahead → speed up. Behind
+    // → slow down. Eased smoothly so speed changes glide.
+    if (currentVoiceFollow) {
+      const idx = anchorWordIndexRef.current;
+      const wordYs = wordYsRef.current;
+      let target = 1;
+      if (idx >= 0 && idx < wordYs.length && Number.isFinite(wordYs[idx])) {
+        const inner = textInnerRef.current;
+        const wordY = wordYs[idx] + (inner?.offsetTop ?? 0);
         const H = el.clientHeight;
-        const maxVoiceVel = H * 2.4; // px/s cap — fast but never disorienting.
-        const desired = Math.sign(gap) * Math.min(maxVoiceVel, absGap / 0.55);
-        const alpha = Math.min(1, dt * 5.5);
-        voiceVelocityRef.current += (desired - voiceVelocityRef.current) * alpha;
-        // Do not let a single frame overshoot the remaining gap.
-        const step = voiceVelocityRef.current * dt;
-        frameAdvance += Math.abs(step) > absGap ? gap : step;
-      } else {
-        voiceTargetScrollRef.current = null;
-        voiceVelocityRef.current = 0;
+        const maxScroll = Math.max(0, el.scrollHeight - H);
+        const logicalScrollTop = currentMirrorV ? maxScroll - el.scrollTop : el.scrollTop;
+        // Eye-line at ~34% down leaves the upcoming sentence in focus.
+        const eyeLineY = logicalScrollTop + H * 0.34;
+        // Positive lead = speaker is ahead of the prompt (below the eye-line).
+        const leadPx = wordY - eyeLineY;
+        // Normalise by viewport height so the response feels the same on
+        // phone landscape and tablet portrait. Gain of 3.0 gives full
+        // speed-up (~3x) when the speaker is a full viewport ahead.
+        const norm = leadPx / H;
+        target = Math.max(0.2, Math.min(3.2, 1 + norm * 3.0));
+        // Small dead-zone so ordinary reading noise doesn't wobble speed.
+        if (Math.abs(norm) < 0.05) target = 1;
       }
-    } else if (voiceVelocityRef.current !== 0) {
-      // Gentle decay when there's no target so nothing lingers.
-      voiceVelocityRef.current *= Math.max(0, 1 - dt * 6);
-      if (Math.abs(voiceVelocityRef.current) < 2) voiceVelocityRef.current = 0;
+      voicePaceTargetRef.current = target;
+    } else {
+      voicePaceTargetRef.current = 1;
     }
+    // ~330 ms glide toward the target multiplier — noticeable enough to
+    // keep pace, gentle enough to never feel like a lurch.
+    const paceAlpha = Math.min(1, dt * 3.0);
+    voicePaceMultRef.current += (voicePaceTargetRef.current - voicePaceMultRef.current) * paceAlpha;
+    if (Math.abs(voicePaceMultRef.current - 1) < 0.005) voicePaceMultRef.current = 1;
+
+    const frameAdvance = playingRef.current
+      ? dir * speedRef.current * mult * voicePaceMultRef.current * dt
+      : 0;
     el.scrollTop += frameAdvance;
     const p = computeProgress();
-    // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
-    if (playingRef.current || voiceTargetScrollRef.current !== null || Math.abs(voiceVelocityRef.current) > 0.5) {
+    if (playingRef.current) {
       rafRef.current = requestAnimationFrame(tick);
     } else {
       rafRef.current = null;
     }
   }, [computeProgress]);
 
-  // Voice-follow can smoothly advance the prompt even while ordinary timed
-  // playback is paused. It uses the same rAF writer, avoiding competing native
-  // smooth-scroll animations and keeping touch/remote controls responsive.
-  useEffect(() => {
-    if (!voiceFollow || voiceTargetScrollRef.current === null || rafRef.current !== null) return;
-    lastTsRef.current = 0;
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (!playingRef.current && rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    };
-  }, [anchorWordIndex, voiceFollow, mirrorV, tick]);
+
 
 
   useEffect(() => {
