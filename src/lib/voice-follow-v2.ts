@@ -37,12 +37,6 @@ function wav(pcm: Float32Array) {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-function peak(input: Float32Array) {
-  let result = 0;
-  for (const value of input) result = Math.max(result, Math.abs(value));
-  return result;
-}
-
 function rms(input: Float32Array) {
   if (!input.length) return 0;
   let sum = 0;
