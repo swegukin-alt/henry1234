@@ -990,13 +990,18 @@ function Prompter({
         }
       }
     }
-    let frameAdvance = dir * speed * dt * mult;
+    // In voice-follow mode the spoken position owns scrolling. Running the
+    // regular timer at the same time makes the page drift, then snap backward.
+    let frameAdvance = voiceFollow && !mirrorV ? 0 : dir * speed * dt * mult;
     const voiceTarget = voiceTargetScrollRef.current;
     if (voiceFollow && !mirrorV && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
-      if (gap > 1) {
-        // Ease toward speech at a capped rate: responsive without a jarring jump.
-        frameAdvance += Math.min(gap, Math.max(2, gap * 0.12, el.clientHeight * dt * 0.9));
+      if (gap > 0.5) {
+        // Time-based damping is frame-rate independent. The cap prevents a
+        // delayed response from ever producing a visible page jump.
+        const eased = gap * Math.min(1, dt * 3.2);
+        const maxStep = el.clientHeight * 0.75 * dt;
+        frameAdvance += Math.min(gap, eased, maxStep);
       } else {
         voiceTargetScrollRef.current = null;
       }
