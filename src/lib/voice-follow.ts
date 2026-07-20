@@ -117,8 +117,6 @@ export function useVoiceFollow(opts: {
   const [status, setStatus] = useState<VoiceFollowStatus>("off");
   const anchorRef = useRef<number>(-1);
   const wordsRef = useRef(words);
-  const lastMatchAtRef = useRef<number>(0);
-  const fadeTimerRef = useRef<number | null>(null);
 
   useEffect(() => { wordsRef.current = words; }, [words]);
 
@@ -144,61 +142,57 @@ export function useVoiceFollow(opts: {
     let requestSequence = 0;
     let latestAppliedSequence = 0;
 
+    // Voice-follow is a sequential reader, not a document search. Always begin
+    // at word zero when it is enabled and preserve this cursor through silence.
+    anchorRef.current = 0;
+    setAnchorWordIndex(wordsRef.current.length ? 0 : -1);
     setStatus("starting");
 
     const langCode = lang.startsWith("ko") ? "ko" : lang.startsWith("en") ? "en" : "";
-
-    const scheduleFade = () => {
-      if (fadeTimerRef.current) window.clearTimeout(fadeTimerRef.current);
-      fadeTimerRef.current = window.setTimeout(() => {
-        if (Date.now() - lastMatchAtRef.current >= 3800) {
-          anchorRef.current = -1;
-          setAnchorWordIndex(-1);
-        }
-      }, 4000);
-    };
 
     const advanceAnchor = (heardRaw: string) => {
       const wordsList = wordsRef.current;
       if (!wordsList.length) return;
       const heard = heardRaw.trim().split(/\s+/).map(normalizeWord).filter(Boolean);
       if (heard.length === 0) return;
-      const anchor = anchorRef.current;
+      const anchor = Math.max(0, anchorRef.current);
+      // Only inspect the immediate reading neighborhood. This is the key
+      // invariant that prevents repeated Korean phrases from jumping elsewhere.
       const from = Math.max(0, anchor - 3);
-      const to = Math.min(wordsList.length, from + 120);
-      const tail = heard.slice(-10);
+      const to = Math.min(wordsList.length, anchor + 15);
+      const tail = heard.slice(-8);
       let bestIdx = -1;
       let bestScore = 0;
       const heardJoined = tail.join("");
-      // Align short script phrases against the joined transcript. This is
-      // resilient to Korean spacing and particles while strongly preferring
-      // the next words after the current anchor.
-      for (let start = from; start < to; start++) {
-        let candidate = "";
-        for (let end = start; end < Math.min(to, start + 10); end++) {
-          candidate += wordsList[end].norm;
-          if (candidate.length < 2) continue;
-          const sample = candidate.length > heardJoined.length
-            ? candidate.slice(-heardJoined.length)
-            : candidate;
-          const heardSample = heardJoined.slice(-Math.max(sample.length, Math.min(heardJoined.length, 4)));
-          const similarity = joinedSimilarity(sample, heardSample);
-          const forwardBias = anchor < 0 ? 0 : Math.min(0.08, Math.max(0, end - anchor) * 0.002);
-          const score = similarity + forwardBias;
-          if (similarity >= (sample.length <= 3 ? 0.99 : 0.64) && score >= bestScore) {
+      // Score transcript suffixes against phrases ending at each nearby word.
+      // A distance penalty makes the next expected phrase beat a later repeat.
+      for (let end = from; end < to; end++) {
+        for (let start = Math.max(from, end - 6); start <= end; start++) {
+          const candidate = wordsList
+            .slice(start, end + 1)
+            .map((word) => word.norm)
+            .join("");
+          if (candidate.length < 3) continue;
+          const compareLength = Math.min(candidate.length, heardJoined.length);
+          const similarity = joinedSimilarity(
+            candidate.slice(-compareLength),
+            heardJoined.slice(-compareLength),
+          );
+          const distancePenalty = Math.max(0, end - anchor - 5) * 0.025;
+          const lengthBonus = Math.min(0.08, compareLength * 0.004);
+          const score = similarity + lengthBonus - distancePenalty;
+          if (similarity >= (compareLength < 5 ? 0.92 : 0.67) && score > bestScore) {
             bestIdx = end;
             bestScore = score;
           }
         }
       }
-      if (bestIdx < 0) return;
-      if (bestIdx < anchor - 2) return;
-      if (anchor >= 0 && bestIdx - anchor > 35) return;
-      if (bestIdx === anchor) return;
-      anchorRef.current = bestIdx;
-      setAnchorWordIndex(bestIdx);
-      lastMatchAtRef.current = Date.now();
-      scheduleFade();
+      if (bestIdx <= anchor) return;
+      // Even a bad transcription can move only a short natural phrase. Later
+      // windows continue from the new cursor instead of teleporting the page.
+      const next = Math.min(bestIdx, anchor + 7);
+      anchorRef.current = next;
+      setAnchorWordIndex(next);
     };
 
     const sendWindow = async () => {
@@ -255,8 +249,8 @@ export function useVoiceFollow(opts: {
         const fd = new FormData();
         fd.append("file", wav, "window.wav");
         if (langCode) fd.append("language", langCode);
-        const contextStart = Math.max(0, anchorRef.current - 3);
-        const context = wordsRef.current.slice(contextStart, contextStart + 45).map((word) => word.norm).join(" ");
+        const contextStart = Math.max(0, anchorRef.current - 2);
+        const context = wordsRef.current.slice(contextStart, contextStart + 28).map((word) => word.norm).join(" ");
         if (context) fd.append("prompt", context);
         const res = await fetch("/api/public/transcribe", { method: "POST", body: fd });
         if (!res.ok) return;
@@ -315,7 +309,6 @@ export function useVoiceFollow(opts: {
     return () => {
       cancelled = true;
       if (windowTimer) window.clearInterval(windowTimer);
-      if (fadeTimerRef.current) { window.clearTimeout(fadeTimerRef.current); fadeTimerRef.current = null; }
       try { processor?.disconnect(); } catch {}
       try { source?.disconnect(); } catch {}
       try { stream?.getTracks().forEach((t) => t.stop()); } catch {}
