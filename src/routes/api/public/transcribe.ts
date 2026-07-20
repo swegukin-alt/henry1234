@@ -40,6 +40,13 @@ export const Route = createFileRoute("/api/public/transcribe")({
         upstream.append("model", "openai/gpt-4o-transcribe");
         upstream.append("file", file, file.name || "window.wav");
         if (lang) upstream.append("language", lang);
+        const prompt = form.get("prompt");
+        if (typeof prompt === "string" && prompt.trim()) {
+          // Bias recognition toward the small script neighborhood currently at
+          // the reader's eye-line. This improves Korean names and spacing while
+          // still allowing natural off-script speech to be ignored client-side.
+          upstream.append("prompt", prompt.slice(0, 1200));
+        }
         upstream.append("stream", "true");
 
         const res = await fetch(
