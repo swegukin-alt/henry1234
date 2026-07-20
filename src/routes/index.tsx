@@ -870,13 +870,38 @@ function Prompter({
     const dt = (ts - lastTsRef.current) / 1000;
     lastTsRef.current = ts;
     const dir = scrollDirectionRef.current;
-    el.scrollTop += dir * speed * dt;
+    // Punctuation pauses: slow briefly when a strong/soft anchor sits near
+    // the reader's eye-line (40% down the viewport). Disabled when mirrored.
+    let mult = 1;
+    if (pauses && !mirrorV) {
+      const anchors = pauseAnchorsRef.current;
+      if (anchors.length) {
+        const readY = el.scrollTop + el.clientHeight * 0.4;
+        // Binary-search last anchor with y <= readY.
+        let lo = 0, hi = anchors.length - 1, idx = -1;
+        while (lo <= hi) {
+          const m = (lo + hi) >> 1;
+          if (anchors[m].y <= readY) { idx = m; lo = m + 1; } else hi = m - 1;
+        }
+        if (idx >= 0) {
+          const decay = Math.max(40, fontSize * 1.4);
+          const dist = readY - anchors[idx].y;
+          if (dist >= 0 && dist < decay) {
+            const t01 = dist / decay; // 0 = at punctuation → 1 = fully past
+            const base = anchors[idx].kind === "strong" ? 0.35 : 0.6;
+            mult = base + (1 - base) * t01;
+          }
+        }
+      }
+    }
+    el.scrollTop += dir * speed * dt * mult;
     const p = computeProgress();
     // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
     rafRef.current = requestAnimationFrame(tick);
-  }, [speed, computeProgress]);
+  }, [speed, computeProgress, pauses, mirrorV, fontSize]);
+
 
   useEffect(() => {
     if (playing) {
