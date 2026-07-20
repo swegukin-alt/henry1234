@@ -76,36 +76,56 @@ export function useVoiceFollow(opts: {
       const words = wordsRef.current;
       if (!words.length || heard.length === 0) return;
       const anchor = anchorRef.current;
-      // Search window: from current anchor (or start) forward ~40 words.
-      const from = Math.max(0, anchor);
-      const to = Math.min(words.length, from + 60);
-      // Take the last 1-4 heard words as the "current" transcript tail.
-      const tail = heard.slice(-4).filter(Boolean);
+      // Search window: from just before the current anchor forward ~150 words
+      // so recognition catch-up (which arrives seconds later) still lands ahead.
+      const from = Math.max(0, anchor - 2);
+      const to = Math.min(words.length, from + 150);
+      // Use the last ~10 heard tokens as the recent transcript tail.
+      const tail = heard.slice(-10).filter(Boolean);
       if (tail.length === 0) return;
+      // For each script word in the window, score how many tail words match.
+      // Prefer the FURTHEST-FORWARD strong match — that tracks the reader's
+      // mouth even when recognition lags a beat behind.
       let bestIdx = -1;
-      // Walk forward and prefer the LATEST word in the window that matches
-      // any of the tail words. This naturally advances as the user reads on.
+      let bestScore = 0;
       for (let i = from; i < to; i++) {
         const wnorm = words[i].norm;
         if (!wnorm) continue;
+        let score = 0;
         for (const t of tail) {
           if (!t) continue;
-          if (wnorm === t || (t.length >= 3 && (wnorm.startsWith(t) || t.startsWith(wnorm)))) {
-            bestIdx = i;
-            break;
+          if (wnorm === t) { score += 2; continue; }
+          if (t.length >= 3 && wnorm.length >= 3 && (wnorm.startsWith(t) || t.startsWith(wnorm))) {
+            score += 1;
           }
+        }
+        if (score >= 1 && (score > bestScore || i > bestIdx)) {
+          bestIdx = i;
+          bestScore = score;
         }
       }
       if (bestIdx < 0) return;
-      // Never move backward more than 3 tokens (recognition often re-emits).
-      if (bestIdx < anchor - 3) return;
-      // Never leap forward absurdly (>25 tokens) on a single utterance.
-      if (anchor >= 0 && bestIdx - anchor > 25) return;
+      // Never move backward more than 2 tokens (recognition often re-emits).
+      if (bestIdx < anchor - 2) return;
+      // Never leap forward absurdly on a single utterance.
+      if (anchor >= 0 && bestIdx - anchor > 50) return;
       if (bestIdx === anchor) return;
       anchorRef.current = bestIdx;
       setAnchorWordIndex(bestIdx);
       lastMatchAtRef.current = Date.now();
       scheduleFade();
+    };
+
+    // Ask for the mic explicitly — on iOS Safari, recognition sometimes
+    // silently no-ops until mic permission has been granted at least once.
+    const primeMic = async () => {
+      try {
+        const md = (navigator as any).mediaDevices;
+        if (md?.getUserMedia) {
+          const s = await md.getUserMedia({ audio: true });
+          s.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+        }
+      } catch { /* ignore — recognition.start() will surface not-allowed */ }
     };
 
     const startNew = () => {
@@ -118,15 +138,18 @@ export function useVoiceFollow(opts: {
       rec.maxAlternatives = 1;
       rec.onstart = () => { setStatus("listening"); };
       rec.onresult = (e: any) => {
-        // Collect only NEW result entries (from resultIndex onward), take the
-        // most recent one — that's what the user is saying right now.
+        // Collect every word from the in-flight utterance(s) — from
+        // e.resultIndex to the end — so we always see the freshest speech.
         try {
           const results = e.results;
-          const idx = Math.max(0, results.length - 1);
-          const alt = results[idx][0];
-          const transcript: string = alt?.transcript || "";
-          if (!transcript.trim()) return;
-          const heard = transcript.trim().split(/\s+/).map(normalizeWord).filter(Boolean);
+          const start = typeof e.resultIndex === "number" ? e.resultIndex : Math.max(0, results.length - 1);
+          let combined = "";
+          for (let i = start; i < results.length; i++) {
+            const alt = results[i][0];
+            if (alt?.transcript) combined += " " + alt.transcript;
+          }
+          if (!combined.trim()) return;
+          const heard = combined.trim().split(/\s+/).map(normalizeWord).filter(Boolean);
           advanceAnchor(heard);
         } catch {}
       };
