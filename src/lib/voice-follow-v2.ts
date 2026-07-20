@@ -139,7 +139,7 @@ export function useVoiceFollow({
       recognition.start();
     } catch { recognition = null; }
 
-    const readEvents = async (response: Response) => {
+    const readEvents = async (response: Response, sequence: number) => {
       if (!response.body) return;
       const reader = response.body.getReader(), decoder = new TextDecoder();
       let buffer = "", transcript = "";
@@ -150,6 +150,7 @@ export function useVoiceFollow({
         const events = buffer.split("\n\n"); buffer = events.pop() || "";
         for (const event of events) for (const line of event.split("\n")) if (line.startsWith("data:")) try {
           const data = JSON.parse(line.slice(5).trim());
+          if (sequence < latestAppliedSequence) continue;
           if (data.type === "transcript.text.delta" && data.delta) { transcript += data.delta; advance(transcript, false); }
           if (data.type === "transcript.text.done" && data.text) advance(data.text, false);
         } catch {}
@@ -179,7 +180,7 @@ export function useVoiceFollow({
         if (context) body.append("prompt", context);
         const response = await fetch("/api/public/transcribe", { method: "POST", body });
         if (response.ok && sequence > latestAppliedSequence) {
-          await readEvents(response);
+          await readEvents(response, sequence);
           latestAppliedSequence = sequence;
         }
       } catch {} finally { inFlight--; }

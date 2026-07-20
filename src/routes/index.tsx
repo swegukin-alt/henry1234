@@ -940,21 +940,14 @@ function Prompter({
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [tokens, fontSize, settings.width, mirrorV]);
 
-  // Reading highlight: keep a soft glow on the word closest to the reader's
-  // eye-line. Purely scroll-driven — zero latency, no mic required.
-  // Uses a passive scroll listener + rAF throttle so it costs nothing when idle.
+  // Track the word at the eye-line on every scroll. Voice recognition uses this
+  // position even when the optional visual reading highlight is switched off.
   useEffect(() => {
     const sc = scrollRef.current;
     if (!sc) return;
-    // If disabled, make sure any stale highlight is cleared.
     if (!readingHighlight) {
       const prev = activeReadIdxRef.current;
-      if (prev >= 0) {
-        const el = wordRefsRef.current[prev];
-        if (el) el.classList.remove("reading-word");
-        activeReadIdxRef.current = -1;
-      }
-      return;
+      if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("reading-word");
     }
     let raf = 0;
     const update = () => {
@@ -971,12 +964,11 @@ function Prompter({
       }
       const prev = activeReadIdxRef.current;
       if (idx === prev) return;
-      if (prev >= 0) {
+      if (readingHighlight && prev >= 0) {
         const pe = wordRefsRef.current[prev];
         if (pe) pe.classList.remove("reading-word");
       }
-      const el = wordRefsRef.current[idx];
-      if (el) el.classList.add("reading-word");
+      if (readingHighlight) wordRefsRef.current[idx]?.classList.add("reading-word");
       activeReadIdxRef.current = idx;
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
@@ -986,11 +978,7 @@ function Prompter({
       sc.removeEventListener("scroll", schedule);
       if (raf) cancelAnimationFrame(raf);
       const prev = activeReadIdxRef.current;
-      if (prev >= 0) {
-        const el = wordRefsRef.current[prev];
-        if (el) el.classList.remove("reading-word");
-        activeReadIdxRef.current = -1;
-      }
+      if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("reading-word");
     };
   }, [readingHighlight, tokens, fontSize, settings.width, mirrorV]);
 
