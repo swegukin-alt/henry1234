@@ -82,9 +82,9 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
     // Sequential alignment: only phrases touching the current cursor are legal.
     const advance = (raw: string, interim: boolean) => {
       const list = wordList.current, cursor = Math.max(0, anchor.current);
-      const heard = raw.split(/\s+/).map(normalizeWord).filter(Boolean).slice(-7).join("");
+      const heard = raw.split(/\s+/).map(normalizeWord).filter(Boolean).slice(-12).join("");
       if (!list.length || heard.length < 2) return;
-      const from = Math.max(0, cursor - 2), to = Math.min(list.length - 1, cursor + (interim ? 8 : 12));
+      const from = Math.max(0, cursor - 3), to = Math.min(list.length - 1, cursor + (interim ? 14 : 24));
       let bestEnd = -1, best = 0;
       for (let start = from; start <= Math.min(cursor + 2, to); start++) {
         let candidate = "";
@@ -92,12 +92,12 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
           candidate += list[end].norm;
           if (end < cursor || candidate.length < 2) continue;
           const width = Math.min(candidate.length, heard.length);
-          const score = similarity(candidate.slice(-width), heard.slice(-width)) - Math.max(0, end - cursor - 6) * 0.035;
+          const score = similarity(candidate.slice(-width), heard.slice(-width)) - Math.max(0, end - cursor - 10) * 0.018;
           if (score > best) { best = score; bestEnd = end; }
         }
       }
-      if (bestEnd <= cursor || best < (interim ? 0.82 : 0.68)) return;
-      const next = Math.min(bestEnd, cursor + (interim ? 3 : 6));
+      if (bestEnd <= cursor || best < (interim ? 0.7 : 0.58)) return;
+      const next = Math.min(bestEnd, cursor + (interim ? 7 : 14));
       anchor.current = next;
       setAnchorWordIndex(next);
     };
@@ -134,14 +134,14 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
     };
 
     const send = async () => {
-      if (stopped || inFlight >= 2 || samples < rate * 0.55) return;
-      const count = Math.min(samples, Math.floor(rate * 1.1)), audio = new Float32Array(count);
+      if (stopped || inFlight >= 3 || samples < rate * 0.32) return;
+      const count = Math.min(samples, Math.floor(rate * 0.72)), audio = new Float32Array(count);
       let need = count, pos = count;
       for (let i = chunks.length - 1; i >= 0 && need; i--) {
         const take = Math.min(need, chunks[i].length);
         audio.set(chunks[i].subarray(chunks[i].length - take), pos - take); pos -= take; need -= take;
       }
-      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.42)));
+      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.24)));
       chunks = [overlap]; samples = overlap.length;
       if (peak(audio) < 0.008) return;
       const audioFile = wav(downsample(audio, rate));
@@ -167,7 +167,7 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
       };
       const silent = context!.createGain(); silent.gain.value = 0;
       source.connect(processor); processor.connect(silent); silent.connect(context!.destination);
-      setStatus("listening"); window.setTimeout(send, 600); timer = window.setInterval(send, 520);
+      setStatus("listening"); window.setTimeout(send, 340); timer = window.setInterval(send, 300);
     })();
 
     return () => {
