@@ -934,6 +934,61 @@ function Prompter({
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [tokens, fontSize, settings.width, mirrorV]);
 
+  // Reading highlight: keep a soft glow on the word closest to the reader's
+  // eye-line. Purely scroll-driven — zero latency, no mic required.
+  // Uses a passive scroll listener + rAF throttle so it costs nothing when idle.
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    // If disabled, make sure any stale highlight is cleared.
+    if (!readingHighlight) {
+      const prev = activeReadIdxRef.current;
+      if (prev >= 0) {
+        const el = wordRefsRef.current[prev];
+        if (el) el.classList.remove("reading-word");
+        activeReadIdxRef.current = -1;
+      }
+      return;
+    }
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const ys = wordYsRef.current;
+      if (!ys.length) return;
+      // Eye-line: about 40% down the viewport (matches punctuation-pause line).
+      const eyeY = sc.scrollTop + sc.clientHeight * 0.4;
+      // Binary search: last word with y <= eyeY.
+      let lo = 0, hi = ys.length - 1, idx = 0;
+      while (lo <= hi) {
+        const m = (lo + hi) >> 1;
+        if (ys[m] <= eyeY) { idx = m; lo = m + 1; } else hi = m - 1;
+      }
+      const prev = activeReadIdxRef.current;
+      if (idx === prev) return;
+      if (prev >= 0) {
+        const pe = wordRefsRef.current[prev];
+        if (pe) pe.classList.remove("reading-word");
+      }
+      const el = wordRefsRef.current[idx];
+      if (el) el.classList.add("reading-word");
+      activeReadIdxRef.current = idx;
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
+    sc.addEventListener("scroll", schedule, { passive: true });
+    schedule(); // initial paint
+    return () => {
+      sc.removeEventListener("scroll", schedule);
+      if (raf) cancelAnimationFrame(raf);
+      const prev = activeReadIdxRef.current;
+      if (prev >= 0) {
+        const el = wordRefsRef.current[prev];
+        if (el) el.classList.remove("reading-word");
+        activeReadIdxRef.current = -1;
+      }
+    };
+  }, [readingHighlight, tokens, fontSize, settings.width, mirrorV]);
+
+
   // Voice-follow: toggle the amber highlight on the current anchor word AND
   // set a forward target for the animation loop so spoken words settle near
   // the reader's eye-line without competing CSS and rAF scroll animations.
