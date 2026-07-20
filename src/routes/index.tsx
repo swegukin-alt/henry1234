@@ -1320,6 +1320,28 @@ function Prompter({
         ref={scrollRef}
         onScroll={onScroll}
         onClick={() => { togglePlay(); }}
+        onTouchStart={() => {
+          userScrollingRef.current = true;
+          if (userScrollReleaseTimerRef.current) {
+            window.clearTimeout(userScrollReleaseTimerRef.current);
+            userScrollReleaseTimerRef.current = null;
+          }
+        }}
+        onTouchEnd={() => {
+          // Wait past iOS momentum before resuming auto-advance writes.
+          if (userScrollReleaseTimerRef.current) window.clearTimeout(userScrollReleaseTimerRef.current);
+          userScrollReleaseTimerRef.current = window.setTimeout(() => {
+            userScrollingRef.current = false;
+            userScrollReleaseTimerRef.current = null;
+            lastTsRef.current = 0; // avoid accumulated dt jump
+          }, 220);
+        }}
+        onTouchCancel={() => {
+          if (userScrollReleaseTimerRef.current) window.clearTimeout(userScrollReleaseTimerRef.current);
+          userScrollingRef.current = false;
+          userScrollReleaseTimerRef.current = null;
+          lastTsRef.current = 0;
+        }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
         style={{ WebkitOverflowScrolling: "touch", contain: "layout paint", willChange: "scroll-position" }}
       >
