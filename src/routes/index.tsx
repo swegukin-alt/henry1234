@@ -919,8 +919,9 @@ function Prompter({
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [tokens, fontSize, settings.width, mirrorV]);
 
-  // Voice-follow: toggle the amber highlight on the current anchor word
-  // imperatively so we don't re-render the whole script on every match.
+  // Voice-follow: toggle the amber highlight on the current anchor word AND
+  // gently scroll the container so the spoken word sits near the reader's
+  // eye-line (~38% down the viewport). Never scrolls backward.
   useEffect(() => {
     const prev = prevAnchorRef.current;
     if (prev >= 0 && prev !== anchorWordIndex) {
@@ -930,9 +931,20 @@ function Prompter({
     if (anchorWordIndex >= 0) {
       const el = wordRefsRef.current[anchorWordIndex];
       if (el) el.classList.add("vf-anchor");
+      const sc = scrollRef.current;
+      if (voiceFollow && el && sc && !mirrorV) {
+        const scRect = sc.getBoundingClientRect();
+        const wordRect = el.getBoundingClientRect();
+        const wordY = wordRect.top - scRect.top + sc.scrollTop;
+        const targetTop = wordY - sc.clientHeight * 0.38;
+        // Only advance forward; ignore backward jitter from re-recognition.
+        if (targetTop > sc.scrollTop + 2) {
+          sc.scrollTo({ top: targetTop, behavior: "smooth" });
+        }
+      }
     }
     prevAnchorRef.current = anchorWordIndex;
-  }, [anchorWordIndex]);
+  }, [anchorWordIndex, voiceFollow, mirrorV]);
 
   const computeProgress = useCallback(() => {
     const el = scrollRef.current;
