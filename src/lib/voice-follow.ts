@@ -177,7 +177,7 @@ export function useVoiceFollow(opts: {
       catch { setStatus("error"); }
     };
 
-    startNew();
+    primeMic().then(() => { if (wantOnRef.current) startNew(); });
 
     return () => {
       wantOnRef.current = false;
