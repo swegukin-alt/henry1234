@@ -481,9 +481,9 @@ function Prompter({
 
   // Persist live edits back to settings
   useEffect(() => {
-    onSettings({ ...settings, speed, fontSize, mirrorV, voiceFollow, chunking, pauses });
+    onSettings({ ...settings, speed, fontSize, mirrorV, voiceFollow, chunking, pauses, readingHighlight });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speed, fontSize, mirrorV, voiceFollow, chunking, pauses]);
+  }, [speed, fontSize, mirrorV, voiceFollow, chunking, pauses, readingHighlight]);
 
 
   // In video mode, use transparent background so the camera shows through.
