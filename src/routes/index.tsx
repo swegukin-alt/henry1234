@@ -872,6 +872,50 @@ function Prompter({
   }, [clips, script.title]);
 
 
+  // Recompute pause-anchor Y positions when layout may have shifted.
+  useLayoutEffect(() => {
+    const sc = scrollRef.current;
+    const inner = textInnerRef.current;
+    if (!sc || !inner) return;
+    let raf = 0;
+    const compute = () => {
+      const scRect = sc.getBoundingClientRect();
+      const anchors: Array<{ y: number; kind: "strong" | "soft" }> = [];
+      for (const t of tokens) {
+        if (t.kind !== "word" || !t.pauseAfter) continue;
+        const el = wordRefsRef.current[t.wordIndex];
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        anchors.push({ y: r.bottom - scRect.top + sc.scrollTop, kind: t.pauseAfter });
+      }
+      anchors.sort((a, b) => a.y - b.y);
+      pauseAnchorsRef.current = anchors;
+    };
+    // Wait one frame so fonts / wrapping settle before measuring.
+    raf = requestAnimationFrame(compute);
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(compute);
+    });
+    ro.observe(inner);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [tokens, fontSize, settings.width, mirrorV]);
+
+  // Voice-follow: toggle the amber highlight on the current anchor word
+  // imperatively so we don't re-render the whole script on every match.
+  useEffect(() => {
+    const prev = prevAnchorRef.current;
+    if (prev >= 0 && prev !== anchorWordIndex) {
+      const p = wordRefsRef.current[prev];
+      if (p) p.classList.remove("vf-anchor");
+    }
+    if (anchorWordIndex >= 0) {
+      const el = wordRefsRef.current[anchorWordIndex];
+      if (el) el.classList.add("vf-anchor");
+    }
+    prevAnchorRef.current = anchorWordIndex;
+  }, [anchorWordIndex]);
+
   const computeProgress = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return 0;
