@@ -34,6 +34,7 @@ type Settings = {
   voiceFollow: boolean; // soft highlight follows your voice (mic)
   chunking: boolean;    // break script into breath-groups at natural pauses
   pauses: boolean;      // briefly slow scroll at commas / sentence ends
+  readingHighlight: boolean; // highlight word at the eye-line (no mic, zero-latency)
 };
 
 const STORAGE_SCRIPTS = "prompter.scripts.v1";
