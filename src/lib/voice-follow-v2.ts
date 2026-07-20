@@ -193,10 +193,10 @@ export function useVoiceFollow({
       try {
         const body = new FormData(); body.append("file", audioFile, "speech.wav");
         body.append("language", lang.startsWith("ko") ? "ko" : "en");
-        const visible = Math.max(0, visibleWordIndexRef?.current ?? anchor.current);
-        const contextStart = Math.max(0, Math.min(anchor.current, visible) - 5);
-        const context = wordList.current.slice(contextStart, contextStart + 42).map((word) => word.norm).join(" ");
-        if (context) body.append("prompt", context);
+        // Do not prime transcription with the script itself. Short noisy windows
+        // can otherwise be completed from the prompt instead of the microphone,
+        // creating false advances during pauses or off-script speech. Visible
+        // context is applied only by the sequential matcher in advance().
         const response = await fetch("/api/public/transcribe", { method: "POST", body });
         if (response.ok && sequence >= latestAppliedSequence) {
           // The newest window wins immediately. Older overlapping streams may
