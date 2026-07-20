@@ -43,6 +43,13 @@ function peak(input: Float32Array) {
   return result;
 }
 
+function rms(input: Float32Array) {
+  if (!input.length) return 0;
+  let sum = 0;
+  for (const value of input) sum += value * value;
+  return Math.sqrt(sum / input.length);
+}
+
 function similarity(a: string, b: string) {
   if (!a || !b) return 0;
   if (a === b) return 1;
@@ -88,6 +95,8 @@ export function useVoiceFollow({
     let requestSequence = 0, latestAppliedSequence = 0;
     let previousInterim = "", stableInterimHits = 0;
     let hasSentAudio = false, consecutiveFailures = 0;
+    let noiseFloor = 0.0012;
+    const requestControllers = new Map<number, AbortController>();
     const firstVisible = Math.max(0, visibleWordIndexRef?.current ?? 0);
     anchor.current = Math.min(firstVisible, Math.max(0, wordList.current.length - 1));
     setAnchorWordIndex(wordList.current.length ? anchor.current : -1);
@@ -106,7 +115,7 @@ export function useVoiceFollow({
       const heard = heardWords.join("");
       if (!list.length || heard.length < (interim ? 3 : 2)) return;
       const from = Math.max(0, Math.min(cursor, visible) - 4);
-      const lookAhead = interim ? 16 : 30;
+      const lookAhead = interim ? 18 : 44;
       const to = Math.min(list.length - 1, Math.max(cursor, visible) + lookAhead);
       let bestEnd = -1, best = 0;
       for (let start = from; start <= Math.min(Math.max(cursor, visible) + 3, to); start++) {
@@ -122,7 +131,7 @@ export function useVoiceFollow({
         }
       }
       if (bestEnd <= cursor || best < (interim ? 0.74 : 0.56)) return;
-      const next = Math.min(bestEnd, cursor + (interim ? 6 : 16));
+      const next = Math.min(bestEnd, cursor + (interim ? 7 : 20));
       anchor.current = next;
       setAnchorWordIndex(next);
     };
@@ -186,9 +195,19 @@ export function useVoiceFollow({
       const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.34)));
       chunks = [overlap]; samples = overlap.length;
       newSamples = 0;
-      if (peak(audio) < 0.008) return;
+      const level = rms(audio);
+      // Adapt to the current iPhone/external-mic noise floor. A fixed peak
+      // threshold discarded quiet Korean speech when the phone was mounted
+      // sideways and farther from the speaker.
+      if (level < noiseFloor * 1.55) {
+        noiseFloor = noiseFloor * 0.92 + level * 0.08;
+        return;
+      }
+      noiseFloor = Math.min(0.012, noiseFloor * 0.985 + Math.min(level, noiseFloor * 2) * 0.015);
       const audioFile = wav(downsample(audio, rate));
       const sequence = ++requestSequence;
+      const controller = new AbortController();
+      requestControllers.set(sequence, controller);
       inFlight++;
       try {
         const body = new FormData(); body.append("file", audioFile, "speech.wav");
@@ -197,11 +216,17 @@ export function useVoiceFollow({
         // can otherwise be completed from the prompt instead of the microphone,
         // creating false advances during pauses or off-script speech. Visible
         // context is applied only by the sequential matcher in advance().
-        const response = await fetch("/api/public/transcribe", { method: "POST", body });
+        const response = await fetch("/api/public/transcribe", { method: "POST", body, signal: controller.signal });
         if (response.ok && sequence >= latestAppliedSequence) {
           // The newest window wins immediately. Older overlapping streams may
           // finish later, but can no longer pull the cursor toward stale words.
           latestAppliedSequence = sequence;
+          // Once a newer stream has reached response headers, older overlapping
+          // streams cannot improve alignment and only consume scarce iOS
+          // connection/decoder time.
+          requestControllers.forEach((pending, pendingSequence) => {
+            if (pendingSequence < sequence) pending.abort();
+          });
           await readEvents(response, sequence);
           consecutiveFailures = 0;
           hasSentAudio = true;
@@ -210,10 +235,11 @@ export function useVoiceFollow({
           consecutiveFailures++;
           if (consecutiveFailures >= 3 && !stopped) setStatus("error");
         }
-      } catch {
+      } catch (error) {
+        if (controller.signal.aborted) return;
         consecutiveFailures++;
         if (consecutiveFailures >= 3 && !stopped) setStatus("error");
-      } finally { inFlight--; }
+      } finally { requestControllers.delete(sequence); inFlight--; }
     };
 
     (async () => {
@@ -234,6 +260,8 @@ export function useVoiceFollow({
 
     return () => {
       stopped = true; window.clearInterval(timer);
+      requestControllers.forEach((controller) => controller.abort());
+      requestControllers.clear();
       try { recognition?.abort(); processor?.disconnect(); source?.disconnect(); } catch {}
       try { stream?.getTracks().forEach((track) => track.stop()); context?.close(); } catch {}
       setStatus("off");
