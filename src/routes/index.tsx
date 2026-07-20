@@ -399,6 +399,27 @@ function Prompter({
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
+  const textInnerRef = useRef<HTMLDivElement | null>(null);
+
+  // Render tokens as spans so we can attach refs for highlight + pause anchors.
+  // Rebuilt only when tokens change; refs are re-collected inline.
+  const scriptNodes = useMemo(() => {
+    wordRefsRef.current = [];
+    return tokens.map((t, i) => {
+      if (t.kind === "break") return <br key={`b${i}`} />;
+      if (t.kind === "space") return t.text;
+      const idx = t.wordIndex;
+      return (
+        <span
+          key={`w${idx}`}
+          ref={(el) => { wordRefsRef.current[idx] = el; }}
+          data-pause={t.pauseAfter ?? undefined}
+        >{t.text}</span>
+      );
+    });
+  }, [tokens]);
+
+
 
 
   // Video-mode state
