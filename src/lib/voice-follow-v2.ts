@@ -57,7 +57,17 @@ function similarity(a: string, b: string) {
   return (2 * shared) / Math.max(1, a.length + b.length - 2);
 }
 
-export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; words: Word[]; lang: string }) {
+export function useVoiceFollow({
+  enabled,
+  words,
+  lang,
+  visibleWordIndexRef,
+}: {
+  enabled: boolean;
+  words: Word[];
+  lang: string;
+  visibleWordIndexRef?: { current: number };
+}) {
   const [anchorWordIndex, setAnchorWordIndex] = useState(-1);
   const [status, setStatus] = useState<VoiceFollowStatus>("off");
   const anchor = useRef(-1), wordList = useRef(words);
@@ -75,29 +85,43 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
     let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null;
     let source: MediaStreamAudioSourceNode | null = null, processor: ScriptProcessorNode | null = null;
     let recognition: any = null, chunks: Float32Array[] = [], samples = 0, rate = 48000, timer = 0, inFlight = 0;
-    anchor.current = 0;
-    setAnchorWordIndex(wordList.current.length ? 0 : -1);
+    let requestSequence = 0, latestAppliedSequence = 0;
+    let previousInterim = "", stableInterimHits = 0;
+    const firstVisible = Math.max(0, visibleWordIndexRef?.current ?? 0);
+    anchor.current = Math.min(firstVisible, Math.max(0, wordList.current.length - 1));
+    setAnchorWordIndex(wordList.current.length ? anchor.current : -1);
     setStatus("starting");
 
-    // Sequential alignment: only phrases touching the current cursor are legal.
+    // Sequential alignment constrained to what is currently visible. Off-script
+    // speech is ignored instead of being treated as a document-wide search.
     const advance = (raw: string, interim: boolean) => {
-      const list = wordList.current, cursor = Math.max(0, anchor.current);
-      const heard = raw.split(/\s+/).map(normalizeWord).filter(Boolean).slice(-12).join("");
-      if (!list.length || heard.length < 2) return;
-      const from = Math.max(0, cursor - 3), to = Math.min(list.length - 1, cursor + (interim ? 14 : 24));
+      const list = wordList.current;
+      const visible = Math.max(0, visibleWordIndexRef?.current ?? anchor.current);
+      // Manual scrolling is authoritative. Re-anchor near the eye-line without
+      // ever jumping backward because of a stale transcription response.
+      if (visible > anchor.current + 8) anchor.current = Math.min(visible, list.length - 1);
+      const cursor = Math.max(0, anchor.current);
+      const heardWords = raw.split(/\s+/).map(normalizeWord).filter(Boolean).slice(-14);
+      const heard = heardWords.join("");
+      if (!list.length || heard.length < (interim ? 3 : 2)) return;
+      const from = Math.max(0, Math.min(cursor, visible) - 4);
+      const lookAhead = interim ? 16 : 30;
+      const to = Math.min(list.length - 1, Math.max(cursor, visible) + lookAhead);
       let bestEnd = -1, best = 0;
-      for (let start = from; start <= Math.min(cursor + 2, to); start++) {
+      for (let start = from; start <= Math.min(Math.max(cursor, visible) + 3, to); start++) {
         let candidate = "";
         for (let end = start; end <= to; end++) {
           candidate += list[end].norm;
           if (end < cursor || candidate.length < 2) continue;
           const width = Math.min(candidate.length, heard.length);
-          const score = similarity(candidate.slice(-width), heard.slice(-width)) - Math.max(0, end - cursor - 10) * 0.018;
+          const distancePenalty = Math.max(0, end - Math.max(cursor, visible) - 9) * 0.02;
+          const shortPenalty = width < 5 ? 0.1 : 0;
+          const score = similarity(candidate.slice(-width), heard.slice(-width)) - distancePenalty - shortPenalty;
           if (score > best) { best = score; bestEnd = end; }
         }
       }
-      if (bestEnd <= cursor || best < (interim ? 0.7 : 0.58)) return;
-      const next = Math.min(bestEnd, cursor + (interim ? 7 : 14));
+      if (bestEnd <= cursor || best < (interim ? 0.74 : 0.56)) return;
+      const next = Math.min(bestEnd, cursor + (interim ? 6 : 16));
       anchor.current = next;
       setAnchorWordIndex(next);
     };
@@ -106,17 +130,29 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (Recognition) try {
       recognition = new Recognition();
-      recognition.lang = lang; recognition.continuous = true; recognition.interimResults = true; recognition.maxAlternatives = 1;
+      recognition.lang = lang; recognition.continuous = true; recognition.interimResults = true; recognition.maxAlternatives = 3;
       recognition.onresult = (event: any) => {
         let transcript = "";
         for (let i = event.resultIndex; i < event.results.length; i++) transcript += ` ${event.results[i][0]?.transcript || ""}`;
-        if (transcript.trim()) advance(transcript, true);
+        const normalized = transcript.split(/\s+/).map(normalizeWord).filter(Boolean).join("");
+        if (!normalized) return;
+        if (lang.startsWith("ko")) {
+          // Korean browser interim recognition is fast but noisy. Require two
+          // consecutive hypotheses to share a stable suffix before it may move
+          // the cursor; the model stream remains the accuracy authority.
+          const width = Math.min(previousInterim.length, normalized.length, 10);
+          const agrees = width >= 3 && similarity(previousInterim.slice(-width), normalized.slice(-width)) >= 0.72;
+          stableInterimHits = agrees ? stableInterimHits + 1 : 0;
+          previousInterim = normalized;
+          if (stableInterimHits < 1) return;
+        }
+        advance(transcript, true);
       };
       recognition.onend = () => { if (!stopped) try { recognition.start(); } catch {} };
       recognition.start();
     } catch { recognition = null; }
 
-    const readEvents = async (response: Response) => {
+    const readEvents = async (response: Response, sequence: number) => {
       if (!response.body) return;
       const reader = response.body.getReader(), decoder = new TextDecoder();
       let buffer = "", transcript = "";
@@ -127,6 +163,7 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
         const events = buffer.split("\n\n"); buffer = events.pop() || "";
         for (const event of events) for (const line of event.split("\n")) if (line.startsWith("data:")) try {
           const data = JSON.parse(line.slice(5).trim());
+          if (sequence < latestAppliedSequence) continue;
           if (data.type === "transcript.text.delta" && data.delta) { transcript += data.delta; advance(transcript, false); }
           if (data.type === "transcript.text.done" && data.text) advance(data.text, false);
         } catch {}
@@ -134,23 +171,33 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
     };
 
     const send = async () => {
-      if (stopped || inFlight >= 3 || samples < rate * 0.32) return;
-      const count = Math.min(samples, Math.floor(rate * 0.72)), audio = new Float32Array(count);
+      if (stopped || inFlight >= 2 || samples < rate * 0.22) return;
+      const count = Math.min(samples, Math.floor(rate * 0.95)), audio = new Float32Array(count);
       let need = count, pos = count;
       for (let i = chunks.length - 1; i >= 0 && need; i--) {
         const take = Math.min(need, chunks[i].length);
         audio.set(chunks[i].subarray(chunks[i].length - take), pos - take); pos -= take; need -= take;
       }
-      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.24)));
+      const overlap = audio.slice(Math.max(0, audio.length - Math.floor(rate * 0.42)));
       chunks = [overlap]; samples = overlap.length;
       if (peak(audio) < 0.008) return;
       const audioFile = wav(downsample(audio, rate));
+      const sequence = ++requestSequence;
       inFlight++;
       try {
         const body = new FormData(); body.append("file", audioFile, "speech.wav");
         body.append("language", lang.startsWith("ko") ? "ko" : "en");
+        const visible = Math.max(0, visibleWordIndexRef?.current ?? anchor.current);
+        const contextStart = Math.max(0, Math.min(anchor.current, visible) - 5);
+        const context = wordList.current.slice(contextStart, contextStart + 42).map((word) => word.norm).join(" ");
+        if (context) body.append("prompt", context);
         const response = await fetch("/api/public/transcribe", { method: "POST", body });
-        if (response.ok) await readEvents(response);
+        if (response.ok && sequence > latestAppliedSequence) {
+          // The newest window wins immediately. Older overlapping streams may
+          // finish later, but can no longer pull the cursor toward stale words.
+          latestAppliedSequence = sequence;
+          await readEvents(response, sequence);
+        }
       } catch {} finally { inFlight--; }
     };
 
@@ -167,7 +214,7 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
       };
       const silent = context!.createGain(); silent.gain.value = 0;
       source.connect(processor); processor.connect(silent); silent.connect(context!.destination);
-      setStatus("listening"); window.setTimeout(send, 340); timer = window.setInterval(send, 300);
+      setStatus("listening"); window.setTimeout(send, 360); timer = window.setInterval(send, 260);
     })();
 
     return () => {
@@ -176,7 +223,7 @@ export function useVoiceFollow({ enabled, words, lang }: { enabled: boolean; wor
       try { stream?.getTracks().forEach((track) => track.stop()); context?.close(); } catch {}
       setStatus("off");
     };
-  }, [enabled, lang]);
+  }, [enabled, lang, visibleWordIndexRef]);
 
   return { anchorWordIndex, status };
 }

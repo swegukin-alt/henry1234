@@ -413,18 +413,23 @@ function Prompter({
   const [chunking, setChunking] = useState<boolean>(settings.chunking ?? true);
   const [pauses, setPauses] = useState<boolean>(settings.pauses ?? true);
   const [readingHighlight, setReadingHighlight] = useState<boolean>(settings.readingHighlight ?? true);
+  const activeReadIdxRef = useRef<number>(-1);
   const vfSupported = useMemo(() => isVoiceFollowSupported(), []);
   const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
   const words = useMemo(() => wordListFromTokens(tokens), [tokens]);
   const lang = useMemo(() => detectLang(script.body), [script.body]);
-  const { anchorWordIndex, status: vfStatus } = useVoiceFollow({ enabled: voiceFollow && vfSupported, words, lang });
+  const { anchorWordIndex, status: vfStatus } = useVoiceFollow({
+    enabled: voiceFollow && vfSupported,
+    words,
+    lang,
+    visibleWordIndexRef: activeReadIdxRef,
+  });
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
   const voiceTargetScrollRef = useRef<number | null>(null);
   const pauseAnchorsRef = useRef<Array<{ y: number; kind: "strong" | "soft" }>>([]);
   // Y-position of each word (top edge, in scrollTop coords). Sorted ascending by index (also monotonic in y).
   const wordYsRef = useRef<Float32Array>(new Float32Array(0));
-  const activeReadIdxRef = useRef<number>(-1);
   const textInnerRef = useRef<HTMLDivElement | null>(null);
 
   // Render tokens as spans so we can attach refs for highlight + pause anchors.
@@ -935,21 +940,14 @@ function Prompter({
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [tokens, fontSize, settings.width, mirrorV]);
 
-  // Reading highlight: keep a soft glow on the word closest to the reader's
-  // eye-line. Purely scroll-driven — zero latency, no mic required.
-  // Uses a passive scroll listener + rAF throttle so it costs nothing when idle.
+  // Track the word at the eye-line on every scroll. Voice recognition uses this
+  // position even when the optional visual reading highlight is switched off.
   useEffect(() => {
     const sc = scrollRef.current;
     if (!sc) return;
-    // If disabled, make sure any stale highlight is cleared.
     if (!readingHighlight) {
       const prev = activeReadIdxRef.current;
-      if (prev >= 0) {
-        const el = wordRefsRef.current[prev];
-        if (el) el.classList.remove("reading-word");
-        activeReadIdxRef.current = -1;
-      }
-      return;
+      if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("reading-word");
     }
     let raf = 0;
     const update = () => {
@@ -966,12 +964,11 @@ function Prompter({
       }
       const prev = activeReadIdxRef.current;
       if (idx === prev) return;
-      if (prev >= 0) {
+      if (readingHighlight && prev >= 0) {
         const pe = wordRefsRef.current[prev];
         if (pe) pe.classList.remove("reading-word");
       }
-      const el = wordRefsRef.current[idx];
-      if (el) el.classList.add("reading-word");
+      if (readingHighlight) wordRefsRef.current[idx]?.classList.add("reading-word");
       activeReadIdxRef.current = idx;
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(update); };
@@ -981,11 +978,7 @@ function Prompter({
       sc.removeEventListener("scroll", schedule);
       if (raf) cancelAnimationFrame(raf);
       const prev = activeReadIdxRef.current;
-      if (prev >= 0) {
-        const el = wordRefsRef.current[prev];
-        if (el) el.classList.remove("reading-word");
-        activeReadIdxRef.current = -1;
-      }
+      if (prev >= 0) wordRefsRef.current[prev]?.classList.remove("reading-word");
     };
   }, [readingHighlight, tokens, fontSize, settings.width, mirrorV]);
 
@@ -1071,7 +1064,7 @@ function Prompter({
     }
     // Auto-scroll always remains active. Voice-follow only adds a gentle
     // forward correction, so delayed/blocked recognition can never freeze it.
-    let frameAdvance = dir * speed * dt * mult;
+    let frameAdvance = playingRef.current ? dir * speed * dt * mult : 0;
     const voiceTarget = voiceTargetScrollRef.current;
     if (voiceFollow && !mirrorV && voiceTarget !== null) {
       const gap = voiceTarget - el.scrollTop;
@@ -1091,8 +1084,27 @@ function Prompter({
     // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
-    if (playingRef.current) rafRef.current = requestAnimationFrame(tick);
+    if (playingRef.current || voiceTargetScrollRef.current !== null) {
+      rafRef.current = requestAnimationFrame(tick);
+    } else {
+      rafRef.current = null;
+    }
   }, [speed, computeProgress, pauses, mirrorV, fontSize, voiceFollow]);
+
+  // Voice-follow can smoothly advance the prompt even while ordinary timed
+  // playback is paused. It uses the same rAF writer, avoiding competing native
+  // smooth-scroll animations and keeping touch/remote controls responsive.
+  useEffect(() => {
+    if (!voiceFollow || mirrorV || voiceTargetScrollRef.current === null || rafRef.current !== null) return;
+    lastTsRef.current = 0;
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (!playingRef.current && rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [anchorWordIndex, voiceFollow, mirrorV, tick]);
 
 
   useEffect(() => {
@@ -1439,7 +1451,7 @@ function Prompter({
             </div>
             {voiceFollow && vfSupported && (
               <p className="mt-2 text-[11px] text-neutral-400">
-                Speak naturally — a soft glow follows your voice. Scroll is untouched.
+                Speak naturally — the visible script guides recognition and advances smoothly with you.
               </p>
             )}
           </div>
