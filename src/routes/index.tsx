@@ -394,6 +394,8 @@ function Prompter({
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number>(0);
+  const lastFrameWallRef = useRef<number>(0);
+  const playingRef = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0..1
   const [isPortrait, setIsPortrait] = useState(false);
@@ -1038,6 +1040,7 @@ function Prompter({
   const tick = useCallback((ts: number) => {
     const el = scrollRef.current;
     if (!el) return;
+    lastFrameWallRef.current = performance.now();
     if (!lastTsRef.current) lastTsRef.current = ts;
     // Clamp long frames so returning from an iOS interruption never jumps.
     const dt = Math.min((ts - lastTsRef.current) / 1000, 0.05);
@@ -1088,13 +1091,15 @@ function Prompter({
     // Throttle React updates — only re-render when the visible % actually shifts.
     setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
     if (p >= 1) { setPlaying(false); return; }
-    rafRef.current = requestAnimationFrame(tick);
+    if (playingRef.current) rafRef.current = requestAnimationFrame(tick);
   }, [speed, computeProgress, pauses, mirrorV, fontSize, voiceFollow]);
 
 
   useEffect(() => {
+    playingRef.current = playing;
     if (playing) {
       lastTsRef.current = 0;
+      lastFrameWallRef.current = performance.now();
       rafRef.current = requestAnimationFrame(tick);
     } else if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
@@ -1102,6 +1107,35 @@ function Prompter({
     }
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [playing, tick]);
+
+  // iOS can occasionally drop a pending animation frame after a system UI,
+  // permission prompt, or brief app interruption. Recover the loop without
+  // changing the reader's position or play/pause state.
+  useEffect(() => {
+    const resumeIfStalled = () => {
+      if (!playingRef.current || document.visibilityState !== "visible") return;
+      const now = performance.now();
+      if (now - lastFrameWallRef.current < 900) return;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      lastTsRef.current = 0;
+      lastFrameWallRef.current = now;
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        lastFrameWallRef.current = 0;
+        resumeIfStalled();
+      }
+    };
+    const watchdog = window.setInterval(resumeIfStalled, 500);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", resumeIfStalled);
+    return () => {
+      window.clearInterval(watchdog);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", resumeIfStalled);
+    };
+  }, [tick]);
 
   const togglePlay = () => {
     setPlaying((p) => {
