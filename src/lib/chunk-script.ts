@@ -78,7 +78,7 @@ export function tokenize(body: string, chunking: boolean): Token[] {
   // Track running visual line length (approx characters) so we don't emit
   // one-word lines from over-eager chunking.
   let lineLen = 0;
-  const MIN_LINE_CHARS = 14; // don't break earlier than this on a line
+  const MIN_LINE_CHARS = 34; // let lines breathe horizontally before breaking
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
