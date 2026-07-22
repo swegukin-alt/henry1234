@@ -1361,7 +1361,7 @@ function Prompter({
             style={{
               fontSize: `${fontSize}px`,
               fontWeight: 500,
-              lineHeight: 1.25,
+              lineHeight: 1.5,
               letterSpacing: "-0.015em",
               wordBreak: "keep-all",
               overflowWrap: "break-word",
