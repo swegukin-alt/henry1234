@@ -452,7 +452,7 @@ function Prompter({
   const scriptNodes = useMemo(() => {
     wordRefsRef.current = [];
     return tokens.map((t, i) => {
-      if (t.kind === "break") return <br key={`b${i}`} />;
+      if (t.kind === "break") return <span key={`b${i}`} style={{ display: "block", height: "0.55em" }} aria-hidden />;
       if (t.kind === "space") return t.text;
       const idx = t.wordIndex;
       return (
