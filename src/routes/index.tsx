@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, type ClipRecord } from "@/lib/clip-store";
+import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, type ClipRecord } from "@/lib/clip-store";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
 import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
 
@@ -1670,14 +1670,19 @@ function PopRow({ label, value, children }: { label: string; value: string; chil
 }
 
 function ClipsSheet({
-  clips, onClose, onDelete, onDeleteAll, onExport,
+  clips, onClose, onDelete, onDeleteAll, onExport, onReplace, onRescue,
 }: {
   clips: ClipRecord[];
   onClose: () => void;
   onDelete: (id: string) => void | Promise<void>;
   onDeleteAll: () => void | Promise<void>;
   onExport: (subset?: ClipRecord[]) => void | Promise<void>;
+  onReplace: (clip: ClipRecord) => void;
+  onRescue: () => void | Promise<void>;
 }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [broken, setBroken] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
@@ -1696,6 +1701,46 @@ function ClipsSheet({
     setPlayingClip(null);
   }, []);
   useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
+
+  // Rebuild an unplayable recording from the raw data still in storage.
+  const doRepair = useCallback(async (c: ClipRecord) => {
+    setBusy(c.id);
+    setNote("Rebuilding recording — this can take a minute for long takes…");
+    try {
+      const { clip, report } = await repairClip(c.id);
+      if (clip) {
+        onReplace(clip);
+        setBroken((b) => { const n = new Set(b); report.playable ? n.delete(c.id) : n.add(c.id); return n; });
+        setNote(report.playable
+          ? `Restored ${fmtDuration(clip.durationMs)} · ${fmtSize(clip.sizeBytes)}. Tap it to play, then Save / Share to keep it.`
+          : `Recovered ${fmtSize(clip.sizeBytes)} of footage but this device still can't decode it. Use Save / Share to get the file off the phone.`);
+        if (report.playable) {
+          setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
+          setPlayingClip(clip);
+        }
+      } else {
+        setNote("No footage left in storage for this take.");
+      }
+    } catch {
+      setNote("Repair failed. Try Save / Share to export the raw file.");
+    } finally {
+      setBusy(null);
+    }
+  }, [onReplace]);
+
+  // Quietly check each clip once so a broken one is flagged before it is opened.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const c of clips) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await probePlayable(c.blob, 8000);
+        if (cancelled) return;
+        if (!ok) setBroken((b) => new Set(b).add(c.id));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [clips]);
 
   return (
     <>
@@ -1719,11 +1764,17 @@ function ClipsSheet({
                   <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
                       <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> Take {i + 1}
+                      {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
                     </div>
                     <div className="text-[11px] text-neutral-400">
                       {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
+                  {broken.has(c.id) && (
+                    <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
+                      {busy === c.id ? "Repairing…" : "Repair"}
+                    </button>
+                  )}
                   <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Share this clip">
                     <Share2 className="h-4 w-4" />
                   </button>
@@ -1734,6 +1785,16 @@ function ClipsSheet({
               ))}
             </ul>
           )}
+        </div>
+        {note && <div className="px-4 pb-2 text-[11px] leading-snug text-amber-200/90">{note}</div>}
+        <div className="border-t border-white/10 px-3 py-2">
+          <button
+            onClick={async () => { setBusy("all"); setNote("Scanning storage for unfinished or damaged recordings…"); try { await onRescue(); setNote("Scan finished. Anything recoverable is now in the list."); } finally { setBusy(null); } }}
+            disabled={busy === "all"}
+            className="w-full rounded-full border border-white/15 px-4 py-2 text-sm text-neutral-200 disabled:opacity-50"
+          >
+            {busy === "all" ? "Scanning…" : "Recover missing / damaged recordings"}
+          </button>
         </div>
         {clips.length > 0 && (
           <div className="flex gap-2 border-t border-white/10 p-3">
