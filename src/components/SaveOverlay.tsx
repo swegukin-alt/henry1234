@@ -66,9 +66,17 @@ export function SaveOverlay({
         )}
 
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-          {working && secs >= 4 && job.file && (
+          {job.file && (working ? secs >= 3 : job.phase === "done") && (
             <button onClick={onFallback} className="rounded-full border border-white/20 px-4 py-2 text-sm text-neutral-200 active:scale-95">
               Save as a file instead
+            </button>
+          )}
+          {job.file && (
+            <button
+              onClick={() => job.file && job.openInPlayer(job.file)}
+              className="rounded-full border border-amber-400/60 px-4 py-2 text-sm font-bold text-amber-300 active:scale-95"
+            >
+              Open in player
             </button>
           )}
           <button onClick={onClose} className="rounded-full bg-white/10 px-5 py-2 text-sm text-neutral-200 active:scale-95">
