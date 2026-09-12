@@ -488,14 +488,6 @@ function Prompter({
   const [elapsedMs, setElapsedMs] = useState(0);
   const [clips, setClips] = useState<ClipRecord[]>([]);
   const [clipsOpen, setClipsOpen] = useState(false);
-  type SaveJob = {
-    phase: "working" | "done";
-    title: string;
-    detail: string;
-    startedAt: number;
-    file: File;
-    download: (f: File) => void;
-  };
   const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
 
   type Quality = "720p" | "1080p" | "4k";
@@ -921,56 +913,7 @@ function Prompter({
   // so no awaits before the call, no codec parameters, no multi-file batches.
   const exportClips = useCallback((subset?: ClipRecord[]) => {
     const arr = subset && subset.length ? subset : clips;
-    if (!arr.length) return;
-    const nav: any = navigator;
-    const base = (script.title || "Take").replace(/[^\p{L}\p{N} _-]/gu, "").trim() || "Take";
-
-    const toFile = (c: ClipRecord, i: number) => {
-      const clean = (c.mimeType || "video/mp4").split(";")[0].trim();
-      const type = clean === "video/webm" ? "video/webm" : "video/mp4";
-      const name = `${base}${arr.length > 1 ? `-${i + 1}` : ""}.${type === "video/mp4" ? "mp4" : "webm"}`;
-      return new File([c.blob], name, { type });
-    };
-
-    const download = (f: File) => {
-      const url = URL.createObjectURL(f);
-      const a = document.createElement("a");
-      a.href = url; a.download = f.name;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    };
-
-    // One file per share sheet — iOS silently refuses batches of videos.
-    const first = toFile(arr[0], 0);
-    const rest = arr.slice(1);
-    const totalBytes = arr.reduce((n, c) => n + (c.sizeBytes || c.blob.size || 0), 0);
-
-    setSaveJob({
-      phase: "working",
-      title: "Preparing video…",
-      detail: `${fmtSize(totalBytes)} · handing it to your iPhone`,
-      startedAt: Date.now(),
-      file: first,
-      download,
-    });
-
-    if (nav.share && (!nav.canShare || nav.canShare({ files: [first] }))) {
-      nav.share({ files: [first] })
-        .then(() => {
-          rest.forEach((c, i) => download(toFile(c, i + 1)));
-          setSaveJob((j) => j && { ...j, phase: "done", title: "Sent to your iPhone", detail: "Choose “Save Video” to put it in your camera roll." });
-        })
-        .catch((e: any) => {
-          if (e?.name === "AbortError") { setSaveJob(null); return; }
-          download(first);
-          rest.forEach((c, i) => download(toFile(c, i + 1)));
-          setSaveJob((j) => j && { ...j, phase: "done", title: "Saved as a file", detail: "The iPhone sheet refused it, so it downloaded instead. Open Files → Downloads." });
-        });
-      return;
-    }
-    download(first);
-    rest.forEach((c, i) => download(toFile(c, i + 1)));
-    setSaveJob((j) => j && { ...j, phase: "done", title: "Downloaded", detail: "Saving straight to Photos isn't available here, so the file downloaded instead." });
+    startSave(arr, script.title, setSaveJob);
   }, [clips, script.title]);
 
 
@@ -1623,7 +1566,7 @@ function Prompter({
         <SaveOverlay
           job={saveJob}
           onClose={() => setSaveJob(null)}
-          onFallback={() => { saveJob.download(saveJob.file); setSaveJob(null); }}
+          onFallback={() => { if (saveJob.file) saveJob.download(saveJob.file); setSaveJob(null); }}
         />
       )}
 
@@ -1942,69 +1885,5 @@ function ClipsSheet({
         </div>
       )}
     </>
-  );
-}
-
-
-// Full-screen feedback while a clip is being handed to iOS. Saving a long
-// take can take many seconds with no OS-level signal, so we always show a
-// live ring plus elapsed time and an escape hatch.
-function SaveOverlay({
-  job, onClose, onFallback,
-}: {
-  job: { phase: "working" | "done"; title: string; detail: string; startedAt: number; file: File };
-  onClose: () => void;
-  onFallback: () => void;
-}) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (job.phase !== "working") return;
-    const id = window.setInterval(() => setNow(Date.now()), 250);
-    return () => window.clearInterval(id);
-  }, [job.phase]);
-  useEffect(() => {
-    if (job.phase !== "done") return;
-    const id = window.setTimeout(onClose, 4000);
-    return () => window.clearTimeout(id);
-  }, [job.phase, onClose]);
-
-  const secs = Math.max(0, Math.round((now - job.startedAt) / 1000));
-  const done = job.phase === "done";
-
-  return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/85 backdrop-blur-sm px-6" onClick={(e) => e.stopPropagation()}>
-      <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
-        <div className="relative h-20 w-20">
-          <svg viewBox="0 0 48 48" className={done ? "h-20 w-20" : "h-20 w-20 animate-spin"}>
-            <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" strokeWidth="4" className="text-white/15" />
-            <circle
-              cx="24" cy="24" r="20" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round"
-              className="text-amber-400"
-              strokeDasharray={done ? "126" : "40 126"}
-            />
-          </svg>
-          {done && (
-            <div className="absolute inset-0 grid place-items-center text-2xl font-black text-amber-400">✓</div>
-          )}
-        </div>
-        <div className="text-lg font-black text-white">{job.title}</div>
-        <div className="text-sm leading-snug text-neutral-300">{job.detail}</div>
-        {!done && (
-          <div className="text-xs text-neutral-400">
-            {secs}s · big takes can need a while — keep this screen open
-          </div>
-        )}
-        <div className="mt-2 flex gap-2">
-          {!done && secs >= 4 && (
-            <button onClick={onFallback} className="rounded-full border border-white/20 px-4 py-2 text-sm text-neutral-200">
-              Save as a file instead
-            </button>
-          )}
-          <button onClick={onClose} className="rounded-full bg-white/10 px-4 py-2 text-sm text-neutral-200">
-            {done ? "Done" : "Cancel"}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
