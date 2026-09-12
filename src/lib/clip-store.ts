@@ -424,3 +424,155 @@ export async function assembleBest(clip: ClipRecord): Promise<ClipRecord> {
   const blob = new Blob(chunks, { type: mime });
   return { ...clip, blob, sizeBytes: blob.size };
 }
+
+// ============ Deep restore ============
+// A take can decode short (e.g. plays 25:00 of a 32:47 recording) when the
+// final fragment was cut mid-write: players stop at the last fragment they can
+// parse and ignore everything after it. Walking the container's top-level box
+// structure and cutting at the last COMPLETE box yields a file that decodes to
+// its true length, losing at most the final partial second.
+
+async function readU8(blob: Blob, start: number, len: number): Promise<Uint8Array> {
+  return new Uint8Array(await blob.slice(start, start + len).arrayBuffer());
+}
+
+// Returns the byte offset of the end of the last complete top-level mp4 box.
+async function mp4LastCompleteOffset(blob: Blob): Promise<number> {
+  let pos = 0;
+  let lastGood = 0;
+  const size = blob.size;
+  while (pos + 8 <= size) {
+    const hdr = await readU8(blob, pos, 16);
+    const view = new DataView(hdr.buffer, hdr.byteOffset, hdr.byteLength);
+    let boxSize = view.getUint32(0);
+    let headerLen = 8;
+    if (boxSize === 1) {
+      if (hdr.byteLength < 16) break;
+      const hi = view.getUint32(8);
+      const lo = view.getUint32(12);
+      boxSize = hi * 2 ** 32 + lo;
+      headerLen = 16;
+    } else if (boxSize === 0) {
+      // extends to end of file — treat as complete
+      lastGood = size;
+      break;
+    }
+    if (boxSize < headerLen) break; // malformed, stop here
+    if (pos + boxSize > size) break; // truncated tail
+    pos += boxSize;
+    lastGood = pos;
+  }
+  return lastGood;
+}
+
+// Actual decodable duration in ms (handles fragmented files with no duration).
+export function measureDuration(blob: Blob, timeoutMs = 20000): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const v = document.createElement("video");
+    let done = false;
+    const finish = (ms: number) => {
+      if (done) return;
+      done = true;
+      v.removeAttribute("src");
+      try { v.load(); } catch {}
+      URL.revokeObjectURL(url);
+      resolve(ms);
+    };
+    v.muted = true;
+    (v as any).playsInline = true;
+    v.preload = "metadata";
+    v.onloadedmetadata = () => {
+      if (Number.isFinite(v.duration) && v.duration > 0) return finish(v.duration * 1000);
+      // Fragmented / unknown duration: seek far past the end and read back.
+      v.onseeked = () => finish((v.duration && Number.isFinite(v.duration) ? v.duration : v.currentTime) * 1000);
+      try { v.currentTime = 1e7; } catch { finish(0); }
+    };
+    v.onerror = () => finish(0);
+    window.setTimeout(() => finish(0), timeoutMs);
+    v.src = url;
+  });
+}
+
+export type RestoreReport = {
+  bytes: number;
+  trimmedBytes: number;
+  durationMs: number;
+  previousDurationMs: number;
+  playable: boolean;
+  rebuiltFromChunks: boolean;
+};
+
+// Rebuild a clip to its full recoverable length and persist the result.
+export async function deepRestore(id: string): Promise<{ clip: ClipRecord | null; report: RestoreReport }> {
+  const store = await storeIn(STORE, "readonly");
+  const base = await new Promise<ClipRecord | undefined>((resolve, reject) => {
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result as ClipRecord | undefined);
+    req.onerror = () => reject(req.error);
+  });
+  const chunks = await getChunks(id).catch(() => [] as Blob[]);
+  const session = await getSession(id).catch(() => undefined);
+
+  const chunkBytes = chunks.reduce((n, c) => n + c.size, 0);
+  const rebuiltFromChunks = chunkBytes > (base?.blob?.size || 0);
+  const raw = rebuiltFromChunks ? new Blob(chunks) : base?.blob;
+
+  const empty: RestoreReport = {
+    bytes: 0, trimmedBytes: 0, durationMs: 0, previousDurationMs: base?.durationMs || 0,
+    playable: false, rebuiltFromChunks,
+  };
+  if (!raw || raw.size === 0) return { clip: null, report: empty };
+
+  const { container } = await sniff(raw);
+  const mime = container === "webm" ? "video/webm" : container === "mp4" ? "video/mp4"
+    : (base?.mimeType || session?.mimeType || "video/mp4").split(";")[0].trim();
+
+  let best = new Blob([raw], { type: mime });
+  let bestDur = await measureDuration(best);
+  let trimmedBytes = 0;
+
+  if (container === "mp4") {
+    const cut = await mp4LastCompleteOffset(raw);
+    if (cut > 0 && cut < raw.size) {
+      const trial = new Blob([raw.slice(0, cut)], { type: mime });
+      const dur = await measureDuration(trial);
+      if (dur > bestDur) { best = trial; bestDur = dur; trimmedBytes = raw.size - cut; }
+    }
+  }
+
+  // Last resort for any container: shave trailing chunks until it decodes.
+  if (bestDur === 0 && chunks.length > 1) {
+    for (let drop = 1; drop <= Math.min(3, chunks.length - 1); drop++) {
+      const trial = new Blob(chunks.slice(0, chunks.length - drop), { type: mime });
+      // eslint-disable-next-line no-await-in-loop
+      const dur = await measureDuration(trial);
+      if (dur > 0) { best = trial; bestDur = dur; trimmedBytes = raw.size - trial.size; break; }
+    }
+  }
+
+  const rec: ClipRecord = {
+    id,
+    scriptId: base?.scriptId || session?.scriptId || "",
+    mimeType: mime,
+    durationMs: bestDur > 0 ? bestDur : (base?.durationMs || 0),
+    sizeBytes: best.size,
+    createdAt: base?.createdAt || session?.startedAt || Date.now(),
+    width: base?.width || session?.width || 0,
+    height: base?.height || session?.height || 0,
+    blob: best,
+  };
+  if (rec.scriptId) await saveClip(rec);
+
+  return {
+    clip: rec,
+    report: {
+      bytes: best.size,
+      trimmedBytes,
+      durationMs: bestDur,
+      previousDurationMs: base?.durationMs || 0,
+      playable: bestDur > 0,
+      rebuiltFromChunks,
+    },
+  };
+}
