@@ -88,7 +88,7 @@ export function useVoiceFollow({
       return;
     }
     if (!isVoiceFollowSupported()) { setStatus("error"); return; }
-    let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null;
+    let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null, ownsStream = true;
     let source: MediaStreamAudioSourceNode | null = null, processor: ScriptProcessorNode | null = null;
     let recognition: any = null, chunks: Float32Array[] = [], samples = 0, newSamples = 0, rate = 48000, timer = 0, inFlight = 0;
     let requestSequence = 0, latestAppliedSequence = 0;
