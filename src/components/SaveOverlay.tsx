@@ -21,11 +21,7 @@ export function SaveOverlay({
     return () => window.clearInterval(id);
   }, [job.phase]);
 
-  useEffect(() => {
-    if (job.phase !== "done") return;
-    const id = window.setTimeout(onClose, 4500);
-    return () => window.clearTimeout(id);
-  }, [job.phase, onClose]);
+  // No auto-close: long takes need the escape hatches to stay reachable.
 
   if (typeof document === "undefined") return null;
 

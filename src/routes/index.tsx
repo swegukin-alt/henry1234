@@ -1775,6 +1775,9 @@ function ClipsSheet({
     (async () => {
       for (const c of clips) {
         // eslint-disable-next-line no-await-in-loop
+        // Skip long/large takes: decoding a multi-GB file here stalls the
+        // sheet and makes every button feel dead.
+        if (c.blob.size > 400_000_000) continue;
         const ok = await probePlayable(c.blob, 8000);
         if (cancelled) return;
         if (!ok) setBroken((b) => new Set(b).add(c.id));
