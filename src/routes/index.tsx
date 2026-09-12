@@ -519,6 +519,10 @@ function Prompter({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingIdRef = useRef<string | null>(null);
   const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  // Chunk writes that failed (usually storage pressure). A silent failure is
+  // how a 31-minute take ends up 25 minutes long, so it is surfaced live.
+  const writeFailRef = useRef(0);
+  const [writeWarn, setWriteWarn] = useState(false);
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
@@ -837,6 +841,8 @@ function Prompter({
 
     recordingIdRef.current = recordingId;
     appendQueueRef.current = Promise.resolve();
+    writeFailRef.current = 0;
+    setWriteWarn(false);
 
     // Serialize DB appends so chunk order matches wire order; keep a memory
     // copy in parallel for instant playback.
@@ -846,7 +852,10 @@ function Prompter({
       memChunks.push(blob);
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
-        .then(() => appendChunk(recordingId, blob).catch(() => {}));
+        .then(() => appendChunk(recordingId, blob).catch(() => {
+          writeFailRef.current += 1;
+          setWriteWarn(true);
+        }));
     };
 
     const buildInstantClip = (): ClipRecord | null => {
@@ -1535,6 +1544,20 @@ function Prompter({
         >
           <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
           REC {fmtDuration(elapsedMs)}
+        </div>
+      )}
+
+      {/* Storage trouble — a silently failed write is how a take ends short */}
+      {videoMode && writeWarn && (
+        <div
+          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-xs font-bold leading-snug text-white"
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 3.2rem)",
+            left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
+            transform: mirrorV ? "scaleY(-1)" : undefined,
+          }}
+        >
+          Storage is full — stop soon and free space, or the end of this take will be lost.
         </div>
       )}
 

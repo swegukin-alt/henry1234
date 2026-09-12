@@ -14,7 +14,7 @@
 // can show a live ring instead of appearing dead.
 
 import type { ClipRecord } from "./clip-store";
-import { fmtSize } from "./clip-store";
+import { assembleBest, fmtSize } from "./clip-store";
 
 export type SaveJob = {
   phase: "working" | "done" | "error";
@@ -72,12 +72,18 @@ export function startSave(
     openInPlayer,
   });
 
+  void (async () => {
   try {
-    const arr = clips.filter((c) => c && c.blob && c.blob.size > 0);
+    let arr = clips.filter((c) => c && c.blob && c.blob.size > 0);
     if (!arr.length) {
       patch({ phase: "error", title: "Nothing to save", detail: "This take has no video data left in storage. Try Repair or Recover first." });
       return;
     }
+
+    // A take can end up shorter than it should be if a write failed near the
+    // end. Rebuild from every surviving byte before saving.
+    patch({ detail: "Collecting every second of this take…" });
+    arr = await Promise.all(arr.map(async (c) => { try { return await assembleBest(c); } catch { return c; } }));
 
     const toFile = (c: ClipRecord, i: number) => {
       const clean = (c.mimeType || "video/mp4").split(";")[0].trim();
@@ -115,7 +121,7 @@ export function startSave(
           patch({ phase: "done", title: "Sent to your iPhone", detail: 'Pick "Save Video" to put it in your camera roll.' });
         })
         .catch((e: any) => {
-          if (e?.name === "AbortError") { set(null); return; }
+          if (e?.name === "AbortError") { downloadFile(first); patch({ phase: "done", title: "Saved to Files", detail: "Saved to Files → Downloads instead." }); return; }
           downloadFile(first);
           rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
           patch({ phase: "done", title: "Saved as a file", detail: `The iPhone sheet refused it (${e?.name || "error"}), so it downloaded instead. Look in Files → Downloads.` });
@@ -129,4 +135,5 @@ export function startSave(
   } catch (e: any) {
     patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
   }
+  })();
 }
