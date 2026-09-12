@@ -401,3 +401,13 @@ export async function rescueAll(scriptId: string): Promise<ClipRecord[]> {
   }
   return listClips(scriptId);
 }
+
+// Every saved clip across all scripts, newest first.
+export async function listAllClips(): Promise<ClipRecord[]> {
+  const store = await storeIn(STORE, "readonly");
+  return new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve((req.result as ClipRecord[]).sort((a, b) => b.createdAt - a.createdAt));
+    req.onerror = () => reject(req.error);
+  });
+}
