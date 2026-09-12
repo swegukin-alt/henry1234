@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
 import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, type ClipRecord } from "@/lib/clip-store";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
 import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
@@ -905,22 +905,42 @@ function Prompter({
     };
   }, [videoMode, recording, stopRecording, readerStateKey]);
 
-  const exportClips = useCallback(async (subset?: ClipRecord[]) => {
+  // Save straight to the iPhone camera roll. iOS only offers "Save Video" in
+  // the share sheet for a real .mp4 with a clean MIME type, one file at a
+  // time, and only when share() is reached inside the tap that triggered it —
+  // so no awaits before the call, no codec parameters, no multi-file batches.
+  const exportClips = useCallback((subset?: ClipRecord[]) => {
     const arr = subset && subset.length ? subset : clips;
     if (!arr.length) return;
-    const ext = (mt: string) => mt.includes("mp4") ? "mp4" : "webm";
-    const files = arr.map((c, i) => new File([c.blob], `${script.title || "script"}-${i + 1}.${ext(c.mimeType)}`, { type: c.mimeType }));
     const nav: any = navigator;
-    if (nav.share && nav.canShare && nav.canShare({ files })) {
-      try { await nav.share({ files, title: script.title || "Teleprompter clips" }); return; }
-      catch (e: any) { if (e?.name === "AbortError") return; }
-    }
-    // Fallback: download each
-    for (const f of files) {
+    const base = (script.title || "Take").replace(/[^\p{L}\p{N} _-]/gu, "").trim() || "Take";
+
+    const toFile = (c: ClipRecord, i: number) => {
+      const clean = (c.mimeType || "video/mp4").split(";")[0].trim();
+      const type = clean === "video/webm" ? "video/webm" : "video/mp4";
+      const name = `${base}${arr.length > 1 ? `-${i + 1}` : ""}.${type === "video/mp4" ? "mp4" : "webm"}`;
+      return new File([c.blob], name, { type });
+    };
+
+    const download = (f: File) => {
       const url = URL.createObjectURL(f);
-      const a = document.createElement("a"); a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const a = document.createElement("a");
+      a.href = url; a.download = f.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    };
+
+    // One file per share sheet — iOS silently refuses batches of videos.
+    const first = toFile(arr[0], 0);
+    const rest = arr.slice(1);
+    if (nav.share && (!nav.canShare || nav.canShare({ files: [first] }))) {
+      nav.share({ files: [first] })
+        .then(() => { rest.forEach((c, i) => download(toFile(c, i + 1))); })
+        .catch((e: any) => { if (e?.name !== "AbortError") { download(first); rest.forEach((c, i) => download(toFile(c, i + 1))); } });
+      return;
     }
+    download(first);
+    rest.forEach((c, i) => download(toFile(c, i + 1)));
   }, [clips, script.title]);
 
 
@@ -1712,8 +1732,8 @@ function ClipsSheet({
         onReplace(clip);
         setBroken((b) => { const n = new Set(b); report.playable ? n.delete(c.id) : n.add(c.id); return n; });
         setNote(report.playable
-          ? `Restored ${fmtDuration(clip.durationMs)} · ${fmtSize(clip.sizeBytes)}. Tap it to play, then Save / Share to keep it.`
-          : `Recovered ${fmtSize(clip.sizeBytes)} of footage but this device still can't decode it. Use Save / Share to get the file off the phone.`);
+          ? `Restored ${fmtDuration(clip.durationMs)} · ${fmtSize(clip.sizeBytes)}. Tap it to play, then Save to Photos to keep it.`
+          : `Recovered ${fmtSize(clip.sizeBytes)} of footage but this device still can't decode it. Use Save to Photos to get the file off the phone.`);
         if (report.playable) {
           setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
           setPlayingClip(clip);
@@ -1722,7 +1742,7 @@ function ClipsSheet({
         setNote("No footage left in storage for this take.");
       }
     } catch {
-      setNote("Repair failed. Try Save / Share to export the raw file.");
+      setNote("Repair failed. Try Save to Photos to export the raw file.");
     } finally {
       setBusy(null);
     }
@@ -1775,8 +1795,8 @@ function ClipsSheet({
                       {busy === c.id ? "Repairing…" : "Repair"}
                     </button>
                   )}
-                  <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Share this clip">
-                    <Share2 className="h-4 w-4" />
+                  <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip to Photos">
+                    <Download className="h-4 w-4" />
                   </button>
                   <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
                     <Trash2 className="h-4 w-4" />
@@ -1802,9 +1822,9 @@ function ClipsSheet({
               Delete all
             </button>
             <div className="flex-1" />
-            <button onClick={() => onExport(selectedClips.length ? selectedClips : clips)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">
-              <Share2 className="h-4 w-4" />
-              {selectedClips.length ? `Export ${selectedClips.length}` : "Export all to Photos"}
+            <button onClick={() => onExport(selectedClips.length ? selectedClips : clips)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-base font-black text-black active:scale-95">
+              <Download className="h-5 w-5" />
+              {selectedClips.length ? `Save ${selectedClips.length} to Photos` : "Save to Photos"}
             </button>
           </div>
         )}
@@ -1863,8 +1883,8 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-            <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black shadow-lg">
-              <Share2 className="h-4 w-4" /> Save / Share
+            <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+              <Download className="h-5 w-5" /> Save to Photos
             </button>
             {broken.has(playingClip.id) && (
               <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-black/70 px-4 py-2 text-sm font-bold text-amber-300 backdrop-blur-sm disabled:opacity-50">
