@@ -14,7 +14,7 @@
 // can show a live ring instead of appearing dead.
 
 import type { ClipRecord } from "./clip-store";
-import { fmtSize } from "./clip-store";
+import { assembleBest, fmtSize } from "./clip-store";
 
 export type SaveJob = {
   phase: "working" | "done" | "error";
@@ -121,7 +121,7 @@ export function startSave(
           patch({ phase: "done", title: "Sent to your iPhone", detail: 'Pick "Save Video" to put it in your camera roll.' });
         })
         .catch((e: any) => {
-          if (e?.name === "AbortError") { set(null); return; }
+          if (e?.name === "AbortError") { downloadFile(first); patch({ phase: "done", title: "Saved to Files", detail: "Saved to Files → Downloads instead." }); return; }
           downloadFile(first);
           rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
           patch({ phase: "done", title: "Saved as a file", detail: `The iPhone sheet refused it (${e?.name || "error"}), so it downloaded instead. Look in Files → Downloads.` });
@@ -135,4 +135,5 @@ export function startSave(
   } catch (e: any) {
     patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
   }
+  })();
 }
