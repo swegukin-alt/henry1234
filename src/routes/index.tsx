@@ -927,21 +927,42 @@ function Prompter({
       const a = document.createElement("a");
       a.href = url; a.download = f.name;
       document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     };
 
     // One file per share sheet — iOS silently refuses batches of videos.
     const first = toFile(arr[0], 0);
     const rest = arr.slice(1);
+    const totalBytes = arr.reduce((n, c) => n + (c.sizeBytes || c.blob.size || 0), 0);
+
+    setSaveJob({
+      phase: "working",
+      title: "Preparing video…",
+      detail: `${fmtSize(totalBytes)} · handing it to your iPhone`,
+      startedAt: Date.now(),
+      file: first,
+      download,
+    });
+
     if (nav.share && (!nav.canShare || nav.canShare({ files: [first] }))) {
       nav.share({ files: [first] })
-        .then(() => { rest.forEach((c, i) => download(toFile(c, i + 1))); })
-        .catch((e: any) => { if (e?.name !== "AbortError") { download(first); rest.forEach((c, i) => download(toFile(c, i + 1))); } });
+        .then(() => {
+          rest.forEach((c, i) => download(toFile(c, i + 1)));
+          setSaveJob((j) => j && { ...j, phase: "done", title: "Sent to your iPhone", detail: "Choose “Save Video” to put it in your camera roll." });
+        })
+        .catch((e: any) => {
+          if (e?.name === "AbortError") { setSaveJob(null); return; }
+          download(first);
+          rest.forEach((c, i) => download(toFile(c, i + 1)));
+          setSaveJob((j) => j && { ...j, phase: "done", title: "Saved as a file", detail: "The iPhone sheet refused it, so it downloaded instead. Open Files → Downloads." });
+        });
       return;
     }
     download(first);
     rest.forEach((c, i) => download(toFile(c, i + 1)));
+    setSaveJob((j) => j && { ...j, phase: "done", title: "Downloaded", detail: "Saving straight to Photos isn't available here, so the file downloaded instead." });
   }, [clips, script.title]);
+
 
 
   // Recompute pause-anchor Y positions when layout may have shifted.
