@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, listAllClips, deepRestore, type ClipRecord } from "@/lib/clip-store";
+import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, listAllClips, deepRestore, getClip, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
 import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
@@ -135,7 +135,7 @@ function Index() {
     setMode("edit");
   };
   const [allVideosOpen, setAllVideosOpen] = useState(false);
-  const [allClips, setAllClips] = useState<ClipRecord[]>([]);
+  const [allClips, setAllClips] = useState<ClipMeta[]>([]);
   const [librarySave, setLibrarySave] = useState<SaveJob | null>(null);
   const refreshAllClips = useCallback(async () => {
     try { setAllClips(await listAllClips()); } catch { setAllClips([]); }
@@ -187,11 +187,12 @@ function Index() {
       {allVideosOpen && (
         <ClipsSheet
           clips={allClips}
+          scriptTitles={Object.fromEntries(scripts.map((s) => [s.id, s.title || "Untitled script"]))}
           onClose={() => setAllVideosOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setAllClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { for (const c of allClips) await deleteClip(c.id); setAllClips([]); }}
-          onExport={(subset) => startSave(subset && subset.length ? subset : allClips, "Take", setLibrarySave)}
-          onReplace={(clip) => setAllClips((cs) => cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [clip, ...cs])}
+          onExport={(clip) => startSave(clip, scripts.find((s) => s.id === clip.scriptId)?.title || "Take", setLibrarySave)}
+          onReplace={(clip) => setAllClips((cs) => (cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [clip, ...cs]).sort((a, b) => (b.createdAt - a.createdAt) || b.id.localeCompare(a.id)))}
           onRescue={async () => { for (const s of scripts) { try { await rescueAll(s.id); } catch {} } await refreshAllClips(); }}
         />
       )}
@@ -532,7 +533,7 @@ function Prompter({
   const recordingRef = useRef(false);
   useEffect(() => { recordingRef.current = recording; }, [recording]);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [clips, setClips] = useState<ClipRecord[]>([]);
+  const [clips, setClips] = useState<ClipMeta[]>([]);
   const [clipsOpen, setClipsOpen] = useState(false);
   const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
 
@@ -750,7 +751,7 @@ function Prompter({
       try { await requestPersistentStorage(); } catch {}
       try { await recoverOrphanSessions(); } catch {}
       if (cancelled) return;
-      try { const list = await listClips(script.id); if (!cancelled) setClips(list); } catch {}
+      try { const list = await listClipMeta(script.id); if (!cancelled) setClips(list); } catch {}
     })();
     return () => { cancelled = true; };
   }, [videoMode, script.id]);
@@ -845,10 +846,6 @@ function Prompter({
     const s = track?.getSettings?.() || {};
     const finalMime = rec.mimeType || mimeType || "video/mp4";
     const startedAt = Date.now();
-    // In-memory chunks give us instant playback the moment the user hits Stop
-    // (no wait for IndexedDB read-back). The DB copy is the crash-safety net.
-    const memChunks: Blob[] = [];
-
     try {
       await createSession({
         id: recordingId,
@@ -865,12 +862,11 @@ function Prompter({
     writeFailRef.current = 0;
     setWriteWarn(false);
 
-    // Serialize DB appends so chunk order matches wire order; keep a memory
-    // copy in parallel for instant playback.
+    // Serialize durable writes. Do not retain a second full recording in RAM:
+    // long high-quality takes otherwise exceed iPhone Safari's memory limit.
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
       const blob = e.data;
-      memChunks.push(blob);
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
         .then(() => appendChunk(recordingId, blob).catch(() => {
@@ -879,54 +875,36 @@ function Prompter({
         }));
     };
 
-    const buildInstantClip = (): ClipRecord | null => {
-      if (memChunks.length === 0) return null;
-      const blob = new Blob(memChunks, { type: finalMime });
-      return {
-        id: recordingId,
-        scriptId: script.id,
-        mimeType: finalMime,
-        durationMs: Math.max(0, Date.now() - recordStartRef.current),
-        sizeBytes: blob.size,
-        createdAt: startedAt,
-        width: (s.width as number) || 0,
-        height: (s.height as number) || 0,
-        blob,
-      };
-    };
-
     rec.onerror = () => {
-      const clip = buildInstantClip();
-      if (clip) setClips((cs) => cs.some((c) => c.id === clip.id) ? cs : [...cs, clip]);
+      recordingRef.current = false;
       recorderRef.current = null;
       recordingIdRef.current = null;
       setRecording(false);
       setPlaying(false);
       setControlsVisible(true);
-      // Background DB cleanup — the in-memory clip is already the source of truth for playback.
       appendQueueRef.current
         .catch(() => {})
         .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
-        .catch(() => {});
+        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
+        .catch(() => setWriteWarn(true));
     };
 
     rec.onstop = () => {
+      recordingRef.current = false;
       recordingIdRef.current = null;
-      // Instant: assemble from memory and push into the list right now.
-      const clip = buildInstantClip();
-      if (clip) setClips((cs) => cs.some((c) => c.id === clip.id) ? cs : [...cs, clip]);
-      // Background: finalize the persisted copy so a future page load has it.
       appendQueueRef.current
         .catch(() => {})
         .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
-        .catch(() => {});
+        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
+        .catch(() => setWriteWarn(true));
     };
 
     recordStartRef.current = Date.now();
     setElapsedMs(0);
     // 1s timeslice = big enough to keep write overhead low, small enough
     // that at most ~1s of footage is ever unflushed if the process dies.
-    try { rec.start(1000); } catch { try { rec.start(); } catch { return; } }
+    recordingRef.current = true;
+    try { rec.start(1000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
     recorderRef.current = rec;
     setRecording(true);
     // Start the script rolling in sync with the recording
@@ -938,6 +916,7 @@ function Prompter({
   const stopRecording = useCallback(() => {
     const rec = recorderRef.current;
     if (!rec) return;
+    try { if (rec.state === "recording") rec.requestData(); } catch {}
     try { if (rec.state !== "inactive") rec.stop(); } catch {}
     recorderRef.current = null;
     setRecording(false);
@@ -979,10 +958,9 @@ function Prompter({
   // the share sheet for a real .mp4 with a clean MIME type, one file at a
   // time, and only when share() is reached inside the tap that triggered it —
   // so no awaits before the call, no codec parameters, no multi-file batches.
-  const exportClips = useCallback((subset?: ClipRecord[]) => {
-    const arr = subset && subset.length ? subset : clips;
-    startSave(arr, script.title, setSaveJob);
-  }, [clips, script.title]);
+  const exportClip = useCallback((clip: ClipMeta) => {
+    startSave(clip, script.title, setSaveJob);
+  }, [script.title]);
 
 
 
@@ -1634,12 +1612,13 @@ function Prompter({
       {videoMode && clipsOpen && (
         <ClipsSheet
           clips={clips}
+          scriptTitles={{ [script.id]: script.title || "Untitled script" }}
           onClose={() => setClipsOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { await deleteAllForScript(script.id); setClips([]); }}
-          onExport={exportClips}
+          onExport={exportClip}
           onReplace={(clip) => setClips((cs) => cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [...cs, clip])}
-          onRescue={async () => { const list = await rescueAll(script.id); setClips(list); }}
+          onRescue={async () => { await rescueAll(script.id); setClips(await listClipMeta(script.id)); }}
 
         />
       )}
