@@ -1619,6 +1619,15 @@ function Prompter({
         />
       )}
 
+      {saveJob && (
+        <SaveOverlay
+          job={saveJob}
+          onClose={() => setSaveJob(null)}
+          onFallback={() => { saveJob.download(saveJob.file); setSaveJob(null); }}
+        />
+      )}
+
+
 
       {/* Tiny reveal pill — only thing on screen when controls are hidden */}
       {!controlsVisible && (
