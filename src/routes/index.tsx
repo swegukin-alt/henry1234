@@ -1826,6 +1826,7 @@ function ClipsSheet({
             playsInline
             preload="auto"
             onCanPlay={() => { videoElRef.current?.play().catch(() => {}); }}
+            onError={() => setBroken((b) => new Set(b).add(playingClip.id))}
             className="absolute inset-0 h-full w-full object-contain"
           />
 
@@ -1865,6 +1866,11 @@ function ClipsSheet({
             <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black shadow-lg">
               <Share2 className="h-4 w-4" /> Save / Share
             </button>
+            {broken.has(playingClip.id) && (
+              <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-black/70 px-4 py-2 text-sm font-bold text-amber-300 backdrop-blur-sm disabled:opacity-50">
+                {busy === playingClip.id ? "Repairing…" : "Repair this take"}
+              </button>
+            )}
             <div className="flex-1" />
             <button
               onClick={() => { const c = playingClip; if (confirm("Delete this clip?")) { onDelete(c.id); closePlayer(); } }}
