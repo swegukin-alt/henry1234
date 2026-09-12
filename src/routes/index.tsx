@@ -1792,6 +1792,33 @@ function ClipsSheet({
     }
   }, [onReplace]);
 
+  // Rebuild a take to its full recoverable length (fixes takes that stop
+  // short: the tail fragment was cut mid-write so players ignore the rest).
+  const doRestore = useCallback(async (c: ClipRecord) => {
+    setBusy(c.id);
+    setNote("Restoring every recoverable second — long takes can take a minute…");
+    try {
+      const { clip, report } = await deepRestore(c.id);
+      if (!clip) { setNote("No footage left in storage for this take."); return; }
+      onReplace(clip);
+      setBroken((b) => { const n = new Set(b); report.playable ? n.delete(c.id) : n.add(c.id); return n; });
+      if (report.playable) {
+        const gained = report.durationMs - report.previousDurationMs;
+        setNote(gained > 2000
+          ? `Restored to ${fmtDuration(report.durationMs)} (+${fmtDuration(gained)}) · ${fmtSize(report.bytes)}. Ready to save.`
+          : `Full length confirmed: ${fmtDuration(report.durationMs)} · ${fmtSize(report.bytes)}. Ready to save.`);
+        setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
+        setPlayingClip(clip);
+      } else {
+        setNote(`Kept all ${fmtSize(report.bytes)} of footage, but this device can't decode it. Save it to Files and it can still be repaired on a computer.`);
+      }
+    } catch {
+      setNote("Restore failed. Try Save to Photos to export the raw file.");
+    } finally {
+      setBusy(null);
+    }
+  }, [onReplace]);
+
   // Quietly check each clip once so a broken one is flagged before it is opened.
   useEffect(() => {
     let cancelled = false;
