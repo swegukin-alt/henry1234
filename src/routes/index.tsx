@@ -466,6 +466,7 @@ function Prompter({
   const lang = useMemo(() => detectLang(script.body), [script.body]);
   // Share the camera stream's mic with voice-follow in video mode. Opening a
   // second mic session on iOS silences the audio track that is being recorded.
+  const streamRef = useRef<MediaStream | null>(null);
   const getSharedMicStream = useCallback(() => streamRef.current, []);
   const { anchorWordIndex, status: vfStatus } = useVoiceFollow({
     enabled: voiceFollow && vfSupported,
