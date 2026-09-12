@@ -464,11 +464,16 @@ function Prompter({
   const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
   const words = useMemo(() => wordListFromTokens(tokens), [tokens]);
   const lang = useMemo(() => detectLang(script.body), [script.body]);
+  // Share the camera stream's mic with voice-follow in video mode. Opening a
+  // second mic session on iOS silences the audio track that is being recorded.
+  const streamRef = useRef<MediaStream | null>(null);
+  const getSharedMicStream = useCallback(() => streamRef.current, []);
   const { anchorWordIndex, status: vfStatus } = useVoiceFollow({
     enabled: voiceFollow && vfSupported,
     words,
     lang,
     visibleWordIndexRef: activeReadIdxRef,
+    getExternalStream: getSharedMicStream,
   });
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
@@ -508,7 +513,6 @@ function Prompter({
 
   // Video-mode state
   const videoElRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [camReady, setCamReady] = useState(false);
   // Mic state: label of the currently-active audio input + whether it's external.
@@ -806,6 +810,23 @@ function Prompter({
   const startRecording = useCallback(async () => {
     const stream = streamRef.current;
     if (!stream || recording) return;
+    // Make sure a live mic track is on the stream before we start. iOS can end
+    // the audio track (another app / session took the mic), which would produce
+    // a silent recording. Re-acquire and attach one if needed.
+    try {
+      const live = stream.getAudioTracks().filter((t) => t.readyState === "live");
+      live.forEach((t) => { t.enabled = true; });
+      if (live.length === 0) {
+        stream.getAudioTracks().forEach((t) => { try { stream.removeTrack(t); } catch {} });
+        const fresh = await navigator.mediaDevices.getUserMedia({
+          audio: currentMicIdRef.current
+            ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
+            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
+        });
+        const t = fresh.getAudioTracks()[0];
+        if (t) { t.enabled = true; stream.addTrack(t); }
+      }
+    } catch {}
     const mimeType = pickMime();
     // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
     // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look

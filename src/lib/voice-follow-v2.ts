@@ -63,11 +63,16 @@ export function useVoiceFollow({
   words,
   lang,
   visibleWordIndexRef,
+  getExternalStream,
 }: {
   enabled: boolean;
   words: Word[];
   lang: string;
   visibleWordIndexRef?: { current: number };
+  /** In video mode, reuse the camera stream's mic instead of opening a second
+   *  mic session — iOS gives the mic to the newest session and silences the
+   *  recording otherwise. */
+  getExternalStream?: () => MediaStream | null;
 }) {
   const [anchorWordIndex, setAnchorWordIndex] = useState(-1);
   const [status, setStatus] = useState<VoiceFollowStatus>("off");
@@ -83,7 +88,7 @@ export function useVoiceFollow({
       return;
     }
     if (!isVoiceFollowSupported()) { setStatus("error"); return; }
-    let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null;
+    let stopped = false, stream: MediaStream | null = null, context: AudioContext | null = null, ownsStream = true;
     let source: MediaStreamAudioSourceNode | null = null, processor: ScriptProcessorNode | null = null;
     let recognition: any = null, chunks: Float32Array[] = [], samples = 0, newSamples = 0, rate = 48000, timer = 0, inFlight = 0;
     let requestSequence = 0, latestAppliedSequence = 0;
@@ -237,9 +242,15 @@ export function useVoiceFollow({
     };
 
     (async () => {
-      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
-      catch { if (!stopped) setStatus("error"); return; }
-      if (stopped) { stream.getTracks().forEach((track) => track.stop()); return; }
+      const shared = getExternalStream?.() ?? null;
+      if (shared && shared.getAudioTracks().some((t) => t.readyState === "live")) {
+        stream = shared;
+        ownsStream = false;
+      } else {
+        try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+        catch { if (!stopped) setStatus("error"); return; }
+      }
+      if (stopped) { if (ownsStream) stream.getTracks().forEach((track) => track.stop()); return; }
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
       context = new AC(); await context!.resume(); rate = context!.sampleRate;
       source = context!.createMediaStreamSource(stream); processor = context!.createScriptProcessor(1024, 1, 1);
@@ -257,10 +268,10 @@ export function useVoiceFollow({
       requestControllers.forEach((controller) => controller.abort());
       requestControllers.clear();
       try { recognition?.abort(); processor?.disconnect(); source?.disconnect(); } catch {}
-      try { stream?.getTracks().forEach((track) => track.stop()); context?.close(); } catch {}
+      try { if (ownsStream) stream?.getTracks().forEach((track) => track.stop()); context?.close(); } catch {}
       setStatus("off");
     };
-  }, [enabled, lang, visibleWordIndexRef]);
+  }, [enabled, lang, visibleWordIndexRef, getExternalStream]);
 
   return { anchorWordIndex, status };
 }
