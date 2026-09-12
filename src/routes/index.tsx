@@ -810,6 +810,23 @@ function Prompter({
   const startRecording = useCallback(async () => {
     const stream = streamRef.current;
     if (!stream || recording) return;
+    // Make sure a live mic track is on the stream before we start. iOS can end
+    // the audio track (another app / session took the mic), which would produce
+    // a silent recording. Re-acquire and attach one if needed.
+    try {
+      const live = stream.getAudioTracks().filter((t) => t.readyState === "live");
+      live.forEach((t) => { t.enabled = true; });
+      if (live.length === 0) {
+        stream.getAudioTracks().forEach((t) => { try { stream.removeTrack(t); } catch {} });
+        const fresh = await navigator.mediaDevices.getUserMedia({
+          audio: currentMicIdRef.current
+            ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
+            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
+        });
+        const t = fresh.getAudioTracks()[0];
+        if (t) { t.enabled = true; stream.addTrack(t); }
+      }
+    } catch {}
     const mimeType = pickMime();
     // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
     // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
