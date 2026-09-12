@@ -268,10 +268,10 @@ export function useVoiceFollow({
       requestControllers.forEach((controller) => controller.abort());
       requestControllers.clear();
       try { recognition?.abort(); processor?.disconnect(); source?.disconnect(); } catch {}
-      try { stream?.getTracks().forEach((track) => track.stop()); context?.close(); } catch {}
+      try { if (ownsStream) stream?.getTracks().forEach((track) => track.stop()); context?.close(); } catch {}
       setStatus("off");
     };
-  }, [enabled, lang, visibleWordIndexRef]);
+  }, [enabled, lang, visibleWordIndexRef, getExternalStream]);
 
   return { anchorWordIndex, status };
 }
