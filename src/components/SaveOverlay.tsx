@@ -27,6 +27,7 @@ export function SaveOverlay({
 
   const secs = Math.max(0, Math.round((now - job.startedAt) / 1000));
   const working = job.phase === "working";
+  const ready = job.phase === "ready";
   const error = job.phase === "error";
 
   return createPortal(
@@ -62,9 +63,14 @@ export function SaveOverlay({
         )}
 
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-          {job.file && (working ? secs >= 3 : job.phase === "done") && (
+          {ready && job.runPrimary && (
+            <button onClick={job.runPrimary} className="rounded-full bg-amber-400 px-5 py-3 text-sm font-black text-black active:scale-95">
+              {job.actionLabel || "Save"}
+            </button>
+          )}
+          {job.file && !working && (
             <button onClick={onFallback} className="rounded-full border border-white/20 px-4 py-2 text-sm text-neutral-200 active:scale-95">
-              Save as a file instead
+              Save to Files
             </button>
           )}
           {job.file && (
