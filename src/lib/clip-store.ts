@@ -258,3 +258,146 @@ export function fmtDuration(ms: number): string {
   const r = s % 60;
   return `${m}:${r.toString().padStart(2, "0")}`;
 }
+
+// ============ Rescue / repair ============
+// A clip can end up unplayable ("play button with a slash") for a handful of
+// concrete reasons on iOS: the stored MIME string doesn't match the actual
+// container, the first chunk (which carries the mp4 ftyp/moov header) never
+// made it to disk, or the tail chunk is truncated. These helpers diagnose and
+// rebuild the file from whatever bytes still exist.
+
+export type RepairReport = {
+  container: "mp4" | "webm" | "unknown";
+  hadHeader: boolean;
+  chunkCount: number;
+  bytes: number;
+  changedMime: boolean;
+  rebuiltFromChunks: boolean;
+  playable: boolean;
+};
+
+async function sniff(blob: Blob): Promise<{ container: RepairReport["container"]; hasHeader: boolean }> {
+  const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
+  if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) {
+    return { container: "webm", hasHeader: true };
+  }
+  // look for an 'ftyp' box near the start (mp4 / QuickTime)
+  for (let i = 0; i < Math.min(head.length - 4, 2048); i++) {
+    if (head[i] === 0x66 && head[i + 1] === 0x74 && head[i + 2] === 0x79 && head[i + 3] === 0x70) {
+      return { container: "mp4", hasHeader: true };
+    }
+  }
+  // moof-only data = fragments without a header
+  for (let i = 0; i < Math.min(head.length - 4, 2048); i++) {
+    if (head[i] === 0x6d && head[i + 1] === 0x6f && head[i + 2] === 0x6f && head[i + 3] === 0x66) {
+      return { container: "mp4", hasHeader: false };
+    }
+  }
+  return { container: "unknown", hasHeader: false };
+}
+
+// Can the browser actually decode this blob?
+export function probePlayable(blob: Blob, timeoutMs = 6000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const v = document.createElement("video");
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      v.removeAttribute("src");
+      try { v.load(); } catch {}
+      URL.revokeObjectURL(url);
+      resolve(ok);
+    };
+    v.muted = true;
+    (v as any).playsInline = true;
+    v.preload = "metadata";
+    v.onloadedmetadata = () => finish(true);
+    v.onerror = () => finish(false);
+    window.setTimeout(() => finish(false), timeoutMs);
+    v.src = url;
+  });
+}
+
+// Rebuild a clip from every byte we still have and store the fixed version.
+export async function repairClip(id: string): Promise<{ clip: ClipRecord | null; report: RepairReport }> {
+  const store = await storeIn(STORE, "readonly");
+  const existing = await new Promise<ClipRecord | undefined>((resolve, reject) => {
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result as ClipRecord | undefined);
+    req.onerror = () => reject(req.error);
+  });
+
+  // Prefer raw chunks when they survived — they are the closest thing to the
+  // original wire data and preserve ordering.
+  const chunks = await getChunks(id).catch(() => [] as Blob[]);
+  const session = await getSession(id).catch(() => undefined);
+
+  const base = existing;
+  let rebuiltFromChunks = false;
+  let bytes: Blob | null = null;
+
+  if (chunks.length > 0 && (!base || chunks.reduce((n, c) => n + c.size, 0) >= base.sizeBytes)) {
+    bytes = new Blob(chunks);
+    rebuiltFromChunks = true;
+  } else if (base) {
+    bytes = base.blob;
+  }
+
+  if (!bytes || bytes.size === 0) {
+    return { clip: null, report: { container: "unknown", hadHeader: false, chunkCount: chunks.length, bytes: 0, changedMime: false, rebuiltFromChunks, playable: false } };
+  }
+
+  const { container, hasHeader } = await sniff(bytes);
+  const correctMime = container === "webm" ? "video/webm" : container === "mp4" ? "video/mp4" : (base?.mimeType || session?.mimeType || "video/mp4");
+  const changedMime = (base?.mimeType || "").split(";")[0] !== correctMime;
+
+  let fixed = new Blob([bytes], { type: correctMime });
+  let playable = await probePlayable(fixed);
+
+  // Truncated tail: MediaRecorder can die mid-chunk. Dropping the last chunk
+  // usually restores a decodable file (you lose at most ~1s at the end).
+  if (!playable && chunks.length > 1) {
+    for (const drop of [1, 2]) {
+      if (chunks.length - drop <= 0) break;
+      const trial = new Blob(chunks.slice(0, chunks.length - drop), { type: correctMime });
+      // eslint-disable-next-line no-await-in-loop
+      if (await probePlayable(trial)) { fixed = trial; playable = true; rebuiltFromChunks = true; break; }
+    }
+  }
+
+  const rec: ClipRecord = {
+    id,
+    scriptId: base?.scriptId || session?.scriptId || "",
+    mimeType: correctMime,
+    durationMs: base?.durationMs || (session ? Math.max(0, Date.now() - session.startedAt) : 0),
+    sizeBytes: fixed.size,
+    createdAt: base?.createdAt || session?.startedAt || Date.now(),
+    width: base?.width || session?.width || 0,
+    height: base?.height || session?.height || 0,
+    blob: fixed,
+  };
+  if (rec.scriptId) await saveClip(rec);
+
+  return {
+    clip: rec,
+    report: { container, hadHeader: hasHeader, chunkCount: chunks.length, bytes: fixed.size, changedMime, rebuiltFromChunks, playable },
+  };
+}
+
+// Everything still sitting in the database, playable or not, including
+// half-finished sessions that were never turned into clips.
+export async function rescueAll(scriptId: string): Promise<ClipRecord[]> {
+  await recoverOrphanSessions();
+  const store = await storeIn(SESSION_STORE, "readonly");
+  const sessions = await new Promise<RecordingSession[]>((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result as RecordingSession[]);
+    req.onerror = () => reject(req.error);
+  });
+  for (const s of sessions) {
+    try { await repairClip(s.id); } catch {}
+  }
+  return listClips(scriptId);
+}
