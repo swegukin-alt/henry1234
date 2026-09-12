@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, type ClipRecord } from "@/lib/clip-store";
+import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, listAllClips, type ClipRecord } from "@/lib/clip-store";
+import { startSave, type SaveJob } from "@/lib/save-clips";
+import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
 import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
 
@@ -132,6 +134,14 @@ function Index() {
     setActiveId(s.id);
     setMode("edit");
   };
+  const [allVideosOpen, setAllVideosOpen] = useState(false);
+  const [allClips, setAllClips] = useState<ClipRecord[]>([]);
+  const [librarySave, setLibrarySave] = useState<SaveJob | null>(null);
+  const refreshAllClips = useCallback(async () => {
+    try { setAllClips(await listAllClips()); } catch { setAllClips([]); }
+  }, []);
+  useEffect(() => { if (allVideosOpen) void refreshAllClips(); }, [allVideosOpen, refreshAllClips]);
+
   const deleteScript = (id: string) => {
     setScripts((a) => a.filter((s) => s.id !== id));
     if (activeId === id) setActiveId(null);
@@ -160,6 +170,7 @@ function Index() {
           onSelect={(id) => { setActiveId(id); setMode("edit"); }}
           onCreate={createScript}
           onDelete={deleteScript}
+          onAllVideos={() => setAllVideosOpen(true)}
         />
       ) : (
         <Editor
@@ -170,6 +181,26 @@ function Index() {
           onBack={() => setMode("library")}
           onPlay={() => { enterLandscape(); setMode("play"); }}
           onVideo={() => { enterLandscape(); setMode("video"); }}
+        />
+      )}
+
+      {allVideosOpen && (
+        <ClipsSheet
+          clips={allClips}
+          onClose={() => setAllVideosOpen(false)}
+          onDelete={async (id) => { await deleteClip(id); setAllClips((cs) => cs.filter((c) => c.id !== id)); }}
+          onDeleteAll={async () => { for (const c of allClips) await deleteClip(c.id); setAllClips([]); }}
+          onExport={(subset) => startSave(subset && subset.length ? subset : allClips, "Take", setLibrarySave)}
+          onReplace={(clip) => setAllClips((cs) => cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [clip, ...cs])}
+          onRescue={async () => { for (const s of scripts) { try { await rescueAll(s.id); } catch {} } await refreshAllClips(); }}
+        />
+      )}
+
+      {librarySave && (
+        <SaveOverlay
+          job={librarySave}
+          onClose={() => setLibrarySave(null)}
+          onFallback={() => { if (librarySave.file) librarySave.download(librarySave.file); setLibrarySave(null); }}
         />
       )}
     </Shell>
@@ -187,10 +218,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function Library({
-  scripts, activeId, onSelect, onCreate, onDelete,
+  scripts, activeId, onSelect, onCreate, onDelete, onAllVideos,
 }: {
   scripts: Script[]; activeId: string | null;
   onSelect: (id: string) => void; onCreate: () => void; onDelete: (id: string) => void;
+  onAllVideos: () => void;
 }) {
   return (
     <div>
@@ -206,6 +238,12 @@ function Library({
           className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-3.5 text-base font-bold text-black active:scale-[0.98] transition shadow-lg shadow-amber-400/20"
         >
           Let's go
+        </button>
+        <button
+          onClick={onAllVideos}
+          className="mt-2.5 w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/[0.04] px-4 py-3 text-sm font-bold text-neutral-200 active:scale-[0.98] transition"
+        >
+          <Film className="h-4 w-4 text-amber-300" /> All videos
         </button>
       </header>
 
