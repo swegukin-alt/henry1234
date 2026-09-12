@@ -63,11 +63,16 @@ export function useVoiceFollow({
   words,
   lang,
   visibleWordIndexRef,
+  getExternalStream,
 }: {
   enabled: boolean;
   words: Word[];
   lang: string;
   visibleWordIndexRef?: { current: number };
+  /** In video mode, reuse the camera stream's mic instead of opening a second
+   *  mic session — iOS gives the mic to the newest session and silences the
+   *  recording otherwise. */
+  getExternalStream?: () => MediaStream | null;
 }) {
   const [anchorWordIndex, setAnchorWordIndex] = useState(-1);
   const [status, setStatus] = useState<VoiceFollowStatus>("off");
