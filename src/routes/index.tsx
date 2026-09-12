@@ -1945,3 +1945,66 @@ function ClipsSheet({
   );
 }
 
+
+// Full-screen feedback while a clip is being handed to iOS. Saving a long
+// take can take many seconds with no OS-level signal, so we always show a
+// live ring plus elapsed time and an escape hatch.
+function SaveOverlay({
+  job, onClose, onFallback,
+}: {
+  job: { phase: "working" | "done"; title: string; detail: string; startedAt: number; file: File };
+  onClose: () => void;
+  onFallback: () => void;
+}) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (job.phase !== "working") return;
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [job.phase]);
+  useEffect(() => {
+    if (job.phase !== "done") return;
+    const id = window.setTimeout(onClose, 4000);
+    return () => window.clearTimeout(id);
+  }, [job.phase, onClose]);
+
+  const secs = Math.max(0, Math.round((now - job.startedAt) / 1000));
+  const done = job.phase === "done";
+
+  return (
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/85 backdrop-blur-sm px-6" onClick={(e) => e.stopPropagation()}>
+      <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
+        <div className="relative h-20 w-20">
+          <svg viewBox="0 0 48 48" className={done ? "h-20 w-20" : "h-20 w-20 animate-spin"}>
+            <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" strokeWidth="4" className="text-white/15" />
+            <circle
+              cx="24" cy="24" r="20" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round"
+              className="text-amber-400"
+              strokeDasharray={done ? "126" : "40 126"}
+            />
+          </svg>
+          {done && (
+            <div className="absolute inset-0 grid place-items-center text-2xl font-black text-amber-400">✓</div>
+          )}
+        </div>
+        <div className="text-lg font-black text-white">{job.title}</div>
+        <div className="text-sm leading-snug text-neutral-300">{job.detail}</div>
+        {!done && (
+          <div className="text-xs text-neutral-400">
+            {secs}s · big takes can need a while — keep this screen open
+          </div>
+        )}
+        <div className="mt-2 flex gap-2">
+          {!done && secs >= 4 && (
+            <button onClick={onFallback} className="rounded-full border border-white/20 px-4 py-2 text-sm text-neutral-200">
+              Save as a file instead
+            </button>
+          )}
+          <button onClick={onClose} className="rounded-full bg-white/10 px-4 py-2 text-sm text-neutral-200">
+            {done ? "Done" : "Cancel"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
