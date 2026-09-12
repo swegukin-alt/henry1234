@@ -411,3 +411,16 @@ export async function listAllClips(): Promise<ClipRecord[]> {
     req.onerror = () => reject(req.error);
   });
 }
+
+// Every byte we still have for a recording: the finalized clip AND any raw
+// chunks that survived (a take can end up truncated if a chunk write failed
+// near the end). Returns whichever is longer, without dropping anything.
+export async function assembleBest(clip: ClipRecord): Promise<ClipRecord> {
+  let chunks: Blob[] = [];
+  try { chunks = await getChunks(clip.id); } catch {}
+  const chunkBytes = chunks.reduce((n, c) => n + c.size, 0);
+  if (chunkBytes <= (clip.blob?.size || 0)) return clip;
+  const mime = (clip.mimeType || "video/mp4").split(";")[0].trim();
+  const blob = new Blob(chunks, { type: mime });
+  return { ...clip, blob, sizeBytes: blob.size };
+}
