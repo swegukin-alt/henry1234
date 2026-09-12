@@ -519,6 +519,10 @@ function Prompter({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingIdRef = useRef<string | null>(null);
   const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  // Chunk writes that failed (usually storage pressure). A silent failure is
+  // how a 31-minute take ends up 25 minutes long, so it is surfaced live.
+  const writeFailRef = useRef(0);
+  const [writeWarn, setWriteWarn] = useState(false);
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
@@ -837,6 +841,8 @@ function Prompter({
 
     recordingIdRef.current = recordingId;
     appendQueueRef.current = Promise.resolve();
+    writeFailRef.current = 0;
+    setWriteWarn(false);
 
     // Serialize DB appends so chunk order matches wire order; keep a memory
     // copy in parallel for instant playback.
@@ -846,7 +852,10 @@ function Prompter({
       memChunks.push(blob);
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
-        .then(() => appendChunk(recordingId, blob).catch(() => {}));
+        .then(() => appendChunk(recordingId, blob).catch(() => {
+          writeFailRef.current += 1;
+          setWriteWarn(true);
+        }));
     };
 
     const buildInstantClip = (): ClipRecord | null => {
