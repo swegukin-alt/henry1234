@@ -111,7 +111,10 @@ export function startSave(
         title: "Ready for Files",
         detail: `${fmtSize(totalBytes)} · This long take is too large for the iPhone save menu. Tap Save to Files below.`,
         actionLabel: "Save to Files",
-        runPrimary: () => downloadFile(first),
+        runPrimary: () => {
+          downloadFile(first);
+          patch({ phase: "done", title: "Sent to Files", detail: "The download was started. Find it in Files → Downloads." });
+        },
       });
       return;
     }
@@ -137,7 +140,11 @@ export function startSave(
     patch({
       phase: "ready", file: first, bytes: totalBytes,
       title: "Ready for Files", detail: `${fmtSize(totalBytes)} · Tap Save to Files below.`,
-      actionLabel: "Save to Files", runPrimary: () => downloadFile(first),
+      actionLabel: "Save to Files",
+      runPrimary: () => {
+        downloadFile(first);
+        patch({ phase: "done", title: "Sent to Files", detail: "The download was started. Find it in Files → Downloads." });
+      },
     });
   } catch (e: any) {
     patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });

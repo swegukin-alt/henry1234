@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, listAllClips, deepRestore, getClip, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
+import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, getClip, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
 import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
@@ -1819,25 +1819,6 @@ function ClipsSheet({
       setBusy(null);
     }
   }, [onReplace]);
-
-  // Quietly check each clip once so a broken one is flagged before it is opened.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      for (const meta of clips) {
-        // eslint-disable-next-line no-await-in-loop
-        // Skip long/large takes: decoding a multi-GB file here stalls the
-        // sheet and makes every button feel dead.
-        if (meta.sizeBytes > 400_000_000) continue;
-        const c = await getClip(meta.id);
-        if (!c) continue;
-        const ok = await probePlayable(c.blob, 8000);
-        if (cancelled) return;
-        if (!ok) setBroken((b) => new Set(b).add(meta.id));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [clips]);
 
   return (
     <>
