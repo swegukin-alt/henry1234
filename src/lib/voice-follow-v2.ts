@@ -242,9 +242,15 @@ export function useVoiceFollow({
     };
 
     (async () => {
-      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
-      catch { if (!stopped) setStatus("error"); return; }
-      if (stopped) { stream.getTracks().forEach((track) => track.stop()); return; }
+      const shared = getExternalStream?.() ?? null;
+      if (shared && shared.getAudioTracks().some((t) => t.readyState === "live")) {
+        stream = shared;
+        ownsStream = false;
+      } else {
+        try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+        catch { if (!stopped) setStatus("error"); return; }
+      }
+      if (stopped) { if (ownsStream) stream.getTracks().forEach((track) => track.stop()); return; }
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
       context = new AC(); await context!.resume(); rate = context!.sampleRate;
       source = context!.createMediaStreamSource(stream); processor = context!.createScriptProcessor(1024, 1, 1);
