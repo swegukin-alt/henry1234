@@ -1562,6 +1562,9 @@ function Prompter({
           onDelete={async (id) => { await deleteClip(id); setClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { await deleteAllForScript(script.id); setClips([]); }}
           onExport={exportClips}
+          onReplace={(clip) => setClips((cs) => cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [...cs, clip])}
+          onRescue={async () => { const list = await rescueAll(script.id); setClips(list); }}
+
         />
       )}
 
