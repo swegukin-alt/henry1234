@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, listAllClips, type ClipRecord } from "@/lib/clip-store";
+import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, listAllClips, deepRestore, type ClipRecord } from "@/lib/clip-store";
 import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
@@ -1792,6 +1792,33 @@ function ClipsSheet({
     }
   }, [onReplace]);
 
+  // Rebuild a take to its full recoverable length (fixes takes that stop
+  // short: the tail fragment was cut mid-write so players ignore the rest).
+  const doRestore = useCallback(async (c: ClipRecord) => {
+    setBusy(c.id);
+    setNote("Restoring every recoverable second — long takes can take a minute…");
+    try {
+      const { clip, report } = await deepRestore(c.id);
+      if (!clip) { setNote("No footage left in storage for this take."); return; }
+      onReplace(clip);
+      setBroken((b) => { const n = new Set(b); report.playable ? n.delete(c.id) : n.add(c.id); return n; });
+      if (report.playable) {
+        const gained = report.durationMs - report.previousDurationMs;
+        setNote(gained > 2000
+          ? `Restored to ${fmtDuration(report.durationMs)} (+${fmtDuration(gained)}) · ${fmtSize(report.bytes)}. Ready to save.`
+          : `Full length confirmed: ${fmtDuration(report.durationMs)} · ${fmtSize(report.bytes)}. Ready to save.`);
+        setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
+        setPlayingClip(clip);
+      } else {
+        setNote(`Kept all ${fmtSize(report.bytes)} of footage, but this device can't decode it. Save it to Files and it can still be repaired on a computer.`);
+      }
+    } catch {
+      setNote("Restore failed. Try Save to Photos to export the raw file.");
+    } finally {
+      setBusy(null);
+    }
+  }, [onReplace]);
+
   // Quietly check each clip once so a broken one is flagged before it is opened.
   useEffect(() => {
     let cancelled = false;
@@ -1837,9 +1864,13 @@ function ClipsSheet({
                       {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
-                  {broken.has(c.id) && (
+                  {broken.has(c.id) ? (
                     <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
                       {busy === c.id ? "Repairing…" : "Repair"}
+                    </button>
+                  ) : (
+                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
+                      {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
                   )}
                   <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip to Photos">
