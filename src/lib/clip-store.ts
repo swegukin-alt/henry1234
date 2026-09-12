@@ -137,7 +137,7 @@ export async function deleteClip(id: string): Promise<void> {
 }
 
 export async function deleteAllForScript(scriptId: string): Promise<void> {
-  const clips = await listClips(scriptId);
+  const clips = await listClipMeta(scriptId);
   await Promise.all(clips.map((c) => deleteClip(c.id)));
 }
 

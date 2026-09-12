@@ -531,7 +531,6 @@ function Prompter({
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
-  useEffect(() => { recordingRef.current = recording; }, [recording]);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [clips, setClips] = useState<ClipMeta[]>([]);
   const [clipsOpen, setClipsOpen] = useState(false);
@@ -1769,7 +1768,7 @@ function ClipsSheet({
   useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
 
   // Rebuild an unplayable recording from the raw data still in storage.
-  const doRepair = useCallback(async (c: ClipRecord) => {
+  const doRepair = useCallback(async (c: ClipMeta) => {
     setBusy(c.id);
     setNote("Rebuilding recording — this can take a minute for long takes…");
     try {
@@ -1796,7 +1795,7 @@ function ClipsSheet({
 
   // Rebuild a take to its full recoverable length (fixes takes that stop
   // short: the tail fragment was cut mid-write so players ignore the rest).
-  const doRestore = useCallback(async (c: ClipRecord) => {
+  const doRestore = useCallback(async (c: ClipMeta) => {
     setBusy(c.id);
     setNote("Restoring every recoverable second — long takes can take a minute…");
     try {
@@ -1856,7 +1855,7 @@ function ClipsSheet({
             <div className="px-3 py-10 text-center text-sm text-neutral-400">No clips yet. Tap the red record button to start.</div>
           ) : (
             <ul className="space-y-2">
-              {clips.map((c, i) => (
+              {clips.map((c) => (
                 <li key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
                   <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
@@ -1948,7 +1947,7 @@ function ClipsSheet({
               left: "calc(env(safe-area-inset-left, 0px) + 0.5rem)",
             }}
           >
-            Take {clips.findIndex((c) => c.id === playingClip.id) + 1} · {fmtDuration(playingClip.durationMs)}
+            {scriptTitles[playingClip.scriptId] || "Deleted script"} · {new Date(playingClip.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
           </div>
 
           {/* Floating action row — bottom, above native video controls */}
