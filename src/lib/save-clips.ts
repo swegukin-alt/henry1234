@@ -72,12 +72,18 @@ export function startSave(
     openInPlayer,
   });
 
+  void (async () => {
   try {
-    const arr = clips.filter((c) => c && c.blob && c.blob.size > 0);
+    let arr = clips.filter((c) => c && c.blob && c.blob.size > 0);
     if (!arr.length) {
       patch({ phase: "error", title: "Nothing to save", detail: "This take has no video data left in storage. Try Repair or Recover first." });
       return;
     }
+
+    // A take can end up shorter than it should be if a write failed near the
+    // end. Rebuild from every surviving byte before saving.
+    patch({ detail: "Collecting every second of this take…" });
+    arr = await Promise.all(arr.map(async (c) => { try { return await assembleBest(c); } catch { return c; } }));
 
     const toFile = (c: ClipRecord, i: number) => {
       const clean = (c.mimeType || "video/mp4").split(";")[0].trim();
