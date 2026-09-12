@@ -513,7 +513,6 @@ function Prompter({
 
   // Video-mode state
   const videoElRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const [camReady, setCamReady] = useState(false);
   // Mic state: label of the currently-active audio input + whether it's external.
