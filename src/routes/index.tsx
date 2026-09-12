@@ -1864,9 +1864,13 @@ function ClipsSheet({
                       {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
-                  {broken.has(c.id) && (
+                  {broken.has(c.id) ? (
                     <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
                       {busy === c.id ? "Repairing…" : "Repair"}
+                    </button>
+                  ) : (
+                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
+                      {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
                   )}
                   <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip to Photos">
