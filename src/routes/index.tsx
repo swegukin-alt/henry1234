@@ -488,6 +488,16 @@ function Prompter({
   const [elapsedMs, setElapsedMs] = useState(0);
   const [clips, setClips] = useState<ClipRecord[]>([]);
   const [clipsOpen, setClipsOpen] = useState(false);
+  type SaveJob = {
+    phase: "working" | "done";
+    title: string;
+    detail: string;
+    startedAt: number;
+    file: File;
+    download: (f: File) => void;
+  };
+  const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
+
   type Quality = "720p" | "1080p" | "4k";
   const [quality, setQuality] = useState<Quality>(() => {
     if (typeof window === "undefined") return "1080p";
