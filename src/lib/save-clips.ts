@@ -5,6 +5,11 @@
 // tap that triggered it — so: no awaits before the call, no codec parameters,
 // no multi-file batches. Everything here is synchronous up to share().
 //
+// Very long takes (multi-GB) are a special case: iOS silently refuses to put
+// them in the share sheet. For those we go straight to a file download and
+// also offer opening the video in Safari's own player, where the built-in
+// share button can save it to Photos.
+//
 // The caller always gets a job object immediately, even on failure, so the UI
 // can show a live ring instead of appearing dead.
 
@@ -17,8 +22,13 @@ export type SaveJob = {
   detail: string;
   startedAt: number;
   file: File | null;
+  bytes: number;
   download: (f: File) => void;
+  openInPlayer: (f: File) => void;
 };
+
+// Beyond this, iOS Safari's share sheet reliably fails or never appears.
+const SHARE_LIMIT = 1_200_000_000; // ~1.2 GB
 
 function downloadFile(f: File) {
   const url = URL.createObjectURL(f);
@@ -29,7 +39,14 @@ function downloadFile(f: File) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+}
+
+function openInPlayer(f: File) {
+  const url = URL.createObjectURL(f);
+  const w = window.open(url, "_blank");
+  if (!w) location.href = url;
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
 }
 
 export function startSave(
@@ -50,7 +67,9 @@ export function startSave(
     detail: "Getting the file ready",
     startedAt: started,
     file: null,
+    bytes: 0,
     download: downloadFile,
+    openInPlayer,
   });
 
   try {
@@ -71,10 +90,23 @@ export function startSave(
     const rest = arr.slice(1);
     const totalBytes = arr.reduce((n, c) => n + (c.sizeBytes || c.blob.size || 0), 0);
 
-    patch({ file: first, detail: `${fmtSize(totalBytes)} · handing it to your iPhone` });
+    patch({ file: first, bytes: totalBytes, detail: `${fmtSize(totalBytes)} · handing it to your iPhone` });
 
     const nav: any = navigator;
-    const canShare = !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [first] }); } catch { return false; } })());
+    const tooBigToShare = first.size > SHARE_LIMIT;
+    const canShare = !tooBigToShare && !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [first] }); } catch { return false; } })());
+
+    if (tooBigToShare) {
+      // Long takes: the iPhone share sheet will not accept a file this large.
+      downloadFile(first);
+      rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
+      patch({
+        phase: "done",
+        title: "Saving to Files",
+        detail: `This take is ${fmtSize(totalBytes)} — too big for the quick share sheet, so it is downloading to Files → Downloads. Open it there and tap Share → Save Video to put it in Photos. You can also tap "Open in player" below.`,
+      });
+      return;
+    }
 
     if (canShare) {
       nav.share({ files: [first] })
@@ -86,14 +118,14 @@ export function startSave(
           if (e?.name === "AbortError") { set(null); return; }
           downloadFile(first);
           rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
-          patch({ phase: "done", title: "Saved as a file", detail: "The iPhone sheet refused it, so it downloaded instead. Look in Files → Downloads." });
+          patch({ phase: "done", title: "Saved as a file", detail: `The iPhone sheet refused it (${e?.name || "error"}), so it downloaded instead. Look in Files → Downloads.` });
         });
       return;
     }
 
     downloadFile(first);
     rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
-    patch({ phase: "done", title: "Downloaded", detail: "Saving straight to Photos isn't available here, so the file downloaded instead." });
+    patch({ phase: "done", title: "Downloaded", detail: "Saving straight to Photos isn't available here, so the file downloaded to Files → Downloads." });
   } catch (e: any) {
     patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
   }
