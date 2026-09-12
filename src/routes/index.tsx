@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Share2, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
+import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
 import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, type ClipRecord } from "@/lib/clip-store";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
 import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
