@@ -1734,31 +1734,33 @@ function PopRow({ label, value, children }: { label: string; value: string; chil
 }
 
 function ClipsSheet({
-  clips, onClose, onDelete, onDeleteAll, onExport, onReplace, onRescue,
+  clips, scriptTitles, onClose, onDelete, onDeleteAll, onExport, onReplace, onRescue,
 }: {
-  clips: ClipRecord[];
+  clips: ClipMeta[];
+  scriptTitles: Record<string, string>;
   onClose: () => void;
   onDelete: (id: string) => void | Promise<void>;
   onDeleteAll: () => void | Promise<void>;
-  onExport: (subset?: ClipRecord[]) => void | Promise<void>;
+  onExport: (clip: ClipMeta) => void | Promise<void>;
   onReplace: (clip: ClipRecord) => void;
   onRescue: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [broken, setBroken] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
-  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const selectedClips = clips.filter((c) => selected.has(c.id));
-
-  // Open a clip: create the object URL SYNCHRONOUSLY inside the click handler
-  // so iOS Safari treats the subsequent video.play() as a user-gesture.
-  const openClip = useCallback((c: ClipRecord) => {
-    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
-    setPlayingClip(c);
+  const openClip = useCallback(async (meta: ClipMeta) => {
+    setBusy(meta.id);
+    try {
+      const c = await getClip(meta.id);
+      if (!c) { setNote("This recording is missing from phone storage."); return; }
+      setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
+      setPlayingClip(c);
+    } finally {
+      setBusy(null);
+    }
   }, []);
   const closePlayer = useCallback(() => {
     setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
@@ -1823,14 +1825,16 @@ function ClipsSheet({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      for (const c of clips) {
+      for (const meta of clips) {
         // eslint-disable-next-line no-await-in-loop
         // Skip long/large takes: decoding a multi-GB file here stalls the
         // sheet and makes every button feel dead.
-        if (c.blob.size > 400_000_000) continue;
+        if (meta.sizeBytes > 400_000_000) continue;
+        const c = await getClip(meta.id);
+        if (!c) continue;
         const ok = await probePlayable(c.blob, 8000);
         if (cancelled) return;
-        if (!ok) setBroken((b) => new Set(b).add(c.id));
+        if (!ok) setBroken((b) => new Set(b).add(meta.id));
       }
     })();
     return () => { cancelled = true; };
@@ -1853,15 +1857,14 @@ function ClipsSheet({
           ) : (
             <ul className="space-y-2">
               {clips.map((c, i) => (
-                <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
-                  <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
+                <li key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
                   <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> Take {i + 1}
+                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> {scriptTitles[c.scriptId] || "Deleted script"}
                       {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
                     </div>
                     <div className="text-[11px] text-neutral-400">
-                      {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
+                      {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
                   {broken.has(c.id) ? (
@@ -1873,7 +1876,7 @@ function ClipsSheet({
                       {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
                   )}
-                  <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip to Photos">
+                   <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip">
                     <Download className="h-4 w-4" />
                   </button>
                   <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
@@ -1899,11 +1902,7 @@ function ClipsSheet({
             <button onClick={() => { if (confirm("Delete all clips for this script?")) onDeleteAll(); }} className="rounded-full border border-white/15 px-4 py-2 text-sm text-neutral-300">
               Delete all
             </button>
-            <div className="flex-1" />
-            <button onClick={() => onExport(selectedClips.length ? selectedClips : clips)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-base font-black text-black active:scale-95">
-              <Download className="h-5 w-5" />
-              {selectedClips.length ? `Save ${selectedClips.length} to Photos` : "Save to Photos"}
-            </button>
+            <div className="flex-1 text-right text-xs text-neutral-400">Use the download button beside a video to save it.</div>
           </div>
         )}
       </div>
@@ -1961,8 +1960,8 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-            <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
-              <Download className="h-5 w-5" /> Save to Photos
+             <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+               <Download className="h-5 w-5" /> Save video
             </button>
             {broken.has(playingClip.id) && (
               <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-black/70 px-4 py-2 text-sm font-bold text-amber-300 backdrop-blur-sm disabled:opacity-50">
