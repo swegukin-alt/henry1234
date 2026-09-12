@@ -464,11 +464,15 @@ function Prompter({
   const tokens = useMemo<Token[]>(() => tokenize(script.body, chunking), [script.body, chunking]);
   const words = useMemo(() => wordListFromTokens(tokens), [tokens]);
   const lang = useMemo(() => detectLang(script.body), [script.body]);
+  // Share the camera stream's mic with voice-follow in video mode. Opening a
+  // second mic session on iOS silences the audio track that is being recorded.
+  const getSharedMicStream = useCallback(() => streamRef.current, []);
   const { anchorWordIndex, status: vfStatus } = useVoiceFollow({
     enabled: voiceFollow && vfSupported,
     words,
     lang,
     visibleWordIndexRef: activeReadIdxRef,
+    getExternalStream: getSharedMicStream,
   });
   const wordRefsRef = useRef<Array<HTMLSpanElement | null>>([]);
   const prevAnchorRef = useRef<number>(-1);
