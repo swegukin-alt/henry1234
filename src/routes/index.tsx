@@ -1131,6 +1131,25 @@ function Prompter({
     return Math.min(1, Math.max(0, p));
   }, []);
 
+  // Write progress to the two elements that show it, bypassing React. State is
+  // only synced a couple of times a second so anything else that reads
+  // `progress` stays correct without paying for 60 re-renders a second.
+  const paintProgress = useCallback((p: number) => {
+    progressRef.current = p;
+    const bar = progressBarRef.current;
+    if (bar) bar.style.width = `${(p * 100).toFixed(2)}%`;
+    const badge = remainingRef.current;
+    if (badge) {
+      const txt = `${Math.round((1 - p) * 100)}% left`;
+      if (badge.textContent !== txt) badge.textContent = txt;
+    }
+    const now = performance.now();
+    if (now - lastProgressSyncRef.current > 400) {
+      lastProgressSyncRef.current = now;
+      setProgress(p);
+    }
+  }, []);
+
   const tick = useCallback((ts: number) => {
     const el = scrollRef.current;
     if (!el) return;
