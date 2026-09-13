@@ -1296,7 +1296,8 @@ function Prompter({
         resumeIfStalled();
       }
     };
-    const watchdog = window.setInterval(resumeIfStalled, 500);
+    // Only poll while actually rolling; an idle screen needs no timer.
+    const watchdog = playing ? window.setInterval(resumeIfStalled, 500) : 0;
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", resumeIfStalled);
     return () => {
