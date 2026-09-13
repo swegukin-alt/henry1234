@@ -441,7 +441,11 @@ function Prompter({
   const lastFrameWallRef = useRef<number>(0);
   const playingRef = useRef(false);
   const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0); // 0..1
+  const [progress, setProgress] = useState(0); // 0..1 (low-frequency mirror of progressRef)
+  const progressRef = useRef(0);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const remainingRef = useRef<HTMLDivElement | null>(null);
+  const lastProgressSyncRef = useRef(0);
   const [isPortrait, setIsPortrait] = useState(false);
   const [speed, setSpeed] = useState(settings.speed);
   const [fontSize, setFontSize] = useState(settings.fontSize);
