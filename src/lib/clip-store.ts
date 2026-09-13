@@ -4,8 +4,9 @@
 // recording and assembled either on stop or on the next app open (recovery).
 
 const DB_NAME = "prompter.clips.v1";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = "clips";
+const META_STORE = "clipMeta";
 const CHUNK_STORE = "chunks";
 const SESSION_STORE = "sessions";
 
@@ -54,6 +55,20 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(SESSION_STORE)) {
         db.createObjectStore(SESSION_STORE, { keyPath: "id" });
       }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        const meta = db.createObjectStore(META_STORE, { keyPath: "id" });
+        meta.createIndex("scriptId", "scriptId", { unique: false });
+        meta.createIndex("createdAt", "createdAt", { unique: false });
+        const oldStore = req.transaction?.objectStore(STORE);
+        const cursor = oldStore?.openCursor();
+        if (cursor) cursor.onsuccess = () => {
+          const row = cursor.result;
+          if (!row) return;
+          const { blob: _blob, ...metadata } = row.value as ClipRecord;
+          meta.put(metadata);
+          row.continue();
+        };
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -77,10 +92,23 @@ export async function requestPersistentStorage(): Promise<boolean> {
 }
 
 export async function saveClip(rec: ClipRecord): Promise<void> {
-  const store = await storeIn(STORE, "readwrite");
+  const db = await openDB();
   await new Promise<void>((resolve, reject) => {
-    const req = store.put(rec);
-    req.onsuccess = () => resolve();
+    const transaction = db.transaction([STORE, META_STORE], "readwrite");
+    const { blob: _blob, ...metadata } = rec;
+    transaction.objectStore(STORE).put(rec);
+    transaction.objectStore(META_STORE).put(metadata);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Could not save recording"));
+  });
+}
+
+export async function getClip(id: string): Promise<ClipRecord | null> {
+  const store = await storeIn(STORE, "readonly");
+  return new Promise((resolve, reject) => {
+    const req = store.get(id);
+    req.onsuccess = () => resolve((req.result as ClipRecord | undefined) || null);
     req.onerror = () => reject(req.error);
   });
 }
@@ -98,16 +126,18 @@ export async function listClips(scriptId: string): Promise<ClipRecord[]> {
 }
 
 export async function deleteClip(id: string): Promise<void> {
-  const store = await storeIn(STORE, "readwrite");
+  const db = await openDB();
   await new Promise<void>((resolve, reject) => {
-    const req = store.delete(id);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    const transaction = db.transaction([STORE, META_STORE], "readwrite");
+    transaction.objectStore(STORE).delete(id);
+    transaction.objectStore(META_STORE).delete(id);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
   });
 }
 
 export async function deleteAllForScript(scriptId: string): Promise<void> {
-  const clips = await listClips(scriptId);
+  const clips = await listClipMeta(scriptId);
   await Promise.all(clips.map((c) => deleteClip(c.id)));
 }
 
@@ -403,11 +433,21 @@ export async function rescueAll(scriptId: string): Promise<ClipRecord[]> {
 }
 
 // Every saved clip across all scripts, newest first.
-export async function listAllClips(): Promise<ClipRecord[]> {
-  const store = await storeIn(STORE, "readonly");
+export async function listAllClips(): Promise<ClipMeta[]> {
+  await recoverOrphanSessions();
+  const store = await storeIn(META_STORE, "readonly");
   return new Promise((resolve, reject) => {
     const req = store.getAll();
-    req.onsuccess = () => resolve((req.result as ClipRecord[]).sort((a, b) => b.createdAt - a.createdAt));
+    req.onsuccess = () => resolve((req.result as ClipMeta[]).sort((a, b) => (b.createdAt - a.createdAt) || b.id.localeCompare(a.id)));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function listClipMeta(scriptId: string): Promise<ClipMeta[]> {
+  const store = await storeIn(META_STORE, "readonly");
+  return new Promise((resolve, reject) => {
+    const req = store.index("scriptId").getAll(IDBKeyRange.only(scriptId));
+    req.onsuccess = () => resolve((req.result as ClipMeta[]).sort((a, b) => (b.createdAt - a.createdAt) || b.id.localeCompare(a.id)));
     req.onerror = () => reject(req.error);
   });
 }

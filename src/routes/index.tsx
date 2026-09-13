@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClips, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, probePlayable, listAllClips, deepRestore, type ClipRecord } from "@/lib/clip-store";
+import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, getClip, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
 import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
@@ -18,6 +18,8 @@ export const Route = createFileRoute("/")({
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { property: "og:title", content: "Let's kick some ass" },
       { property: "og:description", content: "A clean teleprompter that runs in your browser." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: Index,
@@ -135,7 +137,7 @@ function Index() {
     setMode("edit");
   };
   const [allVideosOpen, setAllVideosOpen] = useState(false);
-  const [allClips, setAllClips] = useState<ClipRecord[]>([]);
+  const [allClips, setAllClips] = useState<ClipMeta[]>([]);
   const [librarySave, setLibrarySave] = useState<SaveJob | null>(null);
   const refreshAllClips = useCallback(async () => {
     try { setAllClips(await listAllClips()); } catch { setAllClips([]); }
@@ -187,11 +189,12 @@ function Index() {
       {allVideosOpen && (
         <ClipsSheet
           clips={allClips}
+          scriptTitles={Object.fromEntries(scripts.map((s) => [s.id, s.title || "Untitled script"]))}
           onClose={() => setAllVideosOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setAllClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { for (const c of allClips) await deleteClip(c.id); setAllClips([]); }}
-          onExport={(subset) => startSave(subset && subset.length ? subset : allClips, "Take", setLibrarySave)}
-          onReplace={(clip) => setAllClips((cs) => cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [clip, ...cs])}
+          onExport={(clip) => startSave(clip, scripts.find((s) => s.id === clip.scriptId)?.title || "Take", setLibrarySave)}
+          onReplace={(clip) => setAllClips((cs) => (cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [clip, ...cs]).sort((a, b) => (b.createdAt - a.createdAt) || b.id.localeCompare(a.id)))}
           onRescue={async () => { for (const s of scripts) { try { await rescueAll(s.id); } catch {} } await refreshAllClips(); }}
         />
       )}
@@ -200,7 +203,7 @@ function Index() {
         <SaveOverlay
           job={librarySave}
           onClose={() => setLibrarySave(null)}
-          onFallback={() => { if (librarySave.file) librarySave.download(librarySave.file); setLibrarySave(null); }}
+          onFallback={() => { if (librarySave.file) librarySave.download(librarySave.file); }}
         />
       )}
     </Shell>
@@ -530,9 +533,8 @@ function Prompter({
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
-  useEffect(() => { recordingRef.current = recording; }, [recording]);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [clips, setClips] = useState<ClipRecord[]>([]);
+  const [clips, setClips] = useState<ClipMeta[]>([]);
   const [clipsOpen, setClipsOpen] = useState(false);
   const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
 
@@ -701,11 +703,14 @@ function Prompter({
           videoElRef.current.srcObject = stream;
           try { await videoElRef.current.play(); } catch {}
         }
-        setCamReady(true);
-        setCamError(null);
         // Now that mic permission is granted, labels are visible — pick the
         // best available input (external USB / wireless mic if present).
-        refineAudioTrack();
+        await refineAudioTrack();
+        if (cancelled) return;
+        const liveAudio = stream.getAudioTracks().some((audioTrack) => audioTrack.readyState === "live");
+        if (!liveAudio) throw new Error("No working microphone was found. Reconnect the microphone and reopen Video mode.");
+        setCamReady(true);
+        setCamError(null);
 
         // iOS drops out of fullscreen when the camera-permission prompt appears
         // on first grant. Re-request landscape now that the prompt is gone so
@@ -750,7 +755,7 @@ function Prompter({
       try { await requestPersistentStorage(); } catch {}
       try { await recoverOrphanSessions(); } catch {}
       if (cancelled) return;
-      try { const list = await listClips(script.id); if (!cancelled) setClips(list); } catch {}
+      try { const list = await listClipMeta(script.id); if (!cancelled) setClips(list); } catch {}
     })();
     return () => { cancelled = true; };
   }, [videoMode, script.id]);
@@ -827,6 +832,10 @@ function Prompter({
         if (t) { t.enabled = true; stream.addTrack(t); }
       }
     } catch {}
+    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
+      setCamError("No working microphone was found. Reconnect the microphone and try again.");
+      return;
+    }
     const mimeType = pickMime();
     // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
     // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
@@ -845,10 +854,6 @@ function Prompter({
     const s = track?.getSettings?.() || {};
     const finalMime = rec.mimeType || mimeType || "video/mp4";
     const startedAt = Date.now();
-    // In-memory chunks give us instant playback the moment the user hits Stop
-    // (no wait for IndexedDB read-back). The DB copy is the crash-safety net.
-    const memChunks: Blob[] = [];
-
     try {
       await createSession({
         id: recordingId,
@@ -865,12 +870,11 @@ function Prompter({
     writeFailRef.current = 0;
     setWriteWarn(false);
 
-    // Serialize DB appends so chunk order matches wire order; keep a memory
-    // copy in parallel for instant playback.
+    // Serialize durable writes. Do not retain a second full recording in RAM:
+    // long high-quality takes otherwise exceed iPhone Safari's memory limit.
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
       const blob = e.data;
-      memChunks.push(blob);
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
         .then(() => appendChunk(recordingId, blob).catch(() => {
@@ -879,54 +883,33 @@ function Prompter({
         }));
     };
 
-    const buildInstantClip = (): ClipRecord | null => {
-      if (memChunks.length === 0) return null;
-      const blob = new Blob(memChunks, { type: finalMime });
-      return {
-        id: recordingId,
-        scriptId: script.id,
-        mimeType: finalMime,
-        durationMs: Math.max(0, Date.now() - recordStartRef.current),
-        sizeBytes: blob.size,
-        createdAt: startedAt,
-        width: (s.width as number) || 0,
-        height: (s.height as number) || 0,
-        blob,
-      };
-    };
-
-    rec.onerror = () => {
-      const clip = buildInstantClip();
-      if (clip) setClips((cs) => cs.some((c) => c.id === clip.id) ? cs : [...cs, clip]);
+    let finalized = false;
+    const finishRecording = () => {
+      if (finalized) return;
+      finalized = true;
+      recordingRef.current = false;
       recorderRef.current = null;
       recordingIdRef.current = null;
       setRecording(false);
       setPlaying(false);
       setControlsVisible(true);
-      // Background DB cleanup — the in-memory clip is already the source of truth for playback.
       appendQueueRef.current
         .catch(() => {})
         .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
-        .catch(() => {});
+        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
+        .catch(() => setWriteWarn(true));
     };
 
-    rec.onstop = () => {
-      recordingIdRef.current = null;
-      // Instant: assemble from memory and push into the list right now.
-      const clip = buildInstantClip();
-      if (clip) setClips((cs) => cs.some((c) => c.id === clip.id) ? cs : [...cs, clip]);
-      // Background: finalize the persisted copy so a future page load has it.
-      appendQueueRef.current
-        .catch(() => {})
-        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
-        .catch(() => {});
-    };
+    rec.onerror = finishRecording;
+
+    rec.onstop = finishRecording;
 
     recordStartRef.current = Date.now();
     setElapsedMs(0);
     // 1s timeslice = big enough to keep write overhead low, small enough
     // that at most ~1s of footage is ever unflushed if the process dies.
-    try { rec.start(1000); } catch { try { rec.start(); } catch { return; } }
+    recordingRef.current = true;
+    try { rec.start(1000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
     recorderRef.current = rec;
     setRecording(true);
     // Start the script rolling in sync with the recording
@@ -938,6 +921,7 @@ function Prompter({
   const stopRecording = useCallback(() => {
     const rec = recorderRef.current;
     if (!rec) return;
+    try { if (rec.state === "recording") rec.requestData(); } catch {}
     try { if (rec.state !== "inactive") rec.stop(); } catch {}
     recorderRef.current = null;
     setRecording(false);
@@ -979,10 +963,9 @@ function Prompter({
   // the share sheet for a real .mp4 with a clean MIME type, one file at a
   // time, and only when share() is reached inside the tap that triggered it —
   // so no awaits before the call, no codec parameters, no multi-file batches.
-  const exportClips = useCallback((subset?: ClipRecord[]) => {
-    const arr = subset && subset.length ? subset : clips;
-    startSave(arr, script.title, setSaveJob);
-  }, [clips, script.title]);
+  const exportClip = useCallback((clip: ClipMeta) => {
+    startSave(clip, script.title, setSaveJob);
+  }, [script.title]);
 
 
 
@@ -1634,12 +1617,13 @@ function Prompter({
       {videoMode && clipsOpen && (
         <ClipsSheet
           clips={clips}
+          scriptTitles={{ [script.id]: script.title || "Untitled script" }}
           onClose={() => setClipsOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { await deleteAllForScript(script.id); setClips([]); }}
-          onExport={exportClips}
+          onExport={exportClip}
           onReplace={(clip) => setClips((cs) => cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [...cs, clip])}
-          onRescue={async () => { const list = await rescueAll(script.id); setClips(list); }}
+          onRescue={async () => { await rescueAll(script.id); setClips(await listClipMeta(script.id)); }}
 
         />
       )}
@@ -1648,7 +1632,7 @@ function Prompter({
         <SaveOverlay
           job={saveJob}
           onClose={() => setSaveJob(null)}
-          onFallback={() => { if (saveJob.file) saveJob.download(saveJob.file); setSaveJob(null); }}
+          onFallback={() => { if (saveJob.file) saveJob.download(saveJob.file); }}
         />
       )}
 
@@ -1755,31 +1739,33 @@ function PopRow({ label, value, children }: { label: string; value: string; chil
 }
 
 function ClipsSheet({
-  clips, onClose, onDelete, onDeleteAll, onExport, onReplace, onRescue,
+  clips, scriptTitles, onClose, onDelete, onDeleteAll, onExport, onReplace, onRescue,
 }: {
-  clips: ClipRecord[];
+  clips: ClipMeta[];
+  scriptTitles: Record<string, string>;
   onClose: () => void;
   onDelete: (id: string) => void | Promise<void>;
   onDeleteAll: () => void | Promise<void>;
-  onExport: (subset?: ClipRecord[]) => void | Promise<void>;
+  onExport: (clip: ClipMeta) => void | Promise<void>;
   onReplace: (clip: ClipRecord) => void;
   onRescue: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [broken, setBroken] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
-  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const selectedClips = clips.filter((c) => selected.has(c.id));
-
-  // Open a clip: create the object URL SYNCHRONOUSLY inside the click handler
-  // so iOS Safari treats the subsequent video.play() as a user-gesture.
-  const openClip = useCallback((c: ClipRecord) => {
-    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
-    setPlayingClip(c);
+  const openClip = useCallback(async (meta: ClipMeta) => {
+    setBusy(meta.id);
+    try {
+      const c = await getClip(meta.id);
+      if (!c) { setNote("This recording is missing from phone storage."); return; }
+      setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
+      setPlayingClip(c);
+    } finally {
+      setBusy(null);
+    }
   }, []);
   const closePlayer = useCallback(() => {
     setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
@@ -1788,7 +1774,7 @@ function ClipsSheet({
   useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
 
   // Rebuild an unplayable recording from the raw data still in storage.
-  const doRepair = useCallback(async (c: ClipRecord) => {
+  const doRepair = useCallback(async (c: ClipMeta) => {
     setBusy(c.id);
     setNote("Rebuilding recording — this can take a minute for long takes…");
     try {
@@ -1815,7 +1801,7 @@ function ClipsSheet({
 
   // Rebuild a take to its full recoverable length (fixes takes that stop
   // short: the tail fragment was cut mid-write so players ignore the rest).
-  const doRestore = useCallback(async (c: ClipRecord) => {
+  const doRestore = useCallback(async (c: ClipMeta) => {
     setBusy(c.id);
     setNote("Restoring every recoverable second — long takes can take a minute…");
     try {
@@ -1840,30 +1826,13 @@ function ClipsSheet({
     }
   }, [onReplace]);
 
-  // Quietly check each clip once so a broken one is flagged before it is opened.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      for (const c of clips) {
-        // eslint-disable-next-line no-await-in-loop
-        // Skip long/large takes: decoding a multi-GB file here stalls the
-        // sheet and makes every button feel dead.
-        if (c.blob.size > 400_000_000) continue;
-        const ok = await probePlayable(c.blob, 8000);
-        if (cancelled) return;
-        if (!ok) setBroken((b) => new Set(b).add(c.id));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [clips]);
-
   return (
     <>
       <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
         onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
-          <div className="text-base font-bold">Clips <span className="text-neutral-400 font-normal">({clips.length})</span></div>
+          <div className="text-base font-bold">All videos <span className="text-neutral-400 font-normal">({clips.length})</span></div>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
@@ -1873,16 +1842,15 @@ function ClipsSheet({
             <div className="px-3 py-10 text-center text-sm text-neutral-400">No clips yet. Tap the red record button to start.</div>
           ) : (
             <ul className="space-y-2">
-              {clips.map((c, i) => (
-                <li key={c.id} className={`flex items-center gap-3 rounded-xl border p-2 ${selected.has(c.id) ? "border-amber-400/60 bg-amber-400/5" : "border-white/10 bg-white/[0.03]"}`}>
-                  <button onClick={() => toggle(c.id)} className={`h-5 w-5 shrink-0 rounded-md border ${selected.has(c.id) ? "border-amber-400 bg-amber-400" : "border-white/30"}`} aria-label="Select" />
+              {clips.map((c) => (
+                <li key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
                   <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> Take {i + 1}
+                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> {scriptTitles[c.scriptId] || "Deleted script"}
                       {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
                     </div>
                     <div className="text-[11px] text-neutral-400">
-                      {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
+                      {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
                   {broken.has(c.id) ? (
@@ -1894,7 +1862,7 @@ function ClipsSheet({
                       {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
                   )}
-                  <button onClick={() => onExport([c])} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip to Photos">
+                   <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip">
                     <Download className="h-4 w-4" />
                   </button>
                   <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
@@ -1920,11 +1888,7 @@ function ClipsSheet({
             <button onClick={() => { if (confirm("Delete all clips for this script?")) onDeleteAll(); }} className="rounded-full border border-white/15 px-4 py-2 text-sm text-neutral-300">
               Delete all
             </button>
-            <div className="flex-1" />
-            <button onClick={() => onExport(selectedClips.length ? selectedClips : clips)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-base font-black text-black active:scale-95">
-              <Download className="h-5 w-5" />
-              {selectedClips.length ? `Save ${selectedClips.length} to Photos` : "Save to Photos"}
-            </button>
+            <div className="flex-1 text-right text-xs text-neutral-400">Use the download button beside a video to save it.</div>
           </div>
         )}
       </div>
@@ -1970,7 +1934,7 @@ function ClipsSheet({
               left: "calc(env(safe-area-inset-left, 0px) + 0.5rem)",
             }}
           >
-            Take {clips.findIndex((c) => c.id === playingClip.id) + 1} · {fmtDuration(playingClip.durationMs)}
+            {scriptTitles[playingClip.scriptId] || "Deleted script"} · {new Date(playingClip.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
           </div>
 
           {/* Floating action row — bottom, above native video controls */}
@@ -1982,8 +1946,8 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-            <button onClick={() => onExport([playingClip])} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
-              <Download className="h-5 w-5" /> Save to Photos
+             <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+               <Download className="h-5 w-5" /> Save video
             </button>
             {broken.has(playingClip.id) && (
               <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-black/70 px-4 py-2 text-sm font-bold text-amber-300 backdrop-blur-sm disabled:opacity-50">

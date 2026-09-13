@@ -13,11 +13,11 @@
 // The caller always gets a job object immediately, even on failure, so the UI
 // can show a live ring instead of appearing dead.
 
-import type { ClipRecord } from "./clip-store";
-import { assembleBest, fmtSize } from "./clip-store";
+import type { ClipMeta, ClipRecord } from "./clip-store";
+import { assembleBest, fmtSize, getClip } from "./clip-store";
 
 export type SaveJob = {
-  phase: "working" | "done" | "error";
+  phase: "working" | "ready" | "done" | "error";
   title: string;
   detail: string;
   startedAt: number;
@@ -25,6 +25,8 @@ export type SaveJob = {
   bytes: number;
   download: (f: File) => void;
   openInPlayer: (f: File) => void;
+  actionLabel?: string;
+  runPrimary?: () => void;
 };
 
 // Beyond this, iOS Safari's share sheet reliably fails or never appears.
@@ -50,7 +52,7 @@ function openInPlayer(f: File) {
 }
 
 export function startSave(
-  clips: ClipRecord[],
+  clip: ClipMeta | ClipRecord,
   baseName: string,
   onJob: (update: (prev: SaveJob | null) => SaveJob | null) => void,
 ) {
@@ -74,8 +76,8 @@ export function startSave(
 
   void (async () => {
   try {
-    let arr = clips.filter((c) => c && c.blob && c.blob.size > 0);
-    if (!arr.length) {
+    const stored = "blob" in clip ? clip : await getClip(clip.id);
+    if (!stored?.blob?.size) {
       patch({ phase: "error", title: "Nothing to save", detail: "This take has no video data left in storage. Try Repair or Recover first." });
       return;
     }
@@ -83,18 +85,19 @@ export function startSave(
     // A take can end up shorter than it should be if a write failed near the
     // end. Rebuild from every surviving byte before saving.
     patch({ detail: "Collecting every second of this take…" });
-    arr = await Promise.all(arr.map(async (c) => { try { return await assembleBest(c); } catch { return c; } }));
+    let complete: ClipRecord;
+    try { complete = await assembleBest(stored); } catch { complete = stored; }
 
-    const toFile = (c: ClipRecord, i: number) => {
+    const toFile = (c: ClipRecord) => {
       const clean = (c.mimeType || "video/mp4").split(";")[0].trim();
       const type = clean === "video/webm" ? "video/webm" : "video/mp4";
-      const name = `${base}${arr.length > 1 ? `-${i + 1}` : ""}.${type === "video/mp4" ? "mp4" : "webm"}`;
+      const stamp = new Date(c.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const name = `${base}-${stamp}.${type === "video/mp4" ? "mp4" : "webm"}`;
       return new File([c.blob], name, { type });
     };
 
-    const first = toFile(arr[0], 0);
-    const rest = arr.slice(1);
-    const totalBytes = arr.reduce((n, c) => n + (c.sizeBytes || c.blob.size || 0), 0);
+    const first = toFile(complete);
+    const totalBytes = complete.sizeBytes || complete.blob.size;
 
     patch({ file: first, bytes: totalBytes, detail: `${fmtSize(totalBytes)} · handing it to your iPhone` });
 
@@ -103,35 +106,46 @@ export function startSave(
     const canShare = !tooBigToShare && !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [first] }); } catch { return false; } })());
 
     if (tooBigToShare) {
-      // Long takes: the iPhone share sheet will not accept a file this large.
-      downloadFile(first);
-      rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
       patch({
-        phase: "done",
-        title: "Saving to Files",
-        detail: `This take is ${fmtSize(totalBytes)} — too big for the quick share sheet, so it is downloading to Files → Downloads. Open it there and tap Share → Save Video to put it in Photos. You can also tap "Open in player" below.`,
+        phase: "ready", file: first, bytes: totalBytes,
+        title: "Ready for Files",
+        detail: `${fmtSize(totalBytes)} · This long take is too large for the iPhone save menu. Tap Save to Files below.`,
+        actionLabel: "Save to Files",
+        runPrimary: () => {
+          downloadFile(first);
+          patch({ phase: "done", title: "Sent to Files", detail: "The download was started. Find it in Files → Downloads." });
+        },
       });
       return;
     }
 
     if (canShare) {
-      nav.share({ files: [first] })
-        .then(() => {
-          rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
-          patch({ phase: "done", title: "Sent to your iPhone", detail: 'Pick "Save Video" to put it in your camera roll.' });
-        })
-        .catch((e: any) => {
-          if (e?.name === "AbortError") { downloadFile(first); patch({ phase: "done", title: "Saved to Files", detail: "Saved to Files → Downloads instead." }); return; }
-          downloadFile(first);
-          rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
-          patch({ phase: "done", title: "Saved as a file", detail: `The iPhone sheet refused it (${e?.name || "error"}), so it downloaded instead. Look in Files → Downloads.` });
-        });
+      patch({
+        phase: "ready", file: first, bytes: totalBytes,
+        title: "Ready to save",
+        detail: `${fmtSize(totalBytes)} · Tap Open save menu, then choose Save Video.`,
+        actionLabel: "Open save menu",
+        runPrimary: () => {
+          nav.share({ files: [first] })
+            .then(() => patch({ phase: "done", title: "Save menu opened", detail: 'Choose "Save Video" to put this recording in Photos.' }))
+            .catch((e: any) => {
+              if (e?.name === "AbortError") return;
+              patch({ phase: "error", title: "Could not open the save menu", detail: "Tap Save to Files instead." });
+            });
+        },
+      });
       return;
     }
 
-    downloadFile(first);
-    rest.forEach((c, i) => downloadFile(toFile(c, i + 1)));
-    patch({ phase: "done", title: "Downloaded", detail: "Saving straight to Photos isn't available here, so the file downloaded to Files → Downloads." });
+    patch({
+      phase: "ready", file: first, bytes: totalBytes,
+      title: "Ready for Files", detail: `${fmtSize(totalBytes)} · Tap Save to Files below.`,
+      actionLabel: "Save to Files",
+      runPrimary: () => {
+        downloadFile(first);
+        patch({ phase: "done", title: "Sent to Files", detail: "The download was started. Find it in Files → Downloads." });
+      },
+    });
   } catch (e: any) {
     patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
   }
