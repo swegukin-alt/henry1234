@@ -201,7 +201,7 @@ function Index() {
         <SaveOverlay
           job={librarySave}
           onClose={() => setLibrarySave(null)}
-          onFallback={() => { if (librarySave.file) librarySave.download(librarySave.file); setLibrarySave(null); }}
+          onFallback={() => { if (librarySave.file) librarySave.download(librarySave.file); }}
         />
       )}
     </Shell>
@@ -701,11 +701,14 @@ function Prompter({
           videoElRef.current.srcObject = stream;
           try { await videoElRef.current.play(); } catch {}
         }
-        setCamReady(true);
-        setCamError(null);
         // Now that mic permission is granted, labels are visible — pick the
         // best available input (external USB / wireless mic if present).
-        refineAudioTrack();
+        await refineAudioTrack();
+        if (cancelled) return;
+        const liveAudio = stream.getAudioTracks().some((audioTrack) => audioTrack.readyState === "live");
+        if (!liveAudio) throw new Error("No working microphone was found. Reconnect the microphone and reopen Video mode.");
+        setCamReady(true);
+        setCamError(null);
 
         // iOS drops out of fullscreen when the camera-permission prompt appears
         // on first grant. Re-request landscape now that the prompt is gone so
@@ -771,6 +774,10 @@ function Prompter({
         }
       }
     } catch {}
+    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
+      setCamError("No working microphone was found. Reconnect the microphone and try again.");
+      return;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoMode, script.id]);
 
@@ -874,7 +881,10 @@ function Prompter({
         }));
     };
 
-    rec.onerror = () => {
+    let finalized = false;
+    const finishRecording = () => {
+      if (finalized) return;
+      finalized = true;
       recordingRef.current = false;
       recorderRef.current = null;
       recordingIdRef.current = null;
@@ -888,15 +898,9 @@ function Prompter({
         .catch(() => setWriteWarn(true));
     };
 
-    rec.onstop = () => {
-      recordingRef.current = false;
-      recordingIdRef.current = null;
-      appendQueueRef.current
-        .catch(() => {})
-        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
-        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
-        .catch(() => setWriteWarn(true));
-    };
+    rec.onerror = finishRecording;
+
+    rec.onstop = finishRecording;
 
     recordStartRef.current = Date.now();
     setElapsedMs(0);
@@ -1626,7 +1630,7 @@ function Prompter({
         <SaveOverlay
           job={saveJob}
           onClose={() => setSaveJob(null)}
-          onFallback={() => { if (saveJob.file) saveJob.download(saveJob.file); setSaveJob(null); }}
+          onFallback={() => { if (saveJob.file) saveJob.download(saveJob.file); }}
         />
       )}
 
