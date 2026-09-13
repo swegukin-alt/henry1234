@@ -441,7 +441,11 @@ function Prompter({
   const lastFrameWallRef = useRef<number>(0);
   const playingRef = useRef(false);
   const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0); // 0..1
+  const [progress, setProgress] = useState(0); // 0..1 (low-frequency mirror of progressRef)
+  const progressRef = useRef(0);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  const remainingRef = useRef<HTMLDivElement | null>(null);
+  const lastProgressSyncRef = useRef(0);
   const [isPortrait, setIsPortrait] = useState(false);
   const [speed, setSpeed] = useState(settings.speed);
   const [fontSize, setFontSize] = useState(settings.fontSize);
@@ -1009,6 +1013,14 @@ function Prompter({
 
 
 
+  // Re-measuring is expensive, so size changes only trigger it once the user
+  // stops moving the slider.
+  const [measureTick, setMeasureTick] = useState(0);
+  useEffect(() => {
+    const id = window.setTimeout(() => setMeasureTick((t) => t + 1), 160);
+    return () => window.clearTimeout(id);
+  }, [fontSize, settings.width]);
+
   // Recompute pause-anchor Y positions when layout may have shifted.
   useLayoutEffect(() => {
     const sc = scrollRef.current;
@@ -1042,13 +1054,20 @@ function Prompter({
     };
     // Wait one frame so fonts / wrapping settle before measuring.
     raf = requestAnimationFrame(compute);
+    // Measuring every word is an O(words) layout pass. While a size slider is
+    // being dragged the container resizes continuously, so settle first and
+    // measure once the movement stops — this is what removed the drag stutter.
+    let settle = 0;
     const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(compute);
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(compute);
+      }, 140);
     });
     ro.observe(inner);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [tokens, fontSize, settings.width, mirrorV]);
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(settle); ro.disconnect(); };
+  }, [tokens, measureTick, mirrorV]);
 
   // Track the word at the eye-line on every scroll. Voice recognition uses this
   // position even when the optional visual reading highlight is switched off.
@@ -1131,6 +1150,25 @@ function Prompter({
     return Math.min(1, Math.max(0, p));
   }, []);
 
+  // Write progress to the two elements that show it, bypassing React. State is
+  // only synced a couple of times a second so anything else that reads
+  // `progress` stays correct without paying for 60 re-renders a second.
+  const paintProgress = useCallback((p: number) => {
+    progressRef.current = p;
+    const bar = progressBarRef.current;
+    if (bar) bar.style.width = `${(p * 100).toFixed(2)}%`;
+    const badge = remainingRef.current;
+    if (badge) {
+      const txt = `${Math.round((1 - p) * 100)}% left`;
+      if (badge.textContent !== txt) badge.textContent = txt;
+    }
+    const now = performance.now();
+    if (now - lastProgressSyncRef.current > 400) {
+      lastProgressSyncRef.current = now;
+      setProgress(p);
+    }
+  }, []);
+
   const tick = useCallback((ts: number) => {
     const el = scrollRef.current;
     if (!el) return;
@@ -1208,7 +1246,10 @@ function Prompter({
       : 0;
     el.scrollTop += frameAdvance;
     const p = computeProgress();
-    setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
+    // Paint the progress bar and the "% left" badge straight to the DOM.
+    // Putting this in React state re-rendered the whole reader 60x a second,
+    // which is what made scrolling feel heavy on the phone.
+    paintProgress(p);
     if (p >= 1) { setPlaying(false); return; }
     if (playingRef.current) {
       rafRef.current = requestAnimationFrame(tick);
@@ -1255,7 +1296,8 @@ function Prompter({
         resumeIfStalled();
       }
     };
-    const watchdog = window.setInterval(resumeIfStalled, 500);
+    // Only poll while actually rolling; an idle screen needs no timer.
+    const watchdog = playing ? window.setInterval(resumeIfStalled, 500) : 0;
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", resumeIfStalled);
     return () => {
@@ -1263,7 +1305,7 @@ function Prompter({
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", resumeIfStalled);
     };
-  }, [tick]);
+  }, [tick, playing]);
 
   const togglePlay = () => {
     setPlaying((p) => {
@@ -1436,7 +1478,7 @@ function Prompter({
         onScroll={onScroll}
         onClick={() => { togglePlay(); }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
-        style={{ WebkitOverflowScrolling: "touch", contain: "layout paint", willChange: "scroll-position" }}
+        style={{ WebkitOverflowScrolling: "touch", contain: "layout paint", willChange: playing ? "scroll-position" : undefined }}
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
@@ -1675,7 +1717,8 @@ function Prompter({
 
       {/* % remaining — always visible */}
       <div
-        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm"
+        ref={remainingRef}
+        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300"
         style={{
           top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
           right: "calc(env(safe-area-inset-right, 0px) + 0.6rem)",
@@ -1730,7 +1773,7 @@ function Prompter({
             className="absolute left-0 right-0 z-20 h-[2px] bg-white/10"
             style={{ bottom: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
           >
-            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%`, willChange: "width" }} />
+            <div ref={progressBarRef} className="h-full bg-amber-400" style={{ width: `${progress * 100}%`, willChange: playing ? "width" : undefined }} />
           </div>
 
           {/* Bottom toolbar */}

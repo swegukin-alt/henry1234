@@ -103,7 +103,16 @@ export function useVoiceFollow({
 
     // Sequential alignment constrained to what is currently visible. Off-script
     // speech is ignored instead of being treated as a document-wide search.
+    // Matching is a quadratic scan over the visible window. Interim results can
+    // arrive far faster than the display can use them, so they are rate-limited
+    // to keep the scroll loop smooth.
+    let lastInterimMatch = 0;
     const advance = (raw: string, interim: boolean) => {
+      if (interim) {
+        const now = performance.now();
+        if (now - lastInterimMatch < 60) return;
+        lastInterimMatch = now;
+      }
       const list = wordList.current;
       const visible = Math.max(0, visibleWordIndexRef?.current ?? anchor.current);
       // Manual scrolling is authoritative. Re-anchor near the eye-line without
@@ -253,7 +262,10 @@ export function useVoiceFollow({
       if (stopped) { if (ownsStream) stream.getTracks().forEach((track) => track.stop()); return; }
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
       context = new AC(); await context!.resume(); rate = context!.sampleRate;
-      source = context!.createMediaStreamSource(stream); processor = context!.createScriptProcessor(1024, 1, 1);
+      // 4096-sample buffers: a quarter of the main-thread callbacks and
+      // allocations of a 1024 buffer, with no effect on tracking latency
+      // because audio is batched into ~0.6 s windows anyway.
+      source = context!.createMediaStreamSource(stream); processor = context!.createScriptProcessor(4096, 1, 1);
       processor.onaudioprocess = (event) => {
         const copy = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(copy); samples += copy.length; newSamples += copy.length;
         while (samples > rate * 2 && chunks.length > 1) samples -= chunks.shift()!.length;
