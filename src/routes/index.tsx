@@ -530,6 +530,11 @@ function Prompter({
   // how a 31-minute take ends up 25 minutes long, so it is surfaced live.
   const writeFailRef = useRef(0);
   const [writeWarn, setWriteWarn] = useState(false);
+  // Live counters so stopping a take can show real "saving to phone" progress
+  // instead of a blank screen while the last chunks are still being written.
+  const queuedRef = useRef(0);
+  const writtenRef = useRef(0);
+  const [finalizing, setFinalizing] = useState<{ done: number; total: number; phase: "writing" | "assembling" | "error" } | null>(null);
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
@@ -868,19 +873,37 @@ function Prompter({
     recordingIdRef.current = recordingId;
     appendQueueRef.current = Promise.resolve();
     writeFailRef.current = 0;
+    queuedRef.current = 0;
+    writtenRef.current = 0;
     setWriteWarn(false);
+    setFinalizing(null);
 
     // Serialize durable writes. Do not retain a second full recording in RAM:
     // long high-quality takes otherwise exceed iPhone Safari's memory limit.
+    // Each write is retried: a transient storage hiccup must never silently
+    // drop a second of footage.
+    const writeChunk = async (blob: Blob) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await appendChunk(recordingId, blob);
+          writtenRef.current += 1;
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+        }
+      }
+      writtenRef.current += 1;
+      writeFailRef.current += 1;
+      setWriteWarn(true);
+    };
+
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
       const blob = e.data;
+      queuedRef.current += 1;
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
-        .then(() => appendChunk(recordingId, blob).catch(() => {
-          writeFailRef.current += 1;
-          setWriteWarn(true);
-        }));
+        .then(() => writeChunk(blob));
     };
 
     let finalized = false;
@@ -893,11 +916,28 @@ function Prompter({
       setRecording(false);
       setPlaying(false);
       setControlsVisible(true);
+      setFinalizing({ done: writtenRef.current, total: Math.max(queuedRef.current, 1), phase: "writing" });
+      const tick = window.setInterval(() => {
+        setFinalizing((f) => (f && f.phase === "writing"
+          ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
+          : f));
+      }, 120);
       appendQueueRef.current
         .catch(() => {})
-        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
-        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
-        .catch(() => setWriteWarn(true));
+        .then(() => {
+          window.clearInterval(tick);
+          setFinalizing({ done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" });
+          return finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current });
+        })
+        .then((clip) => {
+          if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+          setFinalizing(null);
+        })
+        .catch(() => {
+          window.clearInterval(tick);
+          setWriteWarn(true);
+          setFinalizing((f) => (f ? { ...f, phase: "error" } : null));
+        });
     };
 
     rec.onerror = finishRecording;
@@ -1562,6 +1602,39 @@ function Prompter({
           }}
         >
           Storage is full — stop soon and free space, or the end of this take will be lost.
+        </div>
+      )}
+
+      {/* Saving-to-phone progress after Stop. The take is not in the library
+          until this completes, so it gets a real bar, not a spinner. */}
+      {videoMode && finalizing && (
+        <div
+          className="absolute inset-x-0 z-50 mx-auto w-[min(22rem,86vw)] rounded-2xl bg-black/85 px-4 py-3 text-center backdrop-blur-sm"
+          style={{
+            bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)",
+            transform: mirrorV ? "scaleY(-1)" : undefined,
+          }}
+        >
+          <div className="text-sm font-black text-white">
+            {finalizing.phase === "error" ? "Saving had trouble" : finalizing.phase === "assembling" ? "Finishing the video…" : "Saving to your phone…"}
+          </div>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/15">
+            <div
+              className={`h-full rounded-full transition-[width] duration-150 ${finalizing.phase === "error" ? "bg-red-400" : "bg-amber-400"}`}
+              style={{
+                width: `${finalizing.phase === "assembling" ? 97 : Math.min(95, Math.round((finalizing.done / finalizing.total) * 95))}%`,
+              }}
+            />
+          </div>
+          <div className="mt-1.5 text-xs text-neutral-300">
+            {finalizing.phase === "error"
+              ? "Some of this take may still be recoverable — open All videos and tap Repair."
+              : `${Math.min(finalizing.done, finalizing.total)} of ${finalizing.total} seconds stored — keep this screen open`}
+          </div>
+          {finalizing.phase === "error" && (
+            <button onClick={(e) => { e.stopPropagation(); setFinalizing(null); }}
+              className="mt-2 rounded-full bg-white/10 px-4 py-1.5 text-xs text-neutral-200 active:scale-95">Close</button>
+          )}
         </div>
       )}
 

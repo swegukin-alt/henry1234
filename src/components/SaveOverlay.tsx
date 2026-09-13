@@ -62,26 +62,23 @@ export function SaveOverlay({
           <div className="text-xs text-neutral-400">{secs}s · long takes need a moment — keep this screen open</div>
         )}
 
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+        {/* One action, nothing else. The iPhone share sheet already offers
+            AirDrop / Save Video / Save to Files. */}
+        <div className="mt-3 flex w-full flex-col items-center gap-3">
           {ready && job.runPrimary && (
-            <button onClick={job.runPrimary} className="rounded-full bg-amber-400 px-5 py-3 text-sm font-black text-black active:scale-95">
-              {job.actionLabel || "Save"}
+            <button
+              onClick={job.runPrimary}
+              className="w-full rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95"
+            >
+              {job.actionLabel || "Share"}
             </button>
           )}
-          {job.file && !working && (
-            <button onClick={onFallback} className="rounded-full border border-white/20 px-4 py-2 text-sm text-neutral-200 active:scale-95">
+          {error && job.file && (
+            <button onClick={onFallback} className="w-full rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95">
               Save to Files
             </button>
           )}
-          {job.file && (
-            <button
-              onClick={() => job.file && job.openInPlayer(job.file)}
-              className="rounded-full border border-amber-400/60 px-4 py-2 text-sm font-bold text-amber-300 active:scale-95"
-            >
-              Open in player
-            </button>
-          )}
-          <button onClick={onClose} className="rounded-full bg-white/10 px-5 py-2 text-sm text-neutral-200 active:scale-95">
+          <button onClick={onClose} className="text-sm text-neutral-400 underline underline-offset-4 active:scale-95">
             {working ? "Cancel" : "Done"}
           </button>
         </div>
