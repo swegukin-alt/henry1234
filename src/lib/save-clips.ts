@@ -21,6 +21,8 @@ export type SaveJob = {
   openInPlayer: (f: File) => void;
   actionLabel?: string;
   runPrimary?: () => void;
+  /** Always-available escape hatch so a failed share is never a dead end. */
+  saveToFiles?: () => void;
 };
 
 // Beyond this, iOS Safari's share sheet reliably fails or never appears.
@@ -94,20 +96,58 @@ export function startSave(
       const canShare = !tooBig && !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [file] }); } catch { return false; } })());
 
       if (canShare) {
+        let sharing = false;
+        const saveToFiles = () => {
+          downloadFile(file);
+          patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads, then move it wherever you like." });
+        };
+
+        const share = () => {
+          // Two shares at once makes iOS reject the second one instantly, which
+          // is exactly what looked like "cancelled" before.
+          if (sharing) return;
+          sharing = true;
+          const tapped = Date.now();
+          patch({ phase: "working", title: "Opening share sheet…", detail: "This can take a few seconds for a long take." });
+
+          let result: Promise<void>;
+          // The share call must happen inside the tap, with no await before it.
+          try { result = nav.share({ files: [file] }); }
+          catch { sharing = false; saveToFiles(); return; }
+
+          result
+            .then(() => {
+              sharing = false;
+              patch({ phase: "done", title: "Shared", detail: "Pick AirDrop, Save Video, or Save to Files to finish." });
+            })
+            .catch((e: any) => {
+              sharing = false;
+              const quick = Date.now() - tapped < 1200;
+              // iOS rejects with AbortError both when the user closes the sheet
+              // and when the sheet never opened at all. A rejection that fast
+              // means it never opened, so save the file instead of giving up.
+              if (e?.name === "AbortError" && !quick) {
+                patch({
+                  phase: "ready", file, bytes: totalBytes,
+                  title: "Share closed",
+                  detail: `${fmtSize(totalBytes)} · Nothing was saved yet. Tap Share again, or use Save to Files below.`,
+                  actionLabel: "Share",
+                  runPrimary: share,
+                  saveToFiles,
+                });
+                return;
+              }
+              saveToFiles();
+            });
+        };
+
         patch({
           phase: "ready", file, bytes: totalBytes,
           title: "Ready to share",
           detail: `${fmtSize(totalBytes)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
           actionLabel: "Share",
-          runPrimary: () => {
-            nav.share({ files: [file] })
-              .then(() => patch({ phase: "done", title: "Share sheet opened", detail: "Pick AirDrop, Save Video, or Save to Files." }))
-              .catch((e: any) => {
-                if (e?.name === "AbortError") { patch({ phase: "done", title: "Share cancelled", detail: "Nothing was saved." }); return; }
-                downloadFile(file);
-                patch({ phase: "done", title: "Saved to Files", detail: "Sharing wasn't available, so the video was downloaded. Find it in Files → Downloads." });
-              });
-          },
+          runPrimary: share,
+          saveToFiles,
         });
         return;
       }
