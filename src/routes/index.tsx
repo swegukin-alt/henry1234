@@ -1701,7 +1701,8 @@ function Prompter({
 
       {/* % remaining — always visible */}
       <div
-        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300 backdrop-blur-sm"
+        ref={remainingRef}
+        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300"
         style={{
           top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
           right: "calc(env(safe-area-inset-right, 0px) + 0.6rem)",
