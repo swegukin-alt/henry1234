@@ -530,6 +530,11 @@ function Prompter({
   // how a 31-minute take ends up 25 minutes long, so it is surfaced live.
   const writeFailRef = useRef(0);
   const [writeWarn, setWriteWarn] = useState(false);
+  // Live counters so stopping a take can show real "saving to phone" progress
+  // instead of a blank screen while the last chunks are still being written.
+  const queuedRef = useRef(0);
+  const writtenRef = useRef(0);
+  const [finalizing, setFinalizing] = useState<{ done: number; total: number; phase: "writing" | "assembling" | "error" } | null>(null);
   const recordStartRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
