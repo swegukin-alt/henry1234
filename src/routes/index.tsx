@@ -1478,7 +1478,7 @@ function Prompter({
         onScroll={onScroll}
         onClick={() => { togglePlay(); }}
         className="absolute inset-0 overflow-y-auto overscroll-contain"
-        style={{ WebkitOverflowScrolling: "touch", contain: "layout paint", willChange: "scroll-position" }}
+        style={{ WebkitOverflowScrolling: "touch", contain: "layout paint", willChange: playing ? "scroll-position" : undefined }}
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
