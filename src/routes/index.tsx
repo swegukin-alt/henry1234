@@ -1305,7 +1305,7 @@ function Prompter({
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", resumeIfStalled);
     };
-  }, [tick]);
+  }, [tick, playing]);
 
   const togglePlay = () => {
     setPlaying((p) => {
