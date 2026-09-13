@@ -1757,7 +1757,7 @@ function Prompter({
             className="absolute left-0 right-0 z-20 h-[2px] bg-white/10"
             style={{ bottom: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
           >
-            <div className="h-full bg-amber-400" style={{ width: `${progress * 100}%`, willChange: "width" }} />
+            <div ref={progressBarRef} className="h-full bg-amber-400" style={{ width: `${progress * 100}%`, willChange: playing ? "width" : undefined }} />
           </div>
 
           {/* Bottom toolbar */}
