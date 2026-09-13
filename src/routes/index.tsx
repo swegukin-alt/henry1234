@@ -1605,6 +1605,39 @@ function Prompter({
         </div>
       )}
 
+      {/* Saving-to-phone progress after Stop. The take is not in the library
+          until this completes, so it gets a real bar, not a spinner. */}
+      {videoMode && finalizing && (
+        <div
+          className="absolute inset-x-0 z-50 mx-auto w-[min(22rem,86vw)] rounded-2xl bg-black/85 px-4 py-3 text-center backdrop-blur-sm"
+          style={{
+            bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)",
+            transform: mirrorV ? "scaleY(-1)" : undefined,
+          }}
+        >
+          <div className="text-sm font-black text-white">
+            {finalizing.phase === "error" ? "Saving had trouble" : finalizing.phase === "assembling" ? "Finishing the video…" : "Saving to your phone…"}
+          </div>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/15">
+            <div
+              className={`h-full rounded-full transition-[width] duration-150 ${finalizing.phase === "error" ? "bg-red-400" : "bg-amber-400"}`}
+              style={{
+                width: `${finalizing.phase === "assembling" ? 97 : Math.min(95, Math.round((finalizing.done / finalizing.total) * 95))}%`,
+              }}
+            />
+          </div>
+          <div className="mt-1.5 text-xs text-neutral-300">
+            {finalizing.phase === "error"
+              ? "Some of this take may still be recoverable — open All videos and tap Repair."
+              : `${Math.min(finalizing.done, finalizing.total)} of ${finalizing.total} seconds stored — keep this screen open`}
+          </div>
+          {finalizing.phase === "error" && (
+            <button onClick={(e) => { e.stopPropagation(); setFinalizing(null); }}
+              className="mt-2 rounded-full bg-white/10 px-4 py-1.5 text-xs text-neutral-200 active:scale-95">Close</button>
+          )}
+        </div>
+      )}
+
       {/* Clips chip — top-left when NOT recording */}
       {videoMode && !recording && (
         <button onClick={(e) => { e.stopPropagation(); setClipsOpen(true); }}
