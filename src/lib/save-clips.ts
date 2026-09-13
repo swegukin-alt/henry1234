@@ -21,6 +21,8 @@ export type SaveJob = {
   openInPlayer: (f: File) => void;
   actionLabel?: string;
   runPrimary?: () => void;
+  /** Always-available escape hatch so a failed share is never a dead end. */
+  saveToFiles?: () => void;
 };
 
 // Beyond this, iOS Safari's share sheet reliably fails or never appears.
