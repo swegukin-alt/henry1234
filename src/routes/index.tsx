@@ -1208,7 +1208,10 @@ function Prompter({
       : 0;
     el.scrollTop += frameAdvance;
     const p = computeProgress();
-    setProgress((prev) => (Math.abs(prev - p) > 0.005 ? p : prev));
+    // Paint the progress bar and the "% left" badge straight to the DOM.
+    // Putting this in React state re-rendered the whole reader 60x a second,
+    // which is what made scrolling feel heavy on the phone.
+    paintProgress(p);
     if (p >= 1) { setPlaying(false); return; }
     if (playingRef.current) {
       rafRef.current = requestAnimationFrame(tick);
