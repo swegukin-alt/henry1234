@@ -1,17 +1,11 @@
-// Saving a recording to the iPhone camera roll.
+// Saving a recording off the phone.
 //
-// iOS only offers "Save Video" in the share sheet for a real .mp4 with a clean
-// MIME type, one file at a time, and only when share() is reached inside the
-// tap that triggered it — so: no awaits before the call, no codec parameters,
-// no multi-file batches. Everything here is synchronous up to share().
-//
-// Very long takes (multi-GB) are a special case: iOS silently refuses to put
-// them in the share sheet. For those we go straight to a file download and
-// also offer opening the video in Safari's own player, where the built-in
-// share button can save it to Photos.
-//
-// The caller always gets a job object immediately, even on failure, so the UI
-// can show a live ring instead of appearing dead.
+// The whole UI here is deliberately one button. iOS only offers "Save Video",
+// AirDrop, Files etc. through its own share sheet, and it only opens that sheet
+// when navigator.share() is reached inside the tap that triggered it — so the
+// file is prepared first (ring), and then a single Share button fires share()
+// synchronously. Very large takes (multi-GB) are refused by the share sheet, so
+// for those the same single button downloads straight to Files instead.
 
 import type { ClipMeta, ClipRecord } from "./clip-store";
 import { assembleBest, fmtSize, getClip } from "./clip-store";
@@ -75,79 +69,63 @@ export function startSave(
   });
 
   void (async () => {
-  try {
-    const stored = "blob" in clip ? clip : await getClip(clip.id);
-    if (!stored?.blob?.size) {
-      patch({ phase: "error", title: "Nothing to save", detail: "This take has no video data left in storage. Try Repair or Recover first." });
-      return;
-    }
+    try {
+      const stored = "blob" in clip ? clip : await getClip(clip.id);
+      if (!stored?.blob?.size) {
+        patch({ phase: "error", title: "Nothing to save", detail: "This take has no video data left in storage. Try Repair or Recover first." });
+        return;
+      }
 
-    // A take can end up shorter than it should be if a write failed near the
-    // end. Rebuild from every surviving byte before saving.
-    patch({ detail: "Collecting every second of this take…" });
-    let complete: ClipRecord;
-    try { complete = await assembleBest(stored); } catch { complete = stored; }
+      // A take can end up shorter than it should be if a write failed near the
+      // end. Rebuild from every surviving byte before saving.
+      patch({ detail: "Collecting every second of this take…" });
+      let complete: ClipRecord;
+      try { complete = await assembleBest(stored); } catch { complete = stored; }
 
-    const toFile = (c: ClipRecord) => {
-      const clean = (c.mimeType || "video/mp4").split(";")[0].trim();
+      const clean = (complete.mimeType || "video/mp4").split(";")[0].trim();
       const type = clean === "video/webm" ? "video/webm" : "video/mp4";
-      const stamp = new Date(c.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const stamp = new Date(complete.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const name = `${base}-${stamp}.${type === "video/mp4" ? "mp4" : "webm"}`;
-      return new File([c.blob], name, { type });
-    };
+      const file = new File([complete.blob], name, { type });
+      const totalBytes = complete.sizeBytes || complete.blob.size;
 
-    const first = toFile(complete);
-    const totalBytes = complete.sizeBytes || complete.blob.size;
+      const nav: any = navigator;
+      const tooBig = file.size > SHARE_LIMIT;
+      const canShare = !tooBig && !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [file] }); } catch { return false; } })());
 
-    patch({ file: first, bytes: totalBytes, detail: `${fmtSize(totalBytes)} · handing it to your iPhone` });
+      if (canShare) {
+        patch({
+          phase: "ready", file, bytes: totalBytes,
+          title: "Ready to share",
+          detail: `${fmtSize(totalBytes)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
+          actionLabel: "Share",
+          runPrimary: () => {
+            nav.share({ files: [file] })
+              .then(() => patch({ phase: "done", title: "Share sheet opened", detail: "Pick AirDrop, Save Video, or Save to Files." }))
+              .catch((e: any) => {
+                if (e?.name === "AbortError") { patch({ phase: "done", title: "Share cancelled", detail: "Nothing was saved." }); return; }
+                downloadFile(file);
+                patch({ phase: "done", title: "Saved to Files", detail: "Sharing wasn't available, so the video was downloaded. Find it in Files → Downloads." });
+              });
+          },
+        });
+        return;
+      }
 
-    const nav: any = navigator;
-    const tooBigToShare = first.size > SHARE_LIMIT;
-    const canShare = !tooBigToShare && !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [first] }); } catch { return false; } })());
-
-    if (tooBigToShare) {
       patch({
-        phase: "ready", file: first, bytes: totalBytes,
-        title: "Ready for Files",
-        detail: `${fmtSize(totalBytes)} · This long take is too large for the iPhone save menu. Tap Save to Files below.`,
+        phase: "ready", file, bytes: totalBytes,
+        title: tooBig ? "Ready for Files" : "Ready to save",
+        detail: tooBig
+          ? `${fmtSize(totalBytes)} · This take is too large for the iPhone share sheet — it goes straight to Files.`
+          : `${fmtSize(totalBytes)} · Tap Save to put it in Files → Downloads.`,
         actionLabel: "Save to Files",
         runPrimary: () => {
-          downloadFile(first);
-          patch({ phase: "done", title: "Sent to Files", detail: "The download was started. Find it in Files → Downloads." });
+          downloadFile(file);
+          patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads." });
         },
       });
-      return;
+    } catch (e: any) {
+      patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
     }
-
-    if (canShare) {
-      patch({
-        phase: "ready", file: first, bytes: totalBytes,
-        title: "Ready to save",
-        detail: `${fmtSize(totalBytes)} · Tap Open save menu, then choose Save Video.`,
-        actionLabel: "Open save menu",
-        runPrimary: () => {
-          nav.share({ files: [first] })
-            .then(() => patch({ phase: "done", title: "Save menu opened", detail: 'Choose "Save Video" to put this recording in Photos.' }))
-            .catch((e: any) => {
-              if (e?.name === "AbortError") return;
-              patch({ phase: "error", title: "Could not open the save menu", detail: "Tap Save to Files instead." });
-            });
-        },
-      });
-      return;
-    }
-
-    patch({
-      phase: "ready", file: first, bytes: totalBytes,
-      title: "Ready for Files", detail: `${fmtSize(totalBytes)} · Tap Save to Files below.`,
-      actionLabel: "Save to Files",
-      runPrimary: () => {
-        downloadFile(first);
-        patch({ phase: "done", title: "Sent to Files", detail: "The download was started. Find it in Files → Downloads." });
-      },
-    });
-  } catch (e: any) {
-    patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
-  }
   })();
 }
