@@ -103,7 +103,16 @@ export function useVoiceFollow({
 
     // Sequential alignment constrained to what is currently visible. Off-script
     // speech is ignored instead of being treated as a document-wide search.
+    // Matching is a quadratic scan over the visible window. Interim results can
+    // arrive far faster than the display can use them, so they are rate-limited
+    // to keep the scroll loop smooth.
+    let lastInterimMatch = 0;
     const advance = (raw: string, interim: boolean) => {
+      if (interim) {
+        const now = performance.now();
+        if (now - lastInterimMatch < 60) return;
+        lastInterimMatch = now;
+      }
       const list = wordList.current;
       const visible = Math.max(0, visibleWordIndexRef?.current ?? anchor.current);
       // Manual scrolling is authoritative. Re-anchor near the eye-line without
