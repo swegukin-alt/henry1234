@@ -774,10 +774,6 @@ function Prompter({
         }
       }
     } catch {}
-    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
-      setCamError("No working microphone was found. Reconnect the microphone and try again.");
-      return;
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoMode, script.id]);
 
@@ -834,6 +830,10 @@ function Prompter({
         if (t) { t.enabled = true; stream.addTrack(t); }
       }
     } catch {}
+    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
+      setCamError("No working microphone was found. Reconnect the microphone and try again.");
+      return;
+    }
     const mimeType = pickMime();
     // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
     // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
