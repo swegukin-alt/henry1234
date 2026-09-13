@@ -1046,13 +1046,20 @@ function Prompter({
     };
     // Wait one frame so fonts / wrapping settle before measuring.
     raf = requestAnimationFrame(compute);
+    // Measuring every word is an O(words) layout pass. While a size slider is
+    // being dragged the container resizes continuously, so settle first and
+    // measure once the movement stops — this is what removed the drag stutter.
+    let settle = 0;
     const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(compute);
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(compute);
+      }, 140);
     });
     ro.observe(inner);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [tokens, fontSize, settings.width, mirrorV]);
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(settle); ro.disconnect(); };
+  }, [tokens, measureTick, mirrorV]);
 
   // Track the word at the eye-line on every scroll. Voice recognition uses this
   // position even when the optional visual reading highlight is switched off.
