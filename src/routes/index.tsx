@@ -873,19 +873,37 @@ function Prompter({
     recordingIdRef.current = recordingId;
     appendQueueRef.current = Promise.resolve();
     writeFailRef.current = 0;
+    queuedRef.current = 0;
+    writtenRef.current = 0;
     setWriteWarn(false);
+    setFinalizing(null);
 
     // Serialize durable writes. Do not retain a second full recording in RAM:
     // long high-quality takes otherwise exceed iPhone Safari's memory limit.
+    // Each write is retried: a transient storage hiccup must never silently
+    // drop a second of footage.
+    const writeChunk = async (blob: Blob) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await appendChunk(recordingId, blob);
+          writtenRef.current += 1;
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+        }
+      }
+      writtenRef.current += 1;
+      writeFailRef.current += 1;
+      setWriteWarn(true);
+    };
+
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
       const blob = e.data;
+      queuedRef.current += 1;
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
-        .then(() => appendChunk(recordingId, blob).catch(() => {
-          writeFailRef.current += 1;
-          setWriteWarn(true);
-        }));
+        .then(() => writeChunk(blob));
     };
 
     let finalized = false;
@@ -898,11 +916,28 @@ function Prompter({
       setRecording(false);
       setPlaying(false);
       setControlsVisible(true);
+      setFinalizing({ done: writtenRef.current, total: Math.max(queuedRef.current, 1), phase: "writing" });
+      const tick = window.setInterval(() => {
+        setFinalizing((f) => (f && f.phase === "writing"
+          ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
+          : f));
+      }, 120);
       appendQueueRef.current
         .catch(() => {})
-        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current }))
-        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
-        .catch(() => setWriteWarn(true));
+        .then(() => {
+          window.clearInterval(tick);
+          setFinalizing({ done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" });
+          return finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current });
+        })
+        .then((clip) => {
+          if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+          setFinalizing(null);
+        })
+        .catch(() => {
+          window.clearInterval(tick);
+          setWriteWarn(true);
+          setFinalizing((f) => (f ? { ...f, phase: "error" } : null));
+        });
     };
 
     rec.onerror = finishRecording;
