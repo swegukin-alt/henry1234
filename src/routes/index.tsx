@@ -1013,6 +1013,14 @@ function Prompter({
 
 
 
+  // Re-measuring is expensive, so size changes only trigger it once the user
+  // stops moving the slider.
+  const [measureTick, setMeasureTick] = useState(0);
+  useEffect(() => {
+    const id = window.setTimeout(() => setMeasureTick((t) => t + 1), 160);
+    return () => window.clearTimeout(id);
+  }, [fontSize, settings.width]);
+
   // Recompute pause-anchor Y positions when layout may have shifted.
   useLayoutEffect(() => {
     const sc = scrollRef.current;
