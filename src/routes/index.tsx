@@ -525,6 +525,7 @@ function Prompter({
   // Mic state: label of the currently-active audio input + whether it's external.
   const [activeMicLabel, setActiveMicLabel] = useState<string>("");
   const [micIsExternal, setMicIsExternal] = useState(false);
+  const [micLive, setMicLive] = useState(false);
   const currentMicIdRef = useRef<string>("");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
