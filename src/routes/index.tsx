@@ -2069,46 +2069,79 @@ function ClipsSheet({
       <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
         onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
-          <div className="text-base font-bold">All videos <span className="text-neutral-400 font-normal">({clips.length})</span></div>
+          <div className="text-base font-bold">All videos <span className="text-neutral-400 font-normal">({takes.length})</span></div>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
         <div className="max-h-[55vh] overflow-y-auto px-3 py-2">
-          {clips.length === 0 ? (
+          {takes.length === 0 ? (
             <div className="px-3 py-10 text-center text-sm text-neutral-400">No clips yet. Tap the red record button to start.</div>
           ) : (
             <ul className="space-y-2">
-              {clips.map((c) => (
-                <li key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
-                  <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
-                    <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> {scriptTitles[c.scriptId] || "Deleted script"}
-                      {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
-                    </div>
-                    <div className="text-[11px] text-neutral-400">
-                      {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
-                    </div>
-                  </button>
-                  {broken.has(c.id) ? (
-                    <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
-                      {busy === c.id ? "Repairing…" : "Repair"}
+              {takes.map((t) => {
+                const open = expanded.has(t.takeId);
+                const multi = t.parts.length > 1;
+                const anyBroken = t.parts.some((p) => broken.has(p.id));
+                return (
+                <li key={t.takeId} className="rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => openTake(t.parts, 0)} className="flex-1 min-w-0 text-left active:opacity-70">
+                      <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+                        <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> {scriptTitles[t.scriptId] || "Deleted script"}
+                        {anyBroken && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
+                      </div>
+                      <div className="text-[11px] text-neutral-400">
+                        {new Date(t.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(t.durationMs)} · {fmtSize(t.sizeBytes)}{multi ? ` · ${t.parts.length} parts` : ""}
+                      </div>
                     </button>
-                  ) : (
-                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
-                      {busy === c.id ? "Restoring…" : "Restore full"}
+                    <button onClick={() => onExport(t.parts)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this take">
+                      <Download className="h-4 w-4" />
                     </button>
+                    <button onClick={() => { if (confirm(multi ? "Delete this whole take?" : "Delete this clip?")) t.parts.forEach((p) => onDelete(p.id)); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <button
+                      onClick={() => setExpanded((s) => { const n = new Set(s); n.has(t.takeId) ? n.delete(t.takeId) : n.add(t.takeId); return n; })}
+                      className="rounded-full px-2 py-1 text-[11px] text-neutral-400 hover:text-neutral-200"
+                    >
+                      {open ? "Hide parts" : multi ? `Show ${t.parts.length} parts` : "More"}
+                    </button>
+                  </div>
+                  {open && (
+                    <ul className="mt-1 space-y-1 border-t border-white/10 pt-2">
+                      {t.parts.map((c, i) => (
+                        <li key={c.id} className="flex items-center gap-2 pl-1">
+                          <button onClick={() => openTake(t.parts, i)} className="flex-1 min-w-0 text-left text-[11px] text-neutral-300 active:opacity-70">
+                            Part {i + 1} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)}
+                            {broken.has(c.id) && <span className="ml-1 text-red-300">needs repair</span>}
+                          </button>
+                          {broken.has(c.id) ? (
+                            <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-2 py-1 text-[11px] font-bold text-amber-300 disabled:opacity-50">
+                              {busy === c.id ? "Repairing…" : "Repair"}
+                            </button>
+                          ) : (
+                            <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-2 py-1 text-[11px] font-bold text-emerald-300 disabled:opacity-50">
+                              {busy === c.id ? "Restoring…" : "Restore full"}
+                            </button>
+                          )}
+                          <button onClick={() => onExport([c])} className="grid h-8 w-8 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label={`Save part ${i + 1}`}>
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => { if (confirm("Delete this part?")) onDelete(c.id); }} className="grid h-8 w-8 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label={`Delete part ${i + 1}`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                   <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip">
-                    <Download className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </li>
-              ))}
+              ); })}
             </ul>
           )}
+
         </div>
         {note && <div className="px-4 pb-2 text-[11px] leading-snug text-amber-200/90">{note}</div>}
         <div className="border-t border-white/10 px-3 py-2">
