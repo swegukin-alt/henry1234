@@ -30,6 +30,7 @@ import {
   type RemoteEvent,
 } from "@/platform";
 import { mediaStore } from "@/platform/storage/media-store";
+import { implementationReport, type ImplRow } from "@/platform/report";
 
 export const Route = createFileRoute("/diagnostics")({
   head: () => ({
