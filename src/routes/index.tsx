@@ -1276,9 +1276,17 @@ function Prompter({
     setPlaying(true);
     setControlsVisible(false);
     setPanel(null);
-  }, [quality, recording, script.id, reacquireMic]);
+  }, [quality, recording, script.id, reacquireMic, startNativeRecording]);
 
   const stopRecording = useCallback(() => {
+    if (nativeAppRef.current) {
+      void finishNativeRecording();
+      const elNative = scrollRef.current;
+      if (elNative) {
+        try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: elNative.scrollTop, updatedAt: Date.now() })); } catch {}
+      }
+      return;
+    }
     const rec = recorderRef.current;
     if (!rec) return;
     try { if (rec.state === "recording") rec.requestData(); } catch {}
