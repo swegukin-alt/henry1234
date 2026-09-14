@@ -520,7 +520,7 @@ export async function repairClip(id: string): Promise<{ clip: ClipRecord | null;
     height: base?.height || session?.height || 0,
     blob: fixed,
   };
-  if (rec.scriptId) await saveClip(rec);
+  if (rec.scriptId) { await saveClip(rec); await dropChunksFor(id); }
 
   return {
     clip: rec,
@@ -714,7 +714,7 @@ export async function deepRestore(id: string): Promise<{ clip: ClipRecord | null
     height: base?.height || session?.height || 0,
     blob: best,
   };
-  if (rec.scriptId) await saveClip(rec);
+  if (rec.scriptId) { await saveClip(rec); await dropChunksFor(id); }
 
   return {
     clip: rec,
