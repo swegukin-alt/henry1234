@@ -547,25 +547,40 @@ function Prompter({
   const [clipsOpen, setClipsOpen] = useState(false);
   const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
 
-  type Quality = "720p" | "1080p" | "4k";
+  // Capture profiles. Bitrates match or exceed what the iPhone Camera app
+  // uses, so busy scenes keep facial detail instead of smearing.
+  type Quality = "720p60" | "1080p30" | "1080p60" | "4k30";
+  const QUALITY_PROFILES: Record<Quality, { width: number; height: number; fps: number; bps: number; label: string }> = {
+    "720p60": { width: 1280, height: 720, fps: 60, bps: 12_000_000, label: "720p60" },
+    "1080p30": { width: 1920, height: 1080, fps: 30, bps: 18_000_000, label: "1080p30" },
+    "1080p60": { width: 1920, height: 1080, fps: 60, bps: 30_000_000, label: "1080p60" },
+    "4k30": { width: 3840, height: 2160, fps: 30, bps: 60_000_000, label: "4K30" },
+  };
   const [quality, setQuality] = useState<Quality>(() => {
-    if (typeof window === "undefined") return "1080p";
-    return (localStorage.getItem("prompter.quality") as Quality) || "1080p";
+    if (typeof window === "undefined") return "1080p60";
+    const raw = localStorage.getItem("prompter.quality") || "";
+    const migrated: Record<string, Quality> = { "720p": "720p60", "1080p": "1080p60", "4k": "4k30" };
+    if (migrated[raw]) return migrated[raw];
+    return (["720p60", "1080p30", "1080p60", "4k30"].includes(raw) ? raw : "1080p60") as Quality;
   });
   useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
 
-  // How long each recorded part is. Shorter parts save more reliably on
-  // iPhone; the take still plays back as one continuous recording.
+  // What the camera is actually delivering (can differ from what we asked for).
+  const [camStats, setCamStats] = useState<{ width: number; height: number; fps: number } | null>(null);
+
+  // Optional splitting. Off by default: one unbroken file, no frame can be
+  // lost at a cut. Longer takes can opt into parts if saving gets painful.
   const [partMinutes, setPartMinutes] = useState<number>(() => {
-    if (typeof window === "undefined") return 5;
+    if (typeof window === "undefined") return 0;
     const raw = Number(localStorage.getItem("prompter.partMinutes"));
-    return [1, 2, 5, 10].includes(raw) ? raw : 5;
+    return [0, 1, 2, 5, 10].includes(raw) ? raw : 0;
   });
   const partMinutesRef = useRef(partMinutes);
   useEffect(() => {
     partMinutesRef.current = partMinutes;
     try { localStorage.setItem("prompter.partMinutes", String(partMinutes)); } catch {}
   }, [partMinutes]);
+
 
 
   // Update scroll direction when mirrorV changes
@@ -678,19 +693,16 @@ function Prompter({
     if (!videoMode) return;
     let cancelled = false;
     const getConstraints = (q: Quality): MediaStreamConstraints => {
-      const dims = q === "4k" ? { width: 3840, height: 2160 }
-                : q === "1080p" ? { width: 1920, height: 1080 }
-                : { width: 1280, height: 720 };
+      const p = QUALITY_PROFILES[q];
       const videoConstraints: any = {
         // Use the front camera, but let the browser fall back if it can't
         // satisfy every ideal constraint.
         facingMode: { ideal: "user" },
-        width: { ideal: dims.width },
-        height: { ideal: dims.height },
-        // Prefer 60fps for the smoothest, sharpest capture; the camera
-        // will fall back to 30 automatically if 60 isn't available at
-        // the chosen resolution.
-        frameRate: { ideal: 60, min: 30 },
+        width: { ideal: p.width },
+        height: { ideal: p.height },
+        // Ask firmly for the profile's frame rate. A bare "ideal: 60" lets
+        // iPhone quietly settle on 30fps, which is what makes motion smear.
+        frameRate: { ideal: p.fps, min: p.fps === 60 ? 50 : 24 },
       };
 
       return {
@@ -706,11 +718,12 @@ function Prompter({
     };
     const start = async () => {
       try {
-        // Try requested quality; fall back to 1080p then 720p on failure.
+        // Try requested profile, then progressively easier ones.
         let stream: MediaStream | null = null;
-        const tiers: Quality[] = quality === "4k" ? ["4k", "1080p", "720p"]
-                                : quality === "1080p" ? ["1080p", "720p"]
-                                : ["720p"];
+        const tiers: Quality[] = quality === "4k30" ? ["4k30", "1080p60", "1080p30", "720p60"]
+                                : quality === "1080p60" ? ["1080p60", "1080p30", "720p60"]
+                                : quality === "1080p30" ? ["1080p30", "720p60"]
+                                : ["720p60"];
         for (const q of tiers) {
           try { stream = await navigator.mediaDevices.getUserMedia(getConstraints(q)); break; }
           catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
@@ -718,9 +731,14 @@ function Prompter({
         if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
         // Lock the camera at 1x zoom after acquisition as a safety net; some
         // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
-        stream.getVideoTracks().forEach(track => {
-          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any); } catch {}
-        });
+        // Re-assert the frame rate too: the first negotiation often lands on 30.
+        const want = QUALITY_PROFILES[quality];
+        for (const track of stream.getVideoTracks()) {
+          try { await track.applyConstraints({ frameRate: { ideal: want.fps }, advanced: [{ zoom: 1 }, { frameRate: want.fps }] } as any); } catch {}
+        }
+        const vs = stream.getVideoTracks()[0]?.getSettings?.() || {};
+        if (!cancelled) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0) });
+
         streamRef.current = stream;
         if (videoElRef.current) {
           videoElRef.current.srcObject = stream;
@@ -760,6 +778,8 @@ function Prompter({
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       setCamReady(false);
+      setCamStats(null);
+
       setActiveMicLabel("");
       setMicIsExternal(false);
       currentMicIdRef.current = "";
@@ -817,7 +837,12 @@ function Prompter({
   // Recording timer tick
   useEffect(() => {
     if (!recording) return;
-    const id = window.setInterval(() => setElapsedMs(Date.now() - recordStartRef.current), 200);
+    const id = window.setInterval(() => {
+      setElapsedMs(Date.now() - recordStartRef.current);
+      const vs = streamRef.current?.getVideoTracks()[0]?.getSettings?.();
+      if (vs) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0) });
+    }, 1000);
+
     return () => window.clearInterval(id);
   }, [recording]);
 
@@ -877,12 +902,20 @@ function Prompter({
     const stream = streamRef.current;
     if (!stream) return;
     const audioBps = 192_000;
+    // Some Safari builds honour only bitsPerSecond, others only
+    // videoBitsPerSecond — set both so the high bitrate actually applies.
+    const opts: MediaRecorderOptions = {
+      videoBitsPerSecond: bps,
+      audioBitsPerSecond: audioBps,
+      bitsPerSecond: bps + audioBps,
+    } as MediaRecorderOptions;
     let rec: MediaRecorder;
     try {
-      rec = new MediaRecorder(stream, mimeType
-        ? { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: audioBps }
-        : { videoBitsPerSecond: bps, audioBitsPerSecond: audioBps });
-    } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
+      rec = new MediaRecorder(stream, mimeType ? { mimeType, ...opts } : opts);
+    } catch {
+      try { rec = new MediaRecorder(stream, opts); } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
+    }
+
 
     const recordingId = prep.recordingId;
     recordingIdRef.current = recordingId;
@@ -1025,10 +1058,9 @@ function Prompter({
       return;
     }
     const mimeType = pickMime();
-    // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
-    // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
-    // as good as the native Camera app.
-    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    // Exceed iPhone-native bitrates so busy scenes keep facial detail.
+    const bps = QUALITY_PROFILES[quality].bps;
+
 
     stopAllRef.current = false;
     takeIdRef.current = Math.random().toString(36).slice(2, 12);
@@ -1649,25 +1681,34 @@ function Prompter({
           {videoMode && (
             <div className="mt-3">
               <div className="mb-1 text-xs text-neutral-300">Recording quality</div>
-              <div className="flex gap-2">
-                {(["720p", "1080p", "4k"] as const).map((q) => (
+              <div className="grid grid-cols-2 gap-2">
+                {(["1080p60", "1080p30", "4k30", "720p60"] as const).map((q) => (
                   <button key={q} disabled={recording} onClick={() => setQuality(q)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                    {q === "4k" ? "4K (try)" : q}
+                    className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {QUALITY_PROFILES[q].label} · {Math.round(QUALITY_PROFILES[q].bps / 1_000_000)} Mbps
+                    {q === "1080p60" ? " ★" : ""}
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
-              <div className="mt-3 mb-1 text-xs text-neutral-300">Split recording every</div>
+              <p className="mt-2 text-[11px] text-neutral-400">
+                1080p60 ★ is best for busy scenes — smooth motion and sharp faces. 4K is attempted but iPhone may drop to 30fps or a lower setting.
+                {camStats && camStats.width > 0 && (
+                  <span className={camStats.fps && camStats.fps < QUALITY_PROFILES[quality].fps ? " text-amber-300" : " text-emerald-300"}>
+                    {" "}Camera is giving {camStats.width}×{camStats.height}{camStats.fps ? ` · ${camStats.fps} fps` : ""}.
+                  </span>
+                )}
+              </p>
+              <div className="mt-3 mb-1 text-xs text-neutral-300">Split recording</div>
               <div className="flex gap-2">
-                {[1, 2, 5, 10].map((m) => (
+                {[0, 1, 2, 5, 10].map((m) => (
                   <button key={m} disabled={recording} onClick={() => setPartMinutes(m)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${partMinutes === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                    {m} min
+                    className={`flex-1 rounded-lg border px-2 py-2 text-xs font-semibold disabled:opacity-40 ${partMinutes === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {m === 0 ? "Off" : `${m} min`}
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] text-neutral-400">Recording never pauses. Shorter parts are quicker and far more reliable to save; they still play back as one take.</p>
+              <p className="mt-2 text-[11px] text-neutral-400">Off means one unbroken file from record to stop — no frame can be lost at a cut. Splitting only helps if a very long take gets hard to save.</p>
+
 
             </div>
           )}
@@ -1816,6 +1857,24 @@ function Prompter({
           <span className="truncate">{micIsExternal ? activeMicLabel : "Built-in mic"}</span>
         </div>
       )}
+
+      {/* Honest capture readout: what the camera is really delivering. */}
+      {videoMode && camReady && camStats && camStats.width > 0 && controlsVisible && (
+        <div
+          className={`absolute z-40 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold backdrop-blur-sm ${
+            camStats.fps && camStats.fps < QUALITY_PROFILES[quality].fps ? "text-amber-300" : "text-neutral-200"
+          }`}
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 2.6rem)",
+            left: "50%",
+            transform: `translateX(-50%)${mirrorV ? " scaleY(-1)" : ""}`,
+          }}
+        >
+          {camStats.height ? `${camStats.height}p` : `${camStats.width}px`}
+          {camStats.fps ? ` · ${camStats.fps} fps` : ""} · {Math.round(QUALITY_PROFILES[quality].bps / 1_000_000)} Mbps
+        </div>
+      )}
+
 
 
 
