@@ -554,6 +554,20 @@ function Prompter({
   });
   useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
 
+  // How long each recorded part is. Shorter parts save more reliably on
+  // iPhone; the take still plays back as one continuous recording.
+  const [partMinutes, setPartMinutes] = useState<number>(() => {
+    if (typeof window === "undefined") return 5;
+    const raw = Number(localStorage.getItem("prompter.partMinutes"));
+    return [1, 2, 5, 10].includes(raw) ? raw : 5;
+  });
+  const partMinutesRef = useRef(partMinutes);
+  useEffect(() => {
+    partMinutesRef.current = partMinutes;
+    try { localStorage.setItem("prompter.partMinutes", String(partMinutes)); } catch {}
+  }, [partMinutes]);
+
+
   // Update scroll direction when mirrorV changes
   useEffect(() => {
     scrollDirectionRef.current = mirrorV ? -1 : 1;
