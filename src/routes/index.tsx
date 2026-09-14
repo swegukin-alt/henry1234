@@ -1051,10 +1051,9 @@ function Prompter({
       return;
     }
     const mimeType = pickMime();
-    // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
-    // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
-    // as good as the native Camera app.
-    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    // Exceed iPhone-native bitrates so busy scenes keep facial detail.
+    const bps = QUALITY_PROFILES[quality].bps;
+
 
     stopAllRef.current = false;
     takeIdRef.current = Math.random().toString(36).slice(2, 12);
