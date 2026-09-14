@@ -67,6 +67,22 @@ Welcome. This is your teleprompter. Paste a script, tap Play, and the words will
 
 화면 하단에 남은 분량이 퍼센트로 표시됩니다. Adjust speed and font size from the controls. Tap the screen to pause.`;
 
+// Turn a raw storage failure into something true and useful. A write can fail
+// for reasons that have nothing to do with a full phone (Safari reclaiming
+// space, private browsing, the database being closed), so never claim "full"
+// unless the browser actually said so.
+function describeStorageError(err: unknown): string {
+  const name = (err as any)?.name || "";
+  const msg = String((err as any)?.message || "");
+  if (name === "QuotaExceededError" || /quota/i.test(msg)) {
+    return "This browser hit its own storage limit for the app. Free space by deleting older takes in All videos, then keep recording.";
+  }
+  if (name === "InvalidStateError" || /closed|database/i.test(msg)) {
+    return "The recording store hiccuped. Recording continues — stop and check the take when you can.";
+  }
+  return "A piece of this take could not be written. Recording continues, but stop soon and check it.";
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
