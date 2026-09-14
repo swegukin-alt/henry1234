@@ -475,8 +475,11 @@ function Prompter({
   // second mic session on iOS silences the audio track that is being recorded.
   const streamRef = useRef<MediaStream | null>(null);
   const getSharedMicStream = useCallback(() => streamRef.current, []);
+  const [captureProtection, setCaptureProtection] = useState(false);
   const { anchorWordIndex, status: vfStatus } = useVoiceFollow({
-    enabled: voiceFollow && vfSupported,
+    // Speech analysis allocates and uploads audio continuously. Suspend it only
+    // when the recorder detects pressure, leaving the camera/encoder priority.
+    enabled: voiceFollow && vfSupported && !captureProtection,
     words,
     lang,
     visibleWordIndexRef: activeReadIdxRef,
@@ -566,7 +569,8 @@ function Prompter({
   useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
 
   // What the camera is actually delivering (can differ from what we asked for).
-  const [camStats, setCamStats] = useState<{ width: number; height: number; fps: number } | null>(null);
+  const [camStats, setCamStats] = useState<{ width: number; height: number; fps: number; deliveredFps: number } | null>(null);
+  const deliveredFpsRef = useRef(0);
 
   // Optional splitting. Off by default: one unbroken file, no frame can be
   // lost at a cut. Longer takes can opt into parts if saving gets painful.
@@ -737,7 +741,7 @@ function Prompter({
           try { await track.applyConstraints({ frameRate: { ideal: want.fps }, advanced: [{ zoom: 1 }, { frameRate: want.fps }] } as any); } catch {}
         }
         const vs = stream.getVideoTracks()[0]?.getSettings?.() || {};
-        if (!cancelled) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0) });
+        if (!cancelled) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0), deliveredFps: 0 });
 
         streamRef.current = stream;
         if (videoElRef.current) {
@@ -787,6 +791,38 @@ function Prompter({
     // Re-acquire on quality change
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoMode, quality]);
+
+  // getSettings() reports the negotiated target, not the frames Safari is
+  // actually painting. Measure delivered frames directly so overload is real.
+  useEffect(() => {
+    if (!videoMode || !camReady) return;
+    const video = videoElRef.current as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: (now: number) => void) => number;
+      cancelVideoFrameCallback?: (id: number) => void;
+    }) | null;
+    if (!video?.requestVideoFrameCallback) return;
+    let stopped = false;
+    let callbackId = 0;
+    let windowStart = performance.now();
+    let frames = 0;
+    const countFrame = (now: number) => {
+      if (stopped) return;
+      frames += 1;
+      const span = now - windowStart;
+      if (span >= 1000) {
+        deliveredFpsRef.current = Math.round((frames * 1000) / span);
+        frames = 0;
+        windowStart = now;
+      }
+      callbackId = video.requestVideoFrameCallback?.(countFrame) ?? 0;
+    };
+    callbackId = video.requestVideoFrameCallback(countFrame);
+    return () => {
+      stopped = true;
+      if (callbackId) video.cancelVideoFrameCallback?.(callbackId);
+      deliveredFpsRef.current = 0;
+    };
+  }, [videoMode, camReady]);
 
 
   // Load existing clips, recover any orphan session from a prior crash / close,
@@ -840,11 +876,18 @@ function Prompter({
     const id = window.setInterval(() => {
       setElapsedMs(Date.now() - recordStartRef.current);
       const vs = streamRef.current?.getVideoTracks()[0]?.getSettings?.();
-      if (vs) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0) });
+      if (vs) {
+        const deliveredFps = deliveredFpsRef.current;
+        setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0), deliveredFps });
+        // Protect capture automatically if real delivery falls well below the
+        // negotiated rate. This pauses optional speech analysis, not recording.
+        const requested = QUALITY_PROFILES[quality].fps;
+        setCaptureProtection(deliveredFps > 0 && deliveredFps < requested * 0.78);
+      }
     }, 1000);
 
-    return () => window.clearInterval(id);
-  }, [recording]);
+    return () => { window.clearInterval(id); setCaptureProtection(false); };
+  }, [recording, quality]);
 
   const pickMime = (): string => {
     const candidates = [
@@ -902,13 +945,13 @@ function Prompter({
     const stream = streamRef.current;
     if (!stream) return;
     const audioBps = 192_000;
-    // Some Safari builds honour only bitsPerSecond, others only
-    // videoBitsPerSecond — set both so the high bitrate actually applies.
+    // Supplying both aggregate and per-track bitrate makes some iOS Safari
+    // releases run two conflicting rate-control paths and collapse frame rate.
+    // Per-track values are the stable WebKit path.
     const opts: MediaRecorderOptions = {
       videoBitsPerSecond: bps,
       audioBitsPerSecond: audioBps,
-      bitsPerSecond: bps + audioBps,
-    } as MediaRecorderOptions;
+    };
     let rec: MediaRecorder;
     try {
       rec = new MediaRecorder(stream, mimeType ? { mimeType, ...opts } : opts);
@@ -1009,9 +1052,9 @@ function Prompter({
     rec.onstop = finishPart;
 
     recordingRef.current = true;
-    // 1s timeslice = big enough to keep write overhead low, small enough
-    // that at most ~1s of footage is ever unflushed if the process dies.
-    try { rec.start(1000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
+    // Two-second chunks halve IndexedDB transaction pressure versus one-second
+    // writes while keeping crash recovery granular and memory bounded.
+    try { rec.start(2000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
     recorderRef.current = rec;
 
     // Schedule the rollover to the next part.
@@ -1057,6 +1100,16 @@ function Prompter({
       setCamError("No working microphone was found. Reconnect the microphone and try again.");
       return;
     }
+    // Refuse to begin if storage is already almost exhausted. Starting a take
+    // that cannot be committed is less safe than showing an actionable warning.
+    try {
+      const estimate = await navigator.storage?.estimate?.();
+      const free = (estimate?.quota ?? 0) - (estimate?.usage ?? 0);
+      if (estimate?.quota && free < 750 * 1024 * 1024) {
+        setCamError("Less than 750 MB is available. Free space before recording so this take cannot be lost.");
+        return;
+      }
+    } catch {}
     const mimeType = pickMime();
     // Exceed iPhone-native bitrates so busy scenes keep facial detail.
     const bps = QUALITY_PROFILES[quality].bps;
@@ -1067,6 +1120,7 @@ function Prompter({
     partIndexRef.current = 0;
     writeFailRef.current = 0;
     setWriteWarn(false);
+    setCaptureProtection(false);
     setFinalizing(null);
 
     const prep = await prepareSession(mimeType || "video/mp4", takeIdRef.current, 0);
@@ -1119,7 +1173,10 @@ function Prompter({
         if (recording) stopRecording();
       }
     };
-    const onPageHide = () => flush();
+    const onPageHide = () => {
+      flush();
+      if (recordingRef.current) stopRecording();
+    };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("pagehide", onPageHide);
     return () => {
