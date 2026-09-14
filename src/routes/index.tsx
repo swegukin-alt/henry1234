@@ -11,7 +11,13 @@ import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chun
 import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
 // Device access goes through the platform layer (browser today, native iOS
 // implementations when the app runs inside Capacitor).
-import { getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings } from "@/platform";
+import {
+  getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings,
+  isNative, startCamera, stopCamera, startRecording as startNativeCapture, cameraCapabilities,
+  requestPermission, openAppSettings, haptic, onLifecycleChange, pickBestMicrophone,
+  type PreviewHandle, type RecordingHandle,
+} from "@/platform";
+import { importRecording } from "@/platform/storage/media-store";
 
 
 export const Route = createFileRoute("/")({
