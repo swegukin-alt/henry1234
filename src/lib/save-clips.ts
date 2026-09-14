@@ -4,11 +4,11 @@
 // AirDrop, Files etc. through its own share sheet, and it only opens that sheet
 // when navigator.share() is reached inside the tap that triggered it — so the
 // file is prepared first (ring), and then a single Share button fires share()
-// synchronously. Very large takes (multi-GB) are refused by the share sheet, so
-// for those the same single button downloads straight to Files instead.
+// synchronously. The stored playable Blob is reused unchanged: rebuilding a
+// multi-GB take before sharing can exhaust iPhone Safari's memory.
 
 import type { ClipMeta, ClipRecord } from "./clip-store";
-import { assembleBest, fmtSize, getClip } from "./clip-store";
+import { fmtSize, getClip } from "./clip-store";
 
 export type SaveJob = {
   phase: "working" | "ready" | "done" | "error";
@@ -76,11 +76,10 @@ export function startSave(
         return;
       }
 
-      // A take can end up shorter than it should be if a write failed near the
-      // end. Rebuild from every surviving byte before saving.
-      patch({ detail: "Collecting every second of this take…" });
-      let complete: ClipRecord;
-      try { complete = await assembleBest(stored); } catch { complete = stored; }
+      // This is the same Blob that the in-app player uses. Do not load all raw
+      // chunks or rebuild it here: that can temporarily duplicate a multi-GB
+      // recording and make iOS kill the share handoff under memory pressure.
+      const complete: ClipRecord = stored;
 
       // Preserve the container the recorder actually produced. Giving iOS an
       // MP4 filename around WebM bytes makes navigator.share reject the payload
@@ -94,8 +93,11 @@ export function startSave(
       const type = isWebM ? "video/webm" : hasFtyp ? "video/mp4" : declared === "video/webm" ? "video/webm" : "video/mp4";
       const stamp = new Date(complete.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const name = `${base}-${stamp}.${type === "video/mp4" ? "mp4" : "webm"}`;
-      const file = new File([complete.blob], name, { type });
-      const totalBytes = complete.sizeBytes || complete.blob.size;
+      const file = new File([complete.blob], name, {
+        type,
+        lastModified: complete.createdAt,
+      });
+      const totalBytes = complete.blob.size;
 
       const nav: any = navigator;
       let sharing = false;
@@ -106,6 +108,7 @@ export function startSave(
         sharing = true;
 
         let result: Promise<void>;
+        const shareStartedAt = performance.now();
         // The share call must happen inside the tap, with no await before it.
         // Files-only is the smallest valid payload and avoids an iOS Safari
         // failure where optional title data can make a large video hostile.
@@ -135,13 +138,13 @@ export function startSave(
           })
           .catch((error: any) => {
             sharing = false;
-            const cancelled = error?.name === "AbortError";
+            const cancelled = error?.name === "AbortError" && performance.now() - shareStartedAt > 1200;
             patch({
               phase: "ready", file, bytes: totalBytes,
-              title: cancelled ? "Share closed" : "Share sheet didn't open",
+              title: cancelled ? "Share closed" : "iPhone couldn't attach this video",
               detail: cancelled
                 ? `${fmtSize(totalBytes)} · Nothing was saved. Tap Share to open the menu again.`
-                : `${fmtSize(totalBytes)} · ${String(error?.message || "iPhone rejected the video before opening its menu.")}`,
+                : `${fmtSize(totalBytes)} · The full recording is safe and still plays here. iPhone rejected the web attachment before opening its menu.`,
               actionLabel: "Share", runPrimary: share,
             });
           });
