@@ -30,7 +30,7 @@ import {
   type RemoteEvent,
 } from "@/platform";
 import { mediaStore } from "@/platform/storage/media-store";
-import { implementationReport, type ImplRow } from "@/platform/report";
+import { bridgeReport, implementationReport, type BridgeRow, type ImplRow } from "@/platform/report";
 
 export const Route = createFileRoute("/diagnostics")({
   head: () => ({
@@ -77,6 +77,7 @@ function Diagnostics() {
   const [lifecycle, setLifecycle] = useState<LifecycleState>("active");
   const [bleSupported, setBleSupported] = useState(false);
   const [impls, setImpls] = useState<ImplRow[]>([]);
+  const [bridge, setBridge] = useState<BridgeRow[]>([]);
   // Device capabilities only exist in the browser, so nothing is read until
   // after hydration.
   const [ready, setReady] = useState(false);
@@ -91,6 +92,7 @@ function Diagnostics() {
     });
     void remoteService().then((s) => setBleSupported(s.capabilities().supportsBle));
     void implementationReport().then(setImpls);
+    void bridgeReport().then(setBridge);
     void Promise.all(
       (["camera", "microphone", "photos", "bluetooth", "speech"] as const).map(async (p) => [
         p,
@@ -133,6 +135,11 @@ function Diagnostics() {
           { label: "Lifecycle state", value: lifecycle },
           { label: "Online", value: yn(isOnline()) },
         ]}
+      />
+
+      <Section
+        title="Capacitor bridge"
+        rows={bridge.length ? bridge : [{ label: "Bridge", value: "reading…" }]}
       />
 
       <Section

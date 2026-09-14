@@ -14,7 +14,7 @@ import { convertFileSrc, hasPlugin } from "../runtime";
 import type { ClipMeta, ClipRecord, MediaStore, NewSession } from "./media-store";
 import type { RepairReport, RestoreReport } from "@/lib/clip-store";
 
-const FILESYSTEM_MODULE = "@capacitor/filesystem";
+import { loadModule, PLUGIN_MODULES } from "../native-plugins";
 const DIR = "recordings";
 const INDEX_PATH = `${DIR}/index.json`;
 
@@ -60,7 +60,8 @@ async function blobToBase64(blob: Blob): Promise<string> {
 
 export async function createNativeMediaStore(): Promise<MediaStore | null> {
   if (!hasPlugin("Filesystem")) return null;
-  const mod = (await import(/* @vite-ignore */ FILESYSTEM_MODULE)) as FsModule;
+  const mod = await loadModule<FsModule>(PLUGIN_MODULES.filesystem);
+  if (!mod) return null;
   const Filesystem = mod.Filesystem;
   const DATA: Directory = mod.Directory?.Data ?? "DATA";
   if (!Filesystem) return null;

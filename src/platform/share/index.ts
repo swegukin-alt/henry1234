@@ -4,7 +4,7 @@
 import { hasPlugin, isNative } from "../runtime";
 import { fail, ok, type ServiceResult } from "../types";
 
-const SHARE_MODULE = "@capacitor/share";
+import { loadModule, PLUGIN_MODULES } from "../native-plugins";
 
 type SharePlugin = {
   share: (o: { title?: string; text?: string; url?: string; dialogTitle?: string }) => Promise<unknown>;
@@ -32,7 +32,8 @@ export async function shareFilePath(path: string, title: string): Promise<Servic
   if (!isNative()) return fail("Use the browser share flow on the web.", "web-runtime");
   if (!hasPlugin("Share")) return fail("The share plugin is not installed in this build.", "plugin-missing");
   try {
-    const mod = (await import(/* @vite-ignore */ SHARE_MODULE)) as { Share?: SharePlugin };
+    const mod = await loadModule<{ Share?: SharePlugin }>(PLUGIN_MODULES.share);
+    if (!mod?.Share) return fail("The share plugin is not installed in this build.", "plugin-missing");
     if (!mod.Share) return fail("The share plugin is not installed in this build.", "plugin-missing");
     await mod.Share.share({ title, url: path, dialogTitle: title });
     return ok(undefined);
