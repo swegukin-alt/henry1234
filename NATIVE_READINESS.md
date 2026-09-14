@@ -1,0 +1,256 @@
+# Native readiness audit — Swegukin Teleprompter
+
+Target: one codebase. Browser → browser APIs. Capacitor 8 on iOS → native APIs
+where they genuinely improve reliability. No second UI, no second teleprompter
+engine.
+
+App shape as audited:
+
+- `src/routes/index.tsx` (~2.2k lines) — the whole app: library, editor, reader,
+  video mode, video library.
+- `src/lib/clip-store.ts` — IndexedDB clip/chunk/session store (v3).
+- `src/lib/save-clips.ts`, `src/components/SaveOverlay.tsx` — export/share.
+- `src/lib/voice-follow-v2.ts`, `src/lib/chunk-script.ts` — voice follow.
+- `src/routes/api/public/transcribe.ts` — server transcription endpoint.
+- **No backend, no login, no cloud database.** Nothing to migrate for auth.
+
+Flow traced end to end: script selection → editor → assists toggles → Play/Video
+(fullscreen + landscape lock) → camera open with quality tiers → mic pick and
+watchdog → tap to start → MediaRecorder with timeslice chunks written to
+IndexedDB → scroll engine (rAF) with optional voice follow → stop → finalize
+session → clip appears in All videos → Save → share sheet or download.
+
+---
+
+## Feature-by-feature
+
+Legend — Where: `web` = stays browser, `native` = should use iOS,
+`both` = shared engine with a native adapter. Test: `sim` = iOS Simulator is
+enough, `device` = needs a real iPhone.
+
+### 1. Camera preview and video recording — PRIORITY 1
+- Now: `getUserMedia` with quality tiers (4K → 1080p → 720p → bare), 60 fps
+  *ideal*, zoom 1 via `applyConstraints`, live-track check before enabling
+  record. `MediaRecorder` at 45/14/6 Mbps + 192 kbps audio, MIME fallback chain,
+  timeslice chunks.
+- Files: `src/routes/index.tsx`; now behind `src/platform/camera/*`.
+- Where: both. WebKit inside Capacitor can still use `getUserMedia`, but a
+  native AVFoundation preview is far more reliable for long takes, gives real
+  file output instead of blobs, and survives backgrounding better.
+- Plugin: `@capacitor-community/camera-preview` (Capacitor 8 compatible). It
+  renders the preview **behind** the WebView — exactly the layout needed, with
+  the teleprompter HTML on top. The WebView and body background must be
+  transparent while that preview is live.
+- Genuine plugin limits: it exposes start/stop preview, camera switching, zoom,
+  torch, and video recording to a file. It does **not** expose focus point,
+  exposure control, lens selection (ultra-wide/tele), explicit 4K/60 fps
+  selection, or stabilisation mode. Those require a small custom
+  Swift/AVFoundation Capacitor plugin. The capability object
+  (`CameraCapabilities`) reports this truthfully; the UI must hide what is not
+  supported rather than fail at the tap.
+- Fallback: current web implementation, unchanged.
+- Permission: `NSCameraUsageDescription`.
+- Test: device (the Simulator has no camera).
+- Risk to web: none — the web class is the same code as before.
+
+### 2. Microphone and audio session — PRIORITY 1
+- Now: `enumerateDevices` + label matching to prefer an external mic (DJI, USB,
+  wireless); external mics get raw audio, built-in keeps processing; track swap
+  without disturbing the recorder; 2 s watchdog reacquires a dropped mic;
+  `devicechange` listener.
+- Files: `src/routes/index.tsx`; now behind `src/platform/audio/*`.
+- Where: both. Inside the native app the WebView still gives `getUserMedia`, but
+  correct behaviour for AirPods/Bluetooth routes, call/Siri interruptions and
+  route changes needs an `AVAudioSession` (`playAndRecord`, `allowBluetooth`,
+  `defaultToSpeaker`, interruption notifications).
+- Plugin: no maintained Capacitor 8 plugin covers this — **custom Swift plugin
+  required** for the audio session. Documented, not stubbed as working.
+- Permission: `NSMicrophoneUsageDescription`.
+- Test: device (external mic and route changes cannot be simulated).
+
+### 3. Voice follow / speech recognition — PRIORITY 3
+- Now: PCM windows → WAV → `/api/public/transcribe` (AI gateway). The browser
+  recognizer was removed because it is unreliable on iOS and poor for Korean.
+- Files: `src/lib/voice-follow-v2.ts`, `src/lib/voice-follow.ts`.
+- Where: both, behind `src/platform/speech`. iOS `SFSpeechRecognizer` would be
+  faster, on-device and offline-capable — custom Swift plugin.
+- Permission (only if adopted): `NSSpeechRecognitionUsageDescription`.
+- Test: device. Network required for today's path.
+
+### 4. Teleprompter scrolling engine — PRIORITY 1 (do not nativise)
+- Now: `requestAnimationFrame` loop, DOM-direct progress painting, stall
+  watchdog, mirror H/V with reversed scroll, punctuation slowdown, chunking,
+  reading highlight, per-script scroll restore in localStorage.
+- Where: stays platform-independent, identical on web and native. Already
+  rAF-based, so 120 Hz ProMotion is handled by the browser's frame pacing.
+- Risk: any nativisation here would fork the app. Explicitly out of scope.
+
+### 5. Settings and small preferences — PRIORITY 2
+- Now: `localStorage` — `prompter.scripts.v1`, `prompter.active.v1`,
+  `prompter.settings.v1`, `prompter.quality`, per-script reader state.
+- Now routed through `src/platform/storage/settings.ts`: synchronous cached
+  reads; native writes mirror to `@capacitor/preferences`, hydrated once at
+  startup. Behaviour on the web is byte-for-byte the same.
+- Note: scripts are text and stay in this store. If script libraries grow large
+  or gain structure (folders, versions, cues), SQLite
+  (`@capacitor-community/sqlite`) is the right native home — not Preferences.
+
+### 6. Large recordings — PRIORITY 1
+- Now: IndexedDB `prompter.clips.v1` v3 with `clips` / `clipsMeta` / `chunks` /
+  `sessions`; chunk-per-timeslice writes with retry, orphan-session recovery,
+  metadata-only listing, lazy blob load, repair and deep restore.
+- Nothing large is in localStorage, React state or base64 — verified.
+- Where: native should move the bytes to `@capacitor/filesystem`
+  (`Directory.Library`, excluded from iCloud backup), writing chunks by append
+  and keeping the existing metadata records. WebKit storage must not hold
+  multi-GB native recordings.
+- The current design already survives an interrupted save (chunks + session
+  recovery) and that model maps directly onto the filesystem.
+- Test: device (multi-GB behaviour); sim can validate the code path.
+
+### 7. Saving to Photos / export — PRIORITY 1
+- Now: `navigator.share({files})` inside the tap, `<a download>` fallback,
+  >1.2 GB goes straight to Files.
+- Where: native must save to the Photos library from a real file path. A fake
+  HTML download link is not an acceptable native answer, so
+  `src/platform/media-library` reports `plugin-missing` until a Photos plugin is
+  installed (`@capacitor-community/media` or a small Swift `PHPhotoLibrary`
+  plugin). The original always stays in app storage until the export succeeds.
+- Permission: `NSPhotoLibraryAddUsageDescription` (and
+  `NSPhotoLibraryUsageDescription` only if we ever read the library).
+- Test: device.
+
+### 8. Sharing — PRIORITY 2
+- Now: Web Share. Native: `@capacitor/share` with a `file://` path (no size
+  limit, no gesture requirement). Behind `src/platform/share`.
+
+### 9. Script import/export — PRIORITY 3
+- Now: typing/pasting only; no file picker exists today. `src/platform/files`
+  adds a browser picker and text download, and documents the native document
+  picker / Files + iCloud Drive path (`@capacitor/filesystem`, or
+  `@capawesome/capacitor-file-picker`).
+
+### 10. Remote controls — PRIORITY 1
+- Now: a capture-phase `keydown` handler in the reader: Escape/Home exit,
+  `[` `]` font size, arrows/page/volume scroll and speed, space/Enter/media keys
+  toggle play; Escape is swallowed during recording.
+- **Deliberately left exactly as-is.** The Desview remote is programmed against
+  it and the user asked for no change.
+- Added alongside: `src/platform/remote` normalises input into
+  `RECORD_TOGGLE`, `SCROLL_TOGGLE`, `SPEED_UP/DOWN`, `JUMP_FORWARD/BACK`,
+  `NEXT_CUE/PREVIOUS_CUE`, `FONT_UP/DOWN`, `EXIT`, with a remappable key table
+  that mirrors the current bindings. Used by diagnostics today; available for a
+  future mapping screen.
+- Two remote kinds, handled differently: HID remotes (Desview, most clickers)
+  arrive as key events on both runtimes — never BLE-scan for those. Real BLE
+  peripherals go through `@capacitor-community/bluetooth-le`. Bluetooth Classic
+  is unreachable from either runtime.
+- Permission (BLE only): `NSBluetoothAlwaysUsageDescription`.
+- Test: device.
+
+### 11. Keep awake — PRIORITY 1
+- Now: Screen Wake Lock, re-requested on `visibilitychange`; now
+  `src/platform/keep-awake` (`keepScreenAwake()` returns a release function, held
+  for the whole reading/recording session).
+- Native: `@capacitor-community/keep-awake`. Test: sim.
+
+### 12. Orientation and fullscreen — PRIORITY 2
+- Now: `requestFullscreen` + `screen.orientation.lock("landscape")` on entering
+  Play/Video, called synchronously inside the tap; iOS Safari ignores both, and
+  the user rotates manually — which is the intended behaviour.
+- Now `src/platform/orientation`. Native: `@capacitor/screen-orientation` can
+  really lock landscape during recording, and `@capacitor/status-bar` hides the
+  status bar for the reading screen only, restoring it on exit.
+- Test: sim.
+
+### 13. App lifecycle and interruptions — PRIORITY 1
+- Now: `visibilitychange` re-request of the wake lock; recording continues in
+  the background as far as WebKit allows.
+- `src/platform/lifecycle` normalises active/inactive/background/resumed and
+  network changes. Native should use `@capacitor/app`; if iOS stops a recording,
+  the UI must say so — never pretend it continued. The existing chunk store
+  means whatever was written is already recoverable.
+- Test: device.
+
+### 14. Permissions — PRIORITY 2
+- Now: implicit, via `getUserMedia` at the moment of use. No permission is
+  requested at startup — keep it that way.
+- `src/platform/permissions` centralises states (`not-requested`, `granted`,
+  `denied`, `restricted`, `unavailable`) and exposes `openAppSettings()` for the
+  native hard-denial case.
+
+### 15. Safe areas, keyboard, haptics, network, clipboard
+- Safe areas: `env(safe-area-inset-*)` already applied throughout the reader,
+  toolbar and video controls, in both orientations. Re-check on device for the
+  Dynamic Island in landscape.
+- Keyboard: the editor is a plain textarea; `capacitor.config.ts` sets
+  `Keyboard.resize: "none"` so the teleprompter viewport is never resized.
+- Haptics: none today. `src/platform/haptics` is optional and no-ops silently.
+- Network: only transcription needs the network. `isOnline()` exists so a lost
+  connection is never reported as a camera or storage fault.
+- Clipboard, external links, in-app navigation, auth/session storage: **not used
+  by this app.** Nothing to migrate, nothing stored insecurely.
+
+### 16. Future native-only ideas (not implemented)
+Screen brightness boost while reading; external display / AirPlay clean output;
+HDMI out; a second device as a remote over the local network.
+
+---
+
+## Packages to install on the Mac
+
+```
+bun add @capacitor/core @capacitor/app @capacitor/filesystem @capacitor/preferences \
+        @capacitor/share @capacitor/haptics @capacitor/keyboard @capacitor/status-bar \
+        @capacitor/screen-orientation @capacitor/network
+bun add @capacitor-community/camera-preview @capacitor-community/bluetooth-le \
+        @capacitor-community/keep-awake
+bun add -d @capacitor/cli @capacitor/ios
+```
+Photos saving: `@capacitor-community/media`, or a small Swift `PHPhotoLibrary`
+plugin if that package lags Capacitor 8.
+
+## Xcode / iOS work still required
+
+1. `bun run build:ios` (static bundle into `dist-ios/`).
+2. `npx cap add ios && npx cap sync ios`.
+3. Add the Info.plist keys below.
+4. Enable Background Modes → Audio only if recording must survive
+   backgrounding.
+5. Make the WebView background transparent while the native camera preview is
+   active.
+6. Sign and run on a physical iPhone.
+
+## Info.plist keys
+
+| Key | Needed for |
+| --- | --- |
+| `NSCameraUsageDescription` | camera preview and recording |
+| `NSMicrophoneUsageDescription` | recording audio, voice follow |
+| `NSPhotoLibraryAddUsageDescription` | saving finished takes to Photos |
+| `NSPhotoLibraryUsageDescription` | only if the app ever reads the library |
+| `NSBluetoothAlwaysUsageDescription` | BLE remotes only (not HID remotes) |
+| `NSSpeechRecognitionUsageDescription` | only if native speech is adopted |
+
+## Needs a real iPhone
+
+Camera, external/Bluetooth microphones, audio routes and interruptions, BLE and
+HID remotes, Photos saving, multi-GB recordings, thermal/battery behaviour on
+long takes. The Simulator can validate layout, safe areas, orientation, keep
+awake, preferences and the filesystem code paths only.
+
+## Likely to need custom Swift later
+
+AVAudioSession control and interruption events; camera focus, exposure, lens
+selection, 4K/60 fps and stabilisation; on-device `SFSpeechRecognizer`; Photos
+saving if the community plugin is unsuitable.
+
+## Remaining risks
+
+- `camera-preview` recording delivers a file at stop, not live chunks, so the
+  native path will need its own recovery story; the existing chunk model does
+  not apply to it directly.
+- A native preview behind a transparent WebView can be broken by any opaque
+  background in the CSS chain.
+- The community plugins above must be re-verified against Capacitor 8 at install
+  time; versions move.
