@@ -2206,7 +2206,7 @@ function ClipsSheet({
               left: "calc(env(safe-area-inset-left, 0px) + 0.5rem)",
             }}
           >
-            {scriptTitles[playingClip.scriptId] || "Deleted script"} · {new Date(playingClip.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+            {scriptTitles[playingClip.scriptId] || "Deleted script"} · {new Date(playingClip.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{playParts && playParts.length > 1 ? ` · part ${playIdx + 1}/${playParts.length}` : ""}
           </div>
 
           {/* Floating action row — bottom, above native video controls */}
