@@ -1016,8 +1016,12 @@ function Prompter({
       }
       writtenRef.current += 1;
       writeFailRef.current += 1;
-      setWriteWarn(true);
-      setWriteWarnMsg(describeStorageError(lastErr));
+      // One retried-and-recovered hiccup is normal on iOS; only surface a
+      // warning if footage is actually repeatedly failing to store.
+      if (writeFailRef.current >= 2) {
+        setWriteWarn(true);
+        setWriteWarnMsg(describeStorageError(lastErr));
+      }
     };
 
 
