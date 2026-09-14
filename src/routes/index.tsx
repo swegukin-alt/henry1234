@@ -821,35 +821,47 @@ function Prompter({
     return "";
   };
 
-  const startRecording = useCallback(async () => {
+  // ---- Recording in parts -------------------------------------------------
+  // A take is recorded as a sequence of self-contained videos that share one
+  // takeId. Each part is finalized to storage while the next one is already
+  // rolling, so a crash can never cost more than the current part, and saving
+  // never has to hand iOS one enormous file.
+  const takeIdRef = useRef<string>("");
+  const partIndexRef = useRef(0);
+  const partTimerRef = useRef<number | null>(null);
+  const stopAllRef = useRef(false);
+  const takeStartRef = useRef(0);
+
+  type PartPrep = { recordingId: string; startedAt: number };
+
+  const prepareSession = useCallback(async (mime: string, takeId: string, partIndex: number): Promise<PartPrep | null> => {
     const stream = streamRef.current;
-    if (!stream || recording) return;
-    // Make sure a live mic track is on the stream before we start. iOS can end
-    // the audio track (another app / session took the mic), which would produce
-    // a silent recording. Re-acquire and attach one if needed.
+    const track = stream?.getVideoTracks()[0];
+    const s = track?.getSettings?.() || {};
+    const recordingId = Math.random().toString(36).slice(2, 12);
+    const startedAt = Date.now();
     try {
-      const live = stream.getAudioTracks().filter((t) => t.readyState === "live");
-      live.forEach((t) => { t.enabled = true; });
-      if (live.length === 0) {
-        stream.getAudioTracks().forEach((t) => { try { stream.removeTrack(t); } catch {} });
-        const fresh = await navigator.mediaDevices.getUserMedia({
-          audio: currentMicIdRef.current
-            ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
-            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
-        });
-        const t = fresh.getAudioTracks()[0];
-        if (t) { t.enabled = true; stream.addTrack(t); }
-      }
-    } catch {}
-    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
-      setCamError("No working microphone was found. Reconnect the microphone and try again.");
-      return;
-    }
-    const mimeType = pickMime();
-    // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
-    // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
-    // as good as the native Camera app.
-    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+      await createSession({
+        id: recordingId,
+        scriptId: script.id,
+        mimeType: mime,
+        startedAt,
+        width: (s.width as number) || 0,
+        height: (s.height as number) || 0,
+        takeId,
+        partIndex,
+      });
+    } catch { return null; }
+    return { recordingId, startedAt };
+  }, [script.id]);
+
+  // Launches one part. `next` is prepared ahead of time on rotation so the
+  // gap between parts stays inside a single frame.
+  const launchPartRef = useRef<((prep: PartPrep, mime: string, bps: number) => void) | null>(null);
+
+  const launchPart = useCallback((prep: PartPrep, mimeType: string, bps: number) => {
+    const stream = streamRef.current;
+    if (!stream) return;
     const audioBps = 192_000;
     let rec: MediaRecorder;
     try {
@@ -858,29 +870,11 @@ function Prompter({
         : { videoBitsPerSecond: bps, audioBitsPerSecond: audioBps });
     } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
 
-    const recordingId = Math.random().toString(36).slice(2, 12);
-    const track = stream.getVideoTracks()[0];
-    const s = track?.getSettings?.() || {};
-    const finalMime = rec.mimeType || mimeType || "video/mp4";
-    const startedAt = Date.now();
-    try {
-      await createSession({
-        id: recordingId,
-        scriptId: script.id,
-        mimeType: finalMime,
-        startedAt,
-        width: (s.width as number) || 0,
-        height: (s.height as number) || 0,
-      });
-    } catch { return; }
-
+    const recordingId = prep.recordingId;
     recordingIdRef.current = recordingId;
     appendQueueRef.current = Promise.resolve();
-    writeFailRef.current = 0;
     queuedRef.current = 0;
     writtenRef.current = 0;
-    setWriteWarn(false);
-    setFinalizing(null);
 
     // Serialize durable writes. Do not retain a second full recording in RAM:
     // long high-quality takes otherwise exceed iPhone Safari's memory limit.
@@ -910,59 +904,143 @@ function Prompter({
         .then(() => writeChunk(blob));
     };
 
-    let finalized = false;
-    const finishRecording = () => {
-      if (finalized) return;
-      finalized = true;
-      recordingRef.current = false;
-      recorderRef.current = null;
-      recordingIdRef.current = null;
-      setRecording(false);
-      setPlaying(false);
-      setControlsVisible(true);
-      setFinalizing({ done: writtenRef.current, total: Math.max(queuedRef.current, 1), phase: "writing" });
-      const tick = window.setInterval(() => {
-        setFinalizing((f) => (f && f.phase === "writing"
-          ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
-          : f));
-      }, 120);
-      appendQueueRef.current
+    const partStartedAt = Date.now();
+    let finished = false;
+
+    // Closes out this part. When the take continues, the next part is started
+    // immediately and this one is written out in the background.
+    const finishPart = () => {
+      if (finished) return;
+      finished = true;
+      if (partTimerRef.current) { window.clearTimeout(partTimerRef.current); partTimerRef.current = null; }
+
+      const isLast = stopAllRef.current;
+      const pending = appendQueueRef.current;
+      const queuedAtStop = queuedRef.current;
+
+      if (isLast) {
+        recordingRef.current = false;
+        recorderRef.current = null;
+        recordingIdRef.current = null;
+        setRecording(false);
+        setPlaying(false);
+        setControlsVisible(true);
+        setFinalizing({ done: writtenRef.current, total: Math.max(queuedAtStop, 1), phase: "writing" });
+        const tick = window.setInterval(() => {
+          setFinalizing((f) => (f && f.phase === "writing"
+            ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
+            : f));
+        }, 120);
+        pending
+          .catch(() => {})
+          .then(() => {
+            window.clearInterval(tick);
+            setFinalizing({ done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" });
+            return finalizeSession(recordingId, { durationMs: Date.now() - partStartedAt });
+          })
+          .then((clip) => {
+            if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+            setFinalizing(null);
+          })
+          .catch(() => {
+            window.clearInterval(tick);
+            setWriteWarn(true);
+            setFinalizing((f) => (f ? { ...f, phase: "error" } : null));
+          });
+        return;
+      }
+
+      // Rotation: this part is written out quietly in the background.
+      pending
         .catch(() => {})
-        .then(() => {
-          window.clearInterval(tick);
-          setFinalizing({ done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" });
-          return finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current });
-        })
-        .then((clip) => {
-          if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
-          setFinalizing(null);
-        })
-        .catch(() => {
-          window.clearInterval(tick);
-          setWriteWarn(true);
-          setFinalizing((f) => (f ? { ...f, phase: "error" } : null));
-        });
+        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - partStartedAt }))
+        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
+        .catch(() => setWriteWarn(true));
     };
 
-    rec.onerror = finishRecording;
+    rec.onerror = () => { stopAllRef.current = true; finishPart(); };
+    rec.onstop = finishPart;
 
-    rec.onstop = finishRecording;
-
-    recordStartRef.current = Date.now();
-    setElapsedMs(0);
+    recordingRef.current = true;
     // 1s timeslice = big enough to keep write overhead low, small enough
     // that at most ~1s of footage is ever unflushed if the process dies.
-    recordingRef.current = true;
     try { rec.start(1000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
     recorderRef.current = rec;
+
+    // Schedule the rollover to the next part.
+    const partMs = partMinutesRef.current * 60_000;
+    if (partMs > 0) {
+      partTimerRef.current = window.setTimeout(() => {
+        void (async () => {
+          if (stopAllRef.current || recorderRef.current !== rec) return;
+          partIndexRef.current += 1;
+          const next = await prepareSession(rec.mimeType || mimeType || "video/mp4", takeIdRef.current, partIndexRef.current);
+          if (!next || stopAllRef.current || recorderRef.current !== rec) return;
+          try { if (rec.state === "recording") rec.requestData(); } catch {}
+          try { if (rec.state !== "inactive") rec.stop(); } catch {}
+          launchPartRef.current?.(next, mimeType, bps);
+        })();
+      }, partMs);
+    }
+  }, [prepareSession]);
+
+  useEffect(() => { launchPartRef.current = launchPart; }, [launchPart]);
+
+  const startRecording = useCallback(async () => {
+    const stream = streamRef.current;
+    if (!stream || recording) return;
+    // Make sure a live mic track is on the stream before we start. iOS can end
+    // the audio track (another app / session took the mic), which would produce
+    // a silent recording. Re-acquire and attach one if needed.
+    try {
+      const live = stream.getAudioTracks().filter((t) => t.readyState === "live");
+      live.forEach((t) => { t.enabled = true; });
+      if (live.length === 0) {
+        stream.getAudioTracks().forEach((t) => { try { stream.removeTrack(t); } catch {} });
+        const fresh = await navigator.mediaDevices.getUserMedia({
+          audio: currentMicIdRef.current
+            ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
+            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
+        });
+        const t = fresh.getAudioTracks()[0];
+        if (t) { t.enabled = true; stream.addTrack(t); }
+      }
+    } catch {}
+    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
+      setCamError("No working microphone was found. Reconnect the microphone and try again.");
+      return;
+    }
+    const mimeType = pickMime();
+    // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
+    // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
+    // as good as the native Camera app.
+    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+
+    stopAllRef.current = false;
+    takeIdRef.current = Math.random().toString(36).slice(2, 12);
+    partIndexRef.current = 0;
+    writeFailRef.current = 0;
+    setWriteWarn(false);
+    setFinalizing(null);
+
+    const prep = await prepareSession(mimeType || "video/mp4", takeIdRef.current, 0);
+    if (!prep) return;
+
+    recordStartRef.current = Date.now();
+    takeStartRef.current = Date.now();
+    setElapsedMs(0);
+    launchPart(prep, mimeType, bps);
+    if (!recordingRef.current) return;
     setRecording(true);
     // Start the script rolling in sync with the recording
     setPlaying(true);
     setControlsVisible(false);
     setPanel(null);
-  }, [quality, recording, script.id]);
+  }, [quality, recording, launchPart, prepareSession]);
 
   const stopRecording = useCallback(() => {
+    stopAllRef.current = true;
+    if (partTimerRef.current) { window.clearTimeout(partTimerRef.current); partTimerRef.current = null; }
     const rec = recorderRef.current;
     if (!rec) return;
     try { if (rec.state === "recording") rec.requestData(); } catch {}
@@ -979,6 +1057,7 @@ function Prompter({
       try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: el.scrollTop, updatedAt: Date.now() })); } catch {}
     }
   }, [readerStateKey]);
+
 
   // Stop recording cleanly if user backgrounds the app, and flush scroll position
   useEffect(() => {
