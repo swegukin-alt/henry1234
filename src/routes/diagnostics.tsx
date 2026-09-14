@@ -29,6 +29,7 @@ import {
   type PermissionState,
   type RemoteEvent,
 } from "@/platform";
+import { mediaStore } from "@/platform/storage/media-store";
 
 export const Route = createFileRoute("/diagnostics")({
   head: () => ({
