@@ -2091,7 +2091,8 @@ function ClipsSheet({
         setNote(gained > 2000
           ? `Restored to ${fmtDuration(report.durationMs)} (+${fmtDuration(gained)}) · ${fmtSize(report.bytes)}. Ready to save.`
           : `Full length confirmed: ${fmtDuration(report.durationMs)} · ${fmtSize(report.bytes)}. Ready to save.`);
-        setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
+        const url = URL.createObjectURL(clip.blob);
+        setSource(url, () => URL.revokeObjectURL(url));
         setPlayingClip(clip);
       } else {
         setNote(`Kept all ${fmtSize(report.bytes)} of footage, but this device can't decode it. Save it to Files and it can still be repaired on a computer.`);
@@ -2101,7 +2102,7 @@ function ClipsSheet({
     } finally {
       setBusy(null);
     }
-  }, [onReplace]);
+  }, [onReplace, setSource]);
 
   return (
     <>
