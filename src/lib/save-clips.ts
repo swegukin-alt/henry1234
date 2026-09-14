@@ -25,8 +25,8 @@ export type SaveJob = {
   saveToFiles?: () => void;
 };
 
-// Beyond this, iOS Safari's share sheet reliably fails or never appears.
-const SHARE_LIMIT = 1_200_000_000; // ~1.2 GB
+// No size gate: the iPhone share sheet is always the primary (and only) path.
+
 
 function downloadFile(f: File) {
   const url = URL.createObjectURL(f);
