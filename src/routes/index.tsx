@@ -826,15 +826,23 @@ function Prompter({
     if (!stream) { setCamError("The camera isn't ready yet. Give it a second and press record again."); return; }
     if (recording || recordingRef.current) return;
 
-    // Wake up any muted/disabled mic track synchronously. Anything that needs
-    // the network or the camera permission dialog must NOT run before
-    // rec.start(): on iOS an await can cost the user-gesture and the recorder
-    // then silently refuses to start.
+    // MIC FIRST: a take without sound is worthless, so a live microphone is a
+    // hard requirement. The check is synchronous (an await here would cost the
+    // iOS user-gesture and the recorder would silently refuse to start); if the
+    // mic is missing we refuse to roll, repair it in the background, and tell
+    // the user to press record again.
     let hasAudio = false;
     try {
       stream.getAudioTracks().forEach((t) => { t.enabled = true; });
-      hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live");
+      hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live" && !t.muted);
+      if (!hasAudio) hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live");
     } catch {}
+    if (!hasAudio) {
+      setCamError("No live microphone — reconnecting it now. Press record again in a second.");
+      void reacquireMic();
+      return;
+    }
+
 
     const mimeType = pickMime();
     // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
