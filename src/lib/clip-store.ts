@@ -285,7 +285,10 @@ export async function finalizeSession(
     createdAt: session.startedAt,
     width: session.width,
     height: session.height,
+    takeId: session.takeId || recordingId,
+    partIndex: session.partIndex ?? 0,
     blob,
+
   };
   await saveClip(rec);
   await clearSession(recordingId);
