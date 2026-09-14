@@ -8,7 +8,11 @@
 // for those the same single button downloads straight to Files instead.
 
 import type { ClipMeta, ClipRecord } from "./clip-store";
-import { assembleBest, fmtSize, getClip } from "./clip-store";
+import { assembleBest, fmtSize } from "./clip-store";
+import { clipFilePath, getClip } from "@/platform/storage/media-store";
+import { isNative } from "@/platform/runtime";
+import { shareFilePath } from "@/platform/share";
+import { saveVideoToPhotos } from "@/platform/media-library";
 
 export type SaveJob = {
   phase: "working" | "ready" | "done" | "error";
@@ -72,6 +76,44 @@ export function startSave(
 
   void (async () => {
     try {
+      // Inside the iPhone app the take is already a real file on disk. Hand its
+      // path to the iOS share sheet instead of loading gigabytes into memory.
+      if (isNative()) {
+        const path = await clipFilePath(clip.id).catch(() => null);
+        if (path) {
+          const label = `${base}`;
+          const runShare = () => {
+            patch({ phase: "working", title: "Opening share sheet…", detail: "AirDrop, Save Video or Save to Files." });
+            void shareFilePath(path, label).then((res) => {
+              if (res.ok) {
+                patch({ phase: "done", title: "Shared", detail: "Pick AirDrop, Save Video, or Save to Files to finish." });
+              } else if (res.code === "cancelled") {
+                patch({ phase: "ready", title: "Share closed", detail: "Nothing was saved yet. Tap Share again, or save to Photos below.", actionLabel: "Share", runPrimary: runShare, saveToFiles: runPhotos });
+              } else {
+                patch({ phase: "error", title: "Couldn't share", detail: res.reason });
+              }
+            });
+          };
+          const runPhotos = () => {
+            patch({ phase: "working", title: "Saving to Photos…", detail: "The original stays in the app until this finishes." });
+            void saveVideoToPhotos(path).then((res) => {
+              patch(res.ok
+                ? { phase: "done", title: "Saved to Photos", detail: "It's in your camera roll." }
+                : { phase: "error", title: "Couldn't save to Photos", detail: res.reason });
+            });
+          };
+          patch({
+            phase: "ready",
+            title: "Ready to share",
+            detail: `${fmtSize(clip.sizeBytes || 0)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
+            actionLabel: "Share",
+            runPrimary: runShare,
+            saveToFiles: runPhotos,
+          });
+          return;
+        }
+      }
+
       const stored = "blob" in clip ? clip : await getClip(clip.id);
       if (!stored?.blob?.size) {
         patch({ phase: "error", title: "Nothing to save", detail: "This take has no video data left in storage. Try Repair or Recover first." });
