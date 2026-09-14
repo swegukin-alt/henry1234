@@ -767,7 +767,7 @@ function Prompter({
         return;
       }
       if (!res.ok) {
-        setCamError(res.error);
+        setCamError(res.reason);
         return;
       }
       previewRef.current = res.value;
@@ -1078,7 +1078,7 @@ function Prompter({
     });
     if (!res.ok) {
       recordingRef.current = false;
-      setCamError(res.error);
+      setCamError(res.reason);
       haptic("error");
       return;
     }
