@@ -112,9 +112,8 @@ export function startSave(
         // failure where optional title data can make a large video hostile.
         try {
           if (typeof nav.share !== "function") throw new Error("The iPhone share menu is unavailable in this browser.");
-          if (typeof nav.canShare === "function" && !nav.canShare({ files: [file] })) {
-            throw new Error(`iPhone rejected this ${type.replace("video/", "").toUpperCase()} video before opening the share menu.`);
-          }
+          // Do not use canShare() as a gate. iOS can report false for a large
+          // valid recording even though share() can still open the native menu.
           result = nav.share({ files: [file] });
         }
         catch (e: any) {
@@ -137,8 +136,7 @@ export function startSave(
           })
           .catch((error: any) => {
             sharing = false;
-            const quick = Date.now() - tapped < 1200;
-            const cancelled = error?.name === "AbortError" && !quick;
+            const cancelled = error?.name === "AbortError";
             patch({
               phase: "ready", file, bytes: totalBytes,
               title: cancelled ? "Share closed" : "Share sheet didn't open",
