@@ -69,6 +69,8 @@ function Diagnostics() {
   const [caps, setCaps] = useState<CameraCapabilities | null>(null);
   const [perms, setPerms] = useState<Record<string, PermissionState>>({});
   const [usage, setUsage] = useState<{ usedBytes: number; quotaBytes: number | null } | null>(null);
+  const [liveStore, setLiveStore] = useState<string | null>(null);
+  const [storeUsage, setStoreUsage] = useState<{ clipBytes: number } | null>(null);
   const [events, setEvents] = useState<RemoteEvent[]>([]);
   const [lifecycle, setLifecycle] = useState<LifecycleState>("active");
   const [bleSupported, setBleSupported] = useState(false);
