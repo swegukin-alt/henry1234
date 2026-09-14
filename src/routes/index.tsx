@@ -1763,18 +1763,28 @@ function Prompter({
   const iconBtn = "grid h-10 w-10 sm:h-11 sm:w-11 shrink-0 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
 
   return (
-    <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
+    <div
+      className={`${videoMode && nativeApp ? "text-neutral-50" : bgClass} fixed inset-0 overflow-hidden select-none`}
+      style={{
+        fontFamily: "var(--font-prompter)",
+        // In the iPhone app the camera is a native layer behind the WebView, so
+        // the page itself must stay see-through.
+        ...(videoMode && nativeApp ? { background: "transparent" } : null),
+      }}
+    >
       {/* Camera preview — behind everything in video mode. Mirrored for natural feel; recorded stream is NOT mirrored. */}
       {videoMode && (
         <>
-          <video
-            ref={videoElRef}
-            className="absolute inset-0 h-full w-full object-cover"
-            style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform" }}
-            autoPlay
-            muted
-            playsInline
-          />
+          {!nativeApp && (
+            <video
+              ref={videoElRef}
+              className="absolute inset-0 h-full w-full object-cover"
+              style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform" }}
+              autoPlay
+              muted
+              playsInline
+            />
+          )}
           {/* Dark scrim so the script stays readable over the video */}
           <div className="pointer-events-none absolute inset-0 bg-black/45" />
           {camError && (
