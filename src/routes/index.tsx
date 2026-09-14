@@ -1851,6 +1851,24 @@ function Prompter({
         </div>
       )}
 
+      {/* Honest capture readout: what the camera is really delivering. */}
+      {videoMode && camReady && camStats && camStats.width > 0 && controlsVisible && (
+        <div
+          className={`absolute z-40 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold backdrop-blur-sm ${
+            camStats.fps && camStats.fps < QUALITY_PROFILES[quality].fps ? "text-amber-300" : "text-neutral-200"
+          }`}
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + 2.6rem)",
+            left: "50%",
+            transform: `translateX(-50%)${mirrorV ? " scaleY(-1)" : ""}`,
+          }}
+        >
+          {camStats.height ? `${camStats.height}p` : `${camStats.width}px`}
+          {camStats.fps ? ` · ${camStats.fps} fps` : ""} · {Math.round(QUALITY_PROFILES[quality].bps / 1_000_000)} Mbps
+        </div>
+      )}
+
+
 
 
       {/* % remaining — always visible */}
