@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, getClip, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
+import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, getClip, storageUsage, clearAllStorage, purgeOrphanChunks, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
 import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
@@ -2026,6 +2026,13 @@ function ClipsSheet({
   }, []);
   useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
 
+  // What the app is holding on this phone, refreshed whenever the list changes.
+  const [space, setSpace] = useState<{ clipBytes: number; usage: number; quota: number } | null>(null);
+  const refreshSpace = useCallback(async () => {
+    try { setSpace(await storageUsage()); } catch { setSpace(null); }
+  }, []);
+  useEffect(() => { refreshSpace(); }, [refreshSpace, clips.length]);
+
   // Rebuild an unplayable recording from the raw data still in storage.
   const doRepair = useCallback(async (c: ClipMeta) => {
     setBusy(c.id);
@@ -2127,7 +2134,46 @@ function ClipsSheet({
           )}
         </div>
         {note && <div className="px-4 pb-2 text-[11px] leading-snug text-amber-200/90">{note}</div>}
-        <div className="border-t border-white/10 px-3 py-2">
+        <div className="space-y-2 border-t border-white/10 px-3 py-2">
+          {space && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="font-semibold text-neutral-200">Videos on this phone</span>
+                <span className="text-neutral-400">
+                  {fmtSize(space.clipBytes)} used{space.quota ? ` · ${fmtSize(Math.max(0, space.quota - space.usage))} free` : ""}
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-amber-400" style={{ width: `${space.quota ? Math.min(100, Math.round((space.usage / space.quota) * 100)) : 0}%` }} />
+              </div>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={async () => {
+                    setBusy("space");
+                    setNote("Clearing leftover pieces…");
+                    try { const n = await purgeOrphanChunks(); setNote(n > 0 ? "Leftover pieces cleared." : "Nothing left over to clear."); }
+                    finally { setBusy(null); refreshSpace(); }
+                  }}
+                  disabled={busy === "space"}
+                  className="flex-1 rounded-full border border-white/15 px-3 py-2 text-xs text-neutral-200 disabled:opacity-50"
+                >
+                  {busy === "space" ? "Clearing…" : "Free up space"}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm("Delete every video stored in the app? This cannot be undone.")) return;
+                    setBusy("space");
+                    try { await clearAllStorage(); await onDeleteAll(); setNote("All videos deleted."); }
+                    finally { setBusy(null); refreshSpace(); }
+                  }}
+                  disabled={busy === "space"}
+                  className="flex-1 rounded-full border border-red-400/50 px-3 py-2 text-xs font-semibold text-red-300 disabled:opacity-50"
+                >
+                  Delete everything
+                </button>
+              </div>
+            </div>
+          )}
           <button
             onClick={async () => { setBusy("all"); setNote("Scanning storage for unfinished or damaged recordings…"); try { await onRescue(); setNote("Scan finished. Anything recoverable is now in the list."); } finally { setBusy(null); } }}
             disabled={busy === "all"}
@@ -2145,6 +2191,7 @@ function ClipsSheet({
           </div>
         )}
       </div>
+
 
       {playingClip && playUrl && (
         <div

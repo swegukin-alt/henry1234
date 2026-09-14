@@ -19,6 +19,10 @@ export type ClipMeta = {
   createdAt: number;
   width: number;
   height: number;
+  // When true the video still lives as its recorded pieces in the chunk store
+  // and is stitched together on demand. This makes stopping a take instant and
+  // uses half the disk space of keeping a second, combined copy.
+  chunked?: boolean;
 };
 
 export type ClipRecord = ClipMeta & { blob: Blob };
@@ -91,6 +95,23 @@ export async function requestPersistentStorage(): Promise<boolean> {
   return false;
 }
 
+// A rebuilt clip stores its own combined copy, so the original pieces are no
+// longer needed — dropping them keeps disk usage from doubling.
+async function dropChunksFor(recordingId: string): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve) => {
+    const t = db.transaction(CHUNK_STORE, "readwrite");
+    const cursorReq = t.objectStore(CHUNK_STORE).index("recordingId").openCursor(IDBKeyRange.only(recordingId));
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+    };
+    t.oncomplete = () => resolve();
+    t.onerror = () => resolve();
+    t.onabort = () => resolve();
+  });
+}
+
 export async function saveClip(rec: ClipRecord): Promise<void> {
   const db = await openDB();
   await new Promise<void>((resolve, reject) => {
@@ -106,33 +127,114 @@ export async function saveClip(rec: ClipRecord): Promise<void> {
 
 export async function getClip(id: string): Promise<ClipRecord | null> {
   const store = await storeIn(STORE, "readonly");
-  return new Promise((resolve, reject) => {
+  const row = await new Promise<any>((resolve, reject) => {
     const req = store.get(id);
-    req.onsuccess = () => resolve((req.result as ClipRecord | undefined) || null);
+    req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
+  if (!row) return null;
+  if (row.blob instanceof Blob && row.blob.size > 0) return row as ClipRecord;
+  // Chunked clip: stitch the recorded pieces together on demand.
+  const chunks = await getChunks(id).catch(() => [] as Blob[]);
+  if (chunks.length === 0) return null;
+  const blob = new Blob(chunks, { type: (row.mimeType || "video/mp4").split(";")[0].trim() });
+  return { ...(row as ClipMeta), blob, sizeBytes: blob.size };
 }
 
 export async function listClips(scriptId: string): Promise<ClipRecord[]> {
-  const store = await storeIn(STORE, "readonly");
-  return new Promise((resolve, reject) => {
-    const req = store.index("scriptId").getAll(IDBKeyRange.only(scriptId));
-    req.onsuccess = () => {
-      const arr = (req.result as ClipRecord[]).sort((a, b) => a.createdAt - b.createdAt);
-      resolve(arr);
-    };
-    req.onerror = () => reject(req.error);
-  });
+  const metas = await listClipMeta(scriptId);
+  const out: ClipRecord[] = [];
+  for (const m of metas) {
+    // eslint-disable-next-line no-await-in-loop
+    const c = await getClip(m.id).catch(() => null);
+    if (c) out.push(c);
+  }
+  return out.sort((a, b) => a.createdAt - b.createdAt);
 }
+
 
 export async function deleteClip(id: string): Promise<void> {
   const db = await openDB();
   await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction([STORE, META_STORE], "readwrite");
+    const transaction = db.transaction([STORE, META_STORE, CHUNK_STORE], "readwrite");
     transaction.objectStore(STORE).delete(id);
     transaction.objectStore(META_STORE).delete(id);
+    // Chunked clips keep their pieces — remove those too or the space stays used.
+    const idx = transaction.objectStore(CHUNK_STORE).index("recordingId");
+    const cursorReq = idx.openCursor(IDBKeyRange.only(id));
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+    };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+// How much space the app's recordings take, and what the browser still allows.
+export async function storageUsage(): Promise<{ clipBytes: number; usage: number; quota: number }> {
+  const metas = await listAllClipsRaw();
+  const clipBytes = metas.reduce((n, m) => n + (m.sizeBytes || 0), 0);
+  let usage = 0;
+  let quota = 0;
+  try {
+    const est = await navigator.storage?.estimate?.();
+    usage = est?.usage || 0;
+    quota = est?.quota || 0;
+  } catch {}
+  return { clipBytes, usage, quota };
+}
+
+// Delete every recording, every leftover piece and every unfinished session.
+export async function clearAllStorage(): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction([STORE, META_STORE, CHUNK_STORE, SESSION_STORE], "readwrite");
+    t.objectStore(STORE).clear();
+    t.objectStore(META_STORE).clear();
+    t.objectStore(CHUNK_STORE).clear();
+    t.objectStore(SESSION_STORE).clear();
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+
+// Remove orphaned pieces left behind by older versions: chunks whose recording
+// is neither a saved clip nor an in-flight session.
+export async function purgeOrphanChunks(): Promise<number> {
+  const db = await openDB();
+  const ids = new Set<string>();
+  const metas = await listAllClipsRaw();
+  metas.forEach((m) => ids.add(m.id));
+  const sessions = await new Promise<RecordingSession[]>((resolve, reject) => {
+    const req = db.transaction(SESSION_STORE, "readonly").objectStore(SESSION_STORE).getAll();
+    req.onsuccess = () => resolve(req.result as RecordingSession[]);
+    req.onerror = () => reject(req.error);
+  });
+  sessions.forEach((s) => ids.add(s.id));
+  return new Promise<number>((resolve, reject) => {
+    let removed = 0;
+    const t = db.transaction(CHUNK_STORE, "readwrite");
+    const cursorReq = t.objectStore(CHUNK_STORE).openCursor();
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (!cursor) return;
+      const rec = cursor.value as ChunkRecord;
+      if (!ids.has(rec.recordingId)) { cursor.delete(); removed += 1; }
+      cursor.continue();
+    };
+    t.oncomplete = () => resolve(removed);
+    t.onerror = () => reject(t.error);
+  });
+}
+
+async function listAllClipsRaw(): Promise<ClipMeta[]> {
+  const store = await storeIn(META_STORE, "readonly");
+  return new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result as ClipMeta[]);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -228,9 +330,9 @@ async function clearSession(recordingId: string): Promise<void> {
   });
 }
 
-// Assemble whatever chunks exist for `recordingId` and store as a finalized
-// ClipRecord. Returns the record (or null if there were no chunks). Cleans up
-// the session + chunks on success.
+// Turn an in-flight session into a finished clip. The recorded pieces are the
+// video: we keep them and only write a small metadata row, so stopping a take
+// is instant and never copies gigabytes a second time.
 export async function finalizeSession(
   recordingId: string,
   extra?: { durationMs?: number }
@@ -239,21 +341,31 @@ export async function finalizeSession(
   if (!session) return null;
   const chunks = await getChunks(recordingId);
   if (chunks.length === 0) { await clearSession(recordingId); return null; }
-  const blob = new Blob(chunks, { type: session.mimeType });
-  const rec: ClipRecord = {
+  const mime = session.mimeType;
+  const sizeBytes = chunks.reduce((n, c) => n + c.size, 0);
+  const meta: ClipMeta = {
     id: recordingId,
     scriptId: session.scriptId,
-    mimeType: session.mimeType,
+    mimeType: mime,
     durationMs: extra?.durationMs ?? Math.max(0, Date.now() - session.startedAt),
-    sizeBytes: blob.size,
+    sizeBytes,
     createdAt: session.startedAt,
     width: session.width,
     height: session.height,
-    blob,
+    chunked: true,
   };
-  await saveClip(rec);
-  await clearSession(recordingId);
-  return rec;
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction([STORE, META_STORE, SESSION_STORE], "readwrite");
+    t.objectStore(STORE).put({ ...meta });
+    t.objectStore(META_STORE).put(meta);
+    // Drop only the session row; the chunks stay as the clip's data.
+    t.objectStore(SESSION_STORE).delete(recordingId);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error || new Error("Could not save recording"));
+  });
+  return { ...meta, blob: new Blob(chunks, { type: mime.split(";")[0].trim() }) };
 }
 
 // On app open: recover any sessions left in the DB from a prior crash / close.
@@ -408,7 +520,7 @@ export async function repairClip(id: string): Promise<{ clip: ClipRecord | null;
     height: base?.height || session?.height || 0,
     blob: fixed,
   };
-  if (rec.scriptId) await saveClip(rec);
+  if (rec.scriptId) { await saveClip(rec); await dropChunksFor(id); }
 
   return {
     clip: rec,
@@ -602,7 +714,7 @@ export async function deepRestore(id: string): Promise<{ clip: ClipRecord | null
     height: base?.height || session?.height || 0,
     blob: best,
   };
-  if (rec.scriptId) await saveClip(rec);
+  if (rec.scriptId) { await saveClip(rec); await dropChunksFor(id); }
 
   return {
     clip: rec,
