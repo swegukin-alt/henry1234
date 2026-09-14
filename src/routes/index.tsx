@@ -550,14 +550,14 @@ function Prompter({
   const [clipsOpen, setClipsOpen] = useState(false);
   const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
 
-  // Capture profiles. Bitrates match or exceed what the iPhone Camera app
-  // uses, so busy scenes keep facial detail instead of smearing.
+  // Capture profiles use sustained Safari-safe encoder rates. Pushing the
+  // WebKit encoder above these rates lowers frame delivery under load.
   type Quality = "720p60" | "1080p30" | "1080p60" | "4k30";
   const QUALITY_PROFILES: Record<Quality, { width: number; height: number; fps: number; bps: number; label: string }> = {
-    "720p60": { width: 1280, height: 720, fps: 60, bps: 12_000_000, label: "720p60" },
-    "1080p30": { width: 1920, height: 1080, fps: 30, bps: 18_000_000, label: "1080p30" },
-    "1080p60": { width: 1920, height: 1080, fps: 60, bps: 30_000_000, label: "1080p60" },
-    "4k30": { width: 3840, height: 2160, fps: 30, bps: 60_000_000, label: "4K30" },
+    "720p60": { width: 1280, height: 720, fps: 60, bps: 10_000_000, label: "720p60" },
+    "1080p30": { width: 1920, height: 1080, fps: 30, bps: 14_000_000, label: "1080p30" },
+    "1080p60": { width: 1920, height: 1080, fps: 60, bps: 20_000_000, label: "1080p60" },
+    "4k30": { width: 3840, height: 2160, fps: 30, bps: 40_000_000, label: "4K30" },
   };
   const [quality, setQuality] = useState<Quality>(() => {
     if (typeof window === "undefined") return "1080p60";
@@ -961,6 +961,7 @@ function Prompter({
 
 
     const recordingId = prep.recordingId;
+    let nextChunkSeq = 0;
     recordingIdRef.current = recordingId;
     appendQueueRef.current = Promise.resolve();
     queuedRef.current = 0;
@@ -970,10 +971,10 @@ function Prompter({
     // long high-quality takes otherwise exceed iPhone Safari's memory limit.
     // Each write is retried: a transient storage hiccup must never silently
     // drop a second of footage.
-    const writeChunk = async (blob: Blob) => {
+    const writeChunk = async (blob: Blob, seq: number) => {
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
-          await appendChunk(recordingId, blob);
+          await appendChunk(recordingId, blob, seq);
           writtenRef.current += 1;
           return;
         } catch {
@@ -988,10 +989,12 @@ function Prompter({
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
       const blob = e.data;
+      const seq = nextChunkSeq++;
       queuedRef.current += 1;
+      if (queuedRef.current - writtenRef.current > 2) setCaptureProtection(true);
       appendQueueRef.current = appendQueueRef.current
         .catch(() => {})
-        .then(() => writeChunk(blob));
+        .then(() => writeChunk(blob, seq));
     };
 
     const partStartedAt = Date.now();
@@ -1048,7 +1051,12 @@ function Prompter({
         .catch(() => setWriteWarn(true));
     };
 
-    rec.onerror = () => { stopAllRef.current = true; finishPart(); };
+    rec.onerror = () => {
+      setCamError("Recording stopped unexpectedly. Everything already stored is being recovered now.");
+      setWriteWarn(true);
+      stopAllRef.current = true;
+      finishPart();
+    };
     rec.onstop = finishPart;
 
     recordingRef.current = true;
@@ -1111,7 +1119,7 @@ function Prompter({
       }
     } catch {}
     const mimeType = pickMime();
-    // Exceed iPhone-native bitrates so busy scenes keep facial detail.
+    // Use a high sustained rate that does not make Safari sacrifice frames.
     const bps = QUALITY_PROFILES[quality].bps;
 
 
@@ -1748,7 +1756,7 @@ function Prompter({
                 ))}
               </div>
               <p className="mt-2 text-[11px] text-neutral-400">
-                1080p60 ★ is best for busy scenes — smooth motion and sharp faces. 4K is attempted but iPhone may drop to 30fps or a lower setting.
+                1080p60 ★ balances sharp faces with a stable iPhone frame rate. 4K needs more heat, power, and storage.
                 {camStats && camStats.width > 0 && (
                   <span className={camStats.fps && camStats.fps < QUALITY_PROFILES[quality].fps ? " text-amber-300" : " text-emerald-300"}>
                     {" "}Camera is giving {camStats.width}×{camStats.height}{camStats.fps ? ` · ${camStats.fps} fps` : ""}.
@@ -1919,7 +1927,7 @@ function Prompter({
       {videoMode && camReady && camStats && camStats.width > 0 && controlsVisible && (
         <div
           className={`absolute z-40 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold backdrop-blur-sm ${
-            camStats.fps && camStats.fps < QUALITY_PROFILES[quality].fps ? "text-amber-300" : "text-neutral-200"
+            (camStats.deliveredFps || camStats.fps) < QUALITY_PROFILES[quality].fps * 0.9 ? "text-amber-300" : "text-neutral-200"
           }`}
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 2.6rem)",
@@ -1928,7 +1936,8 @@ function Prompter({
           }}
         >
           {camStats.height ? `${camStats.height}p` : `${camStats.width}px`}
-          {camStats.fps ? ` · ${camStats.fps} fps` : ""} · {Math.round(QUALITY_PROFILES[quality].bps / 1_000_000)} Mbps
+          {(camStats.deliveredFps || camStats.fps) ? ` · ${camStats.deliveredFps || camStats.fps} fps live` : ""} · {Math.round(QUALITY_PROFILES[quality].bps / 1_000_000)} Mbps
+          {captureProtection ? " · protection on" : ""}
         </div>
       )}
 
