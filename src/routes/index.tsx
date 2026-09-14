@@ -779,14 +779,25 @@ function Prompter({
           videoElRef.current.srcObject = stream;
           try { await videoElRef.current.play(); } catch {}
         }
+        // The camera is usable the moment a live video track exists. Audio is
+        // handled separately: a mic problem must never leave the record button
+        // permanently disabled.
+        const liveVideo = stream.getVideoTracks().some((t) => t.readyState === "live");
+        if (!liveVideo) throw new Error("The camera didn't start. Close other apps using the camera and reopen Video mode.");
+        setCamReady(true);
+        setCamError(null);
+
         // Now that mic permission is granted, labels are visible — pick the
         // best available input (external USB / wireless mic if present).
         await refineAudioTrack();
         if (cancelled) return;
         const liveAudio = stream.getAudioTracks().some((audioTrack) => audioTrack.readyState === "live");
-        if (!liveAudio) throw new Error("No working microphone was found. Reconnect the microphone and reopen Video mode.");
-        setCamReady(true);
-        setCamError(null);
+        setMicLive(liveAudio);
+        if (!liveAudio) {
+          const ok = await reacquireMic();
+          if (!ok) setCamError("No microphone detected. Reconnect it — recording needs sound.");
+        }
+
 
         // iOS drops out of fullscreen when the camera-permission prompt appears
         // on first grant. Re-request landscape now that the prompt is gone so
