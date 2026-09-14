@@ -86,7 +86,26 @@ function openDB(): Promise<IDBDatabase> {
           row.continue();
         };
       }
+      // v4: group clips into takes. Every existing single-file recording
+      // becomes a one-part take so nothing in the library is lost.
+      const metaStore = req.transaction?.objectStore(META_STORE);
+      if (metaStore) {
+        if (!metaStore.indexNames.contains("takeId")) {
+          metaStore.createIndex("takeId", "takeId", { unique: false });
+        }
+        const backfill = metaStore.openCursor();
+        backfill.onsuccess = () => {
+          const row = backfill.result;
+          if (!row) return;
+          const value = row.value as ClipMeta;
+          if (!value.takeId) {
+            row.update({ ...value, takeId: value.id, partIndex: 0 });
+          }
+          row.continue();
+        };
+      }
     };
+
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
