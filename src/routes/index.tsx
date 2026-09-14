@@ -1011,7 +1011,96 @@ function Prompter({
     return "";
   };
 
+  // ==== Native iOS capture ====
+  // The camera writes the take itself, straight to a real file in the app's
+  // own storage. Nothing here touches MediaRecorder, blobs or the browser
+  // database — those are the web implementation only.
+  const finishNativeRecordingRef = useRef<(() => Promise<void>) | null>(null);
+
+  const finishNativeRecording = useCallback(async () => {
+    const rec = nativeRecRef.current;
+    const take = nativeTakeRef.current;
+    nativeRecRef.current = null;
+    nativeTakeRef.current = null;
+    if (!rec || !take) return;
+    recordingRef.current = false;
+    setRecording(false);
+    setPlaying(false);
+    setControlsVisible(true);
+    setFinalizing({ done: 0, total: 1, phase: "assembling" });
+    try {
+      const { mimeType, filePath } = await rec.stop();
+      if (!filePath) throw new Error("The recording finished but iOS did not hand back the file.");
+      const clip = await importRecording(
+        {
+          id: take.id,
+          scriptId: script.id,
+          mimeType: mimeType || "video/mp4",
+          startedAt: take.startedAt,
+          width: take.width,
+          height: take.height,
+          durationMs: Date.now() - take.startedAt,
+        },
+        filePath,
+      );
+      if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+      setFinalizing(null);
+      haptic("record-stop");
+    } catch (e) {
+      setFinalizing({ done: 0, total: 1, phase: "error" });
+      setWriteWarn(true);
+      setWriteWarnMsg((e as { message?: string })?.message || "The take could not be stored.");
+      haptic("error");
+    }
+  }, [script.id]);
+  useEffect(() => { finishNativeRecordingRef.current = finishNativeRecording; }, [finishNativeRecording]);
+
+  const startNativeRecording = useCallback(async () => {
+    const handle = previewRef.current;
+    if (!handle) {
+      setCamError("The camera isn't ready yet. Give it a second and press record again.");
+      return;
+    }
+    if (recordingRef.current) return;
+    const mic = await requestPermission("microphone");
+    if (mic === "denied" || mic === "restricted") {
+      setCamError("Microphone access is off for this app. Turn it on in iOS Settings — a take without sound is worthless.");
+      void openAppSettings();
+      haptic("error");
+      return;
+    }
+    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    recordingRef.current = true;
+    const res = await startNativeCapture(handle, {
+      videoBitsPerSecond: bps,
+      audioBitsPerSecond: 192_000,
+      timesliceMs: 1000,
+    });
+    if (!res.ok) {
+      recordingRef.current = false;
+      setCamError(res.error);
+      haptic("error");
+      return;
+    }
+    nativeRecRef.current = res.value;
+    nativeTakeRef.current = {
+      id: Math.random().toString(36).slice(2, 12),
+      startedAt: Date.now(),
+      width: handle.width,
+      height: handle.height,
+    };
+    recordStartRef.current = Date.now();
+    setElapsedMs(0);
+    setRecording(true);
+    setCamError(null);
+    setPlaying(true);
+    setControlsVisible(false);
+    setPanel(null);
+    haptic("record-start");
+  }, [quality]);
+
   const startRecording = useCallback(() => {
+    if (nativeAppRef.current) { void startNativeRecording(); return; }
     const stream = streamRef.current;
     if (!stream) { setCamError("The camera isn't ready yet. Give it a second and press record again."); return; }
     if (recording || recordingRef.current) return;
