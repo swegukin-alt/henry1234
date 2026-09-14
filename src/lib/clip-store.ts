@@ -41,6 +41,15 @@ type ChunkRecord = { recordingId: string; seq: number; blob: Blob };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
+// Safari can close an IndexedDB connection out from under us (backgrounding,
+// memory pressure, another tab upgrading). A stale handle then throws
+// InvalidStateError on every write, which used to surface as a scary warning
+// mid-recording. Drop the cached handle whenever that happens so the next call
+// transparently reconnects.
+function resetDB() {
+  dbPromise = null;
+}
+
 function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -74,15 +83,37 @@ function openDB(): Promise<IDBDatabase> {
         };
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onclose = () => resetDB();
+      db.onversionchange = () => { try { db.close(); } catch {} resetDB(); };
+      resolve(db);
+    };
+    req.onerror = () => { resetDB(); reject(req.error); };
   });
+  dbPromise.catch(() => resetDB());
   return dbPromise;
+}
+
+// Run a database operation, reconnecting once if the handle went stale.
+async function withDB<T>(run: (db: IDBDatabase) => Promise<T>): Promise<T> {
+  try {
+    return await run(await openDB());
+  } catch (err) {
+    const name = (err as any)?.name || "";
+    const msg = String((err as any)?.message || err || "");
+    if (name === "InvalidStateError" || /closing|closed|connection/i.test(msg)) {
+      resetDB();
+      return run(await openDB());
+    }
+    throw err;
+  }
 }
 
 function storeIn(name: string, mode: IDBTransactionMode) {
   return openDB().then((db) => db.transaction(name, mode).objectStore(name));
 }
+
 
 // Ask the browser to keep our data even under storage pressure.
 // Silent if unsupported. Call once when video mode opens.
