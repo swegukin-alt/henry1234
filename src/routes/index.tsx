@@ -1724,18 +1724,22 @@ function Prompter({
         </div>
       )}
 
-      {/* Storage trouble — a silently failed write is how a take ends short */}
+      {/* Storage trouble — a silently failed write is how a take ends short.
+          The text states the real cause; it never claims the phone is full. */}
       {videoMode && writeWarn && (
-        <div
-          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-xs font-bold leading-snug text-white"
+        <button
+          type="button"
+          onClick={() => { setWriteWarn(false); setWriteWarnMsg(""); }}
+          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-left text-xs font-bold leading-snug text-white"
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 3.2rem)",
             left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
             transform: mirrorV ? "scaleY(-1)" : undefined,
           }}
         >
-          Storage is full — stop soon and free space, or the end of this take will be lost.
-        </div>
+          {writeWarnMsg || "A piece of this take could not be written. Recording continues, but stop soon and check it."}
+          {freeSpaceLabel ? ` (${freeSpaceLabel})` : ""}
+        </button>
       )}
 
       {/* Saving-to-phone progress after Stop. The take is not in the library
