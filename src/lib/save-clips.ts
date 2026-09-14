@@ -1,15 +1,14 @@
 // Saving a recording off the phone.
 //
-// Long recordings are stored as a sequence of self-contained parts. Saving a
-// take walks that queue one part at a time: each part is a normal-size video,
-// so iPhone's share sheet accepts it. Parts that are still large go through the
-// browser download manager (Files > Downloads) instead.
-//
-// The stored playable Blob is reused unchanged in every path — never rebuilt,
-// never duplicated in memory.
+// The whole UI here is deliberately one button. iOS only offers "Save Video",
+// AirDrop, Files etc. through its own share sheet, and it only opens that sheet
+// when navigator.share() is reached inside the tap that triggered it — so the
+// file is prepared first (ring), and then a single Share button fires share()
+// synchronously. Very large takes (multi-GB) are refused by the share sheet, so
+// for those the same single button downloads straight to Files instead.
 
 import type { ClipMeta, ClipRecord } from "./clip-store";
-import { fmtSize, getClip } from "./clip-store";
+import { assembleBest, fmtSize, getClip } from "./clip-store";
 
 export type SaveJob = {
   phase: "working" | "ready" | "done" | "error";
@@ -22,24 +21,15 @@ export type SaveJob = {
   openInPlayer: (f: File) => void;
   actionLabel?: string;
   runPrimary?: () => void;
-  // Progress across the whole take
-  partIndex: number;   // 0-based index of the part being saved
-  partCount: number;
-  savedBytes: number;
-  totalBytes: number;
+  /** Always-available escape hatch so a failed share is never a dead end. */
+  saveToFiles?: () => void;
 };
 
-// iPhone Web Share commonly refuses large local attachments before its menu
-// opens. Downloads do not pass through that attachment handoff.
-const IPHONE_SHARE_SAFE_BYTES = 256 * 1024 * 1024;
-const activeDownloadUrls = new Set<string>();
+// Beyond this, iOS Safari's share sheet reliably fails or never appears.
+const SHARE_LIMIT = 1_200_000_000; // ~1.2 GB
 
 function downloadFile(f: File) {
   const url = URL.createObjectURL(f);
-  // Keep the URL alive. Safari's download manager may continue reading a long
-  // video after this page has been backgrounded; timed revocation can truncate
-  // an otherwise healthy recording.
-  activeDownloadUrls.add(url);
   const a = document.createElement("a");
   a.href = url;
   a.download = f.name;
@@ -47,6 +37,7 @@ function downloadFile(f: File) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
 }
 
 function openInPlayer(f: File) {
@@ -56,171 +47,125 @@ function openInPlayer(f: File) {
   setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
 }
 
-// Preserve the container the recorder actually produced. Giving iOS an mp4
-// filename around WebM bytes makes navigator.share reject the payload before
-// the native sheet appears.
-async function toFile(rec: ClipRecord, base: string, partIndex: number, partCount: number): Promise<File> {
-  const head = new Uint8Array(await rec.blob.slice(0, 64).arrayBuffer());
-  const isWebM = head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3;
-  const hasFtyp = head.some((byte, index) =>
-    byte === 0x66 && head[index + 1] === 0x74 && head[index + 2] === 0x79 && head[index + 3] === 0x70
-  );
-  const declared = (rec.mimeType || "").split(";")[0].trim();
-  const type = isWebM ? "video/webm" : hasFtyp ? "video/mp4" : declared === "video/webm" ? "video/webm" : "video/mp4";
-  const stamp = new Date(rec.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const suffix = partCount > 1 ? `-part${String(partIndex + 1).padStart(2, "0")}` : "";
-  const name = `${base}-${stamp}${suffix}.${type === "video/mp4" ? "mp4" : "webm"}`;
-  return new File([rec.blob], name, { type, lastModified: rec.createdAt });
-}
-
 export function startSave(
-  clip: ClipMeta | ClipRecord | Array<ClipMeta | ClipRecord>,
+  clip: ClipMeta | ClipRecord,
   baseName: string,
   onJob: (update: (prev: SaveJob | null) => SaveJob | null) => void,
 ) {
-  const parts = Array.isArray(clip) ? clip.slice() : [clip];
   const set = (j: SaveJob | null) => onJob(() => j);
   const patch = (p: Partial<SaveJob>) => onJob((prev) => (prev ? { ...prev, ...p } : prev));
 
   const base = (baseName || "Take").replace(/[^\p{L}\p{N} _-]/gu, "").trim() || "Take";
   const started = Date.now();
-  const partCount = parts.length;
-  const totalBytes = parts.reduce((n, p) => n + (p.sizeBytes || 0), 0);
-  let savedBytes = 0;
 
+  // Show the ring before anything can throw.
   set({
     phase: "working",
-    title: partCount > 1 ? "Preparing part 1…" : "Preparing video…",
-    detail: partCount > 1 ? `${partCount} parts · ${fmtSize(totalBytes)} total` : "Getting the file ready",
+    title: "Preparing video…",
+    detail: "Getting the file ready",
     startedAt: started,
     file: null,
     bytes: 0,
     download: downloadFile,
     openInPlayer,
-    partIndex: 0,
-    partCount,
-    savedBytes: 0,
-    totalBytes,
   });
 
-  const runPart = async (index: number) => {
-    if (index >= partCount) {
-      patch({
-        phase: "done",
-        title: partCount > 1 ? "All parts saved" : "Saved",
-        detail: `${partCount > 1 ? `${partCount} parts · ` : ""}${fmtSize(totalBytes)} handed to your iPhone. Keep the app open until any downloads finish.`,
-        savedBytes: totalBytes,
-        partIndex: partCount,
-      });
-      return;
-    }
+  void (async () => {
+    try {
+      const stored = "blob" in clip ? clip : await getClip(clip.id);
+      if (!stored?.blob?.size) {
+        patch({ phase: "error", title: "Nothing to save", detail: "This take has no video data left in storage. Try Repair or Recover first." });
+        return;
+      }
 
-    const meta = parts[index];
-    const label = partCount > 1 ? `Part ${index + 1} of ${partCount}` : "Video";
-    patch({
-      phase: "working",
-      title: partCount > 1 ? `Preparing part ${index + 1}…` : "Preparing video…",
-      detail: `${fmtSize(savedBytes)} of ${fmtSize(totalBytes)} saved so far`,
-      partIndex: index,
-      savedBytes,
-    });
+      // A take can end up shorter than it should be if a write failed near the
+      // end. Rebuild from every surviving byte before saving.
+      patch({ detail: "Collecting every second of this take…" });
+      let complete: ClipRecord;
+      try { complete = await assembleBest(stored); } catch { complete = stored; }
 
-    const stored = "blob" in meta && (meta as ClipRecord).blob ? (meta as ClipRecord) : await getClip(meta.id);
-    if (!stored?.blob?.size) {
-      patch({
-        phase: "error",
-        title: "Nothing to save",
-        detail: `${label} has no video data left in storage. Try Repair or Recover first.`,
-      });
-      return;
-    }
+      const clean = (complete.mimeType || "video/mp4").split(";")[0].trim();
+      const type = clean === "video/webm" ? "video/webm" : "video/mp4";
+      const stamp = new Date(complete.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const name = `${base}-${stamp}.${type === "video/mp4" ? "mp4" : "webm"}`;
+      const file = new File([complete.blob], name, { type });
+      const totalBytes = complete.sizeBytes || complete.blob.size;
 
-    const file = await toFile(stored, base, index, partCount);
-    const partBytes = stored.blob.size;
-    const nav: any = navigator;
-    let sharing = false;
+      const nav: any = navigator;
+      const tooBig = file.size > SHARE_LIMIT;
+      const canShare = !tooBig && !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [file] }); } catch { return false; } })());
 
-    const advance = () => {
-      savedBytes += partBytes;
-      void runPart(index + 1);
-    };
+      if (canShare) {
+        let sharing = false;
+        const saveToFiles = () => {
+          downloadFile(file);
+          patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads, then move it wherever you like." });
+        };
 
-    const saveToFiles = () => {
-      downloadFile(file);
-      patch({
-        phase: "working",
-        title: partCount > 1 ? `Saving part ${index + 1}…` : "Copying to your Files app",
-        detail: `${fmtSize(partBytes)} · Stays on your iPhone, nothing is uploaded. Find it in Files > Downloads.`,
-      });
-      window.setTimeout(advance, 1200);
-    };
+        const share = () => {
+          // Two shares at once makes iOS reject the second one instantly, which
+          // is exactly what looked like "cancelled" before.
+          if (sharing) return;
+          sharing = true;
+          const tapped = Date.now();
+          patch({ phase: "working", title: "Opening share sheet…", detail: "This can take a few seconds for a long take." });
 
-    const share = () => {
-      // Two shares at once makes iOS reject the second one instantly.
-      if (sharing) return;
-      sharing = true;
+          let result: Promise<void>;
+          // The share call must happen inside the tap, with no await before it.
+          try { result = nav.share({ files: [file] }); }
+          catch { sharing = false; saveToFiles(); return; }
 
-      let result: Promise<void>;
-      const shareStartedAt = performance.now();
-      // The share call must happen inside the tap, with no await before it.
-      try {
-        if (typeof nav.share !== "function") throw new Error("The iPhone share menu is unavailable in this browser.");
-        // Do not use canShare() as a gate: iOS can report false for a valid
-        // recording even though share() still opens the native menu.
-        result = nav.share({ files: [file] });
-      } catch (e: any) {
-        sharing = false;
+          result
+            .then(() => {
+              sharing = false;
+              patch({ phase: "done", title: "Shared", detail: "Pick AirDrop, Save Video, or Save to Files to finish." });
+            })
+            .catch((e: any) => {
+              sharing = false;
+              const quick = Date.now() - tapped < 1200;
+              // iOS rejects with AbortError both when the user closes the sheet
+              // and when the sheet never opened at all. A rejection that fast
+              // means it never opened, so save the file instead of giving up.
+              if (e?.name === "AbortError" && !quick) {
+                patch({
+                  phase: "ready", file, bytes: totalBytes,
+                  title: "Share closed",
+                  detail: `${fmtSize(totalBytes)} · Nothing was saved yet. Tap Share again, or use Save to Files below.`,
+                  actionLabel: "Share",
+                  runPrimary: share,
+                  saveToFiles,
+                });
+                return;
+              }
+              saveToFiles();
+            });
+        };
+
         patch({
-          phase: "ready", file, bytes: partBytes,
-          title: "Share sheet didn't open",
-          detail: `${label} · ${fmtSize(partBytes)} · ${String(e?.message || "iPhone rejected the video.")}`,
-          actionLabel: "Save to Files", runPrimary: saveToFiles,
+          phase: "ready", file, bytes: totalBytes,
+          title: "Ready to share",
+          detail: `${fmtSize(totalBytes)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
+          actionLabel: "Share",
+          runPrimary: share,
+          saveToFiles,
         });
         return;
       }
 
-      patch({ phase: "working", title: "Opening share sheet…", detail: `${label} · ${fmtSize(partBytes)}` });
-
-      result
-        .then(() => { sharing = false; advance(); })
-        .catch((error: any) => {
-          sharing = false;
-          const cancelled = error?.name === "AbortError" && performance.now() - shareStartedAt > 1200;
-          if (!cancelled) {
-            patch({
-              phase: "ready", file, bytes: partBytes,
-              title: "Save the full video",
-              detail: `${label} · ${fmtSize(partBytes)} · iPhone refused the share attachment. Save the same playable video directly to Files instead.`,
-              actionLabel: "Save to Files", runPrimary: saveToFiles,
-            });
-            return;
-          }
-          patch({
-            phase: "ready", file, bytes: partBytes,
-            title: "Share closed",
-            detail: `${label} · nothing was saved. Tap to open the menu again.`,
-            actionLabel: partCount > 1 ? `Share part ${index + 1}` : "Share",
-            runPrimary: share,
-          });
-        });
-    };
-
-    const big = partBytes > IPHONE_SHARE_SAFE_BYTES;
-    patch({
-      phase: "ready", file, bytes: partBytes,
-      partIndex: index, savedBytes,
-      title: big ? "Ready to save" : "Ready to share",
-      detail: big
-        ? `${label} · ${fmtSize(partBytes)} · Too large for the iPhone share menu. Tap below to copy it into Files (Downloads). It stays on the phone.`
-        : `${label} · ${fmtSize(partBytes)} · Tap to AirDrop it, save to Photos or save to Files.`,
-      actionLabel: big
-        ? (partCount > 1 ? `Save part ${index + 1} to Files` : "Save to Files")
-        : (partCount > 1 ? `Share part ${index + 1}` : "Share"),
-      runPrimary: big ? saveToFiles : share,
-    });
-  };
-
-  void runPart(0).catch((e: any) => {
-    patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
-  });
+      patch({
+        phase: "ready", file, bytes: totalBytes,
+        title: tooBig ? "Ready for Files" : "Ready to save",
+        detail: tooBig
+          ? `${fmtSize(totalBytes)} · This take is too large for the iPhone share sheet — it goes straight to Files.`
+          : `${fmtSize(totalBytes)} · Tap Save to put it in Files → Downloads.`,
+        actionLabel: "Save to Files",
+        runPrimary: () => {
+          downloadFile(file);
+          patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads." });
+        },
+      });
+    } catch (e: any) {
+      patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
+    }
+  })();
 }

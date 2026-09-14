@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, getClip, groupTakes, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
+import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, getClip, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
 import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
@@ -193,7 +193,7 @@ function Index() {
           onClose={() => setAllVideosOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setAllClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { for (const c of allClips) await deleteClip(c.id); setAllClips([]); }}
-          onExport={(cs) => startSave(cs, scripts.find((s) => s.id === cs[0]?.scriptId)?.title || "Take", setLibrarySave)}
+          onExport={(clip) => startSave(clip, scripts.find((s) => s.id === clip.scriptId)?.title || "Take", setLibrarySave)}
           onReplace={(clip) => setAllClips((cs) => (cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [clip, ...cs]).sort((a, b) => (b.createdAt - a.createdAt) || b.id.localeCompare(a.id)))}
           onRescue={async () => { for (const s of scripts) { try { await rescueAll(s.id); } catch {} } await refreshAllClips(); }}
         />
@@ -475,11 +475,8 @@ function Prompter({
   // second mic session on iOS silences the audio track that is being recorded.
   const streamRef = useRef<MediaStream | null>(null);
   const getSharedMicStream = useCallback(() => streamRef.current, []);
-  const [captureProtection, setCaptureProtection] = useState(false);
   const { anchorWordIndex, status: vfStatus } = useVoiceFollow({
-    // Speech analysis allocates and uploads audio continuously. Suspend it only
-    // when the recorder detects pressure, leaving the camera/encoder priority.
-    enabled: voiceFollow && vfSupported && !captureProtection,
+    enabled: voiceFollow && vfSupported,
     words,
     lang,
     visibleWordIndexRef: activeReadIdxRef,
@@ -550,42 +547,12 @@ function Prompter({
   const [clipsOpen, setClipsOpen] = useState(false);
   const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
 
-  // Capture profiles use sustained Safari-safe encoder rates. Pushing the
-  // WebKit encoder above these rates lowers frame delivery under load.
-  type Quality = "720p60" | "1080p30" | "1080p60" | "4k30";
-  const QUALITY_PROFILES: Record<Quality, { width: number; height: number; fps: number; bps: number; label: string }> = {
-    "720p60": { width: 1280, height: 720, fps: 60, bps: 10_000_000, label: "720p60" },
-    "1080p30": { width: 1920, height: 1080, fps: 30, bps: 14_000_000, label: "1080p30" },
-    "1080p60": { width: 1920, height: 1080, fps: 60, bps: 20_000_000, label: "1080p60" },
-    "4k30": { width: 3840, height: 2160, fps: 30, bps: 40_000_000, label: "4K30" },
-  };
+  type Quality = "720p" | "1080p" | "4k";
   const [quality, setQuality] = useState<Quality>(() => {
-    if (typeof window === "undefined") return "1080p60";
-    const raw = localStorage.getItem("prompter.quality") || "";
-    const migrated: Record<string, Quality> = { "720p": "720p60", "1080p": "1080p60", "4k": "4k30" };
-    if (migrated[raw]) return migrated[raw];
-    return (["720p60", "1080p30", "1080p60", "4k30"].includes(raw) ? raw : "1080p60") as Quality;
+    if (typeof window === "undefined") return "1080p";
+    return (localStorage.getItem("prompter.quality") as Quality) || "1080p";
   });
   useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
-
-  // What the camera is actually delivering (can differ from what we asked for).
-  const [camStats, setCamStats] = useState<{ width: number; height: number; fps: number; deliveredFps: number } | null>(null);
-  const deliveredFpsRef = useRef(0);
-
-  // Optional splitting. Off by default: one unbroken file, no frame can be
-  // lost at a cut. Longer takes can opt into parts if saving gets painful.
-  const [partMinutes, setPartMinutes] = useState<number>(() => {
-    if (typeof window === "undefined") return 0;
-    const raw = Number(localStorage.getItem("prompter.partMinutes"));
-    return [0, 1, 2, 5, 10].includes(raw) ? raw : 0;
-  });
-  const partMinutesRef = useRef(partMinutes);
-  useEffect(() => {
-    partMinutesRef.current = partMinutes;
-    try { localStorage.setItem("prompter.partMinutes", String(partMinutes)); } catch {}
-  }, [partMinutes]);
-
-
 
   // Update scroll direction when mirrorV changes
   useEffect(() => {
@@ -697,16 +664,19 @@ function Prompter({
     if (!videoMode) return;
     let cancelled = false;
     const getConstraints = (q: Quality): MediaStreamConstraints => {
-      const p = QUALITY_PROFILES[q];
+      const dims = q === "4k" ? { width: 3840, height: 2160 }
+                : q === "1080p" ? { width: 1920, height: 1080 }
+                : { width: 1280, height: 720 };
       const videoConstraints: any = {
         // Use the front camera, but let the browser fall back if it can't
         // satisfy every ideal constraint.
         facingMode: { ideal: "user" },
-        width: { ideal: p.width },
-        height: { ideal: p.height },
-        // Ask firmly for the profile's frame rate. A bare "ideal: 60" lets
-        // iPhone quietly settle on 30fps, which is what makes motion smear.
-        frameRate: { ideal: p.fps, min: p.fps === 60 ? 50 : 24 },
+        width: { ideal: dims.width },
+        height: { ideal: dims.height },
+        // Prefer 60fps for the smoothest, sharpest capture; the camera
+        // will fall back to 30 automatically if 60 isn't available at
+        // the chosen resolution.
+        frameRate: { ideal: 60, min: 30 },
       };
 
       return {
@@ -722,12 +692,11 @@ function Prompter({
     };
     const start = async () => {
       try {
-        // Try requested profile, then progressively easier ones.
+        // Try requested quality; fall back to 1080p then 720p on failure.
         let stream: MediaStream | null = null;
-        const tiers: Quality[] = quality === "4k30" ? ["4k30", "1080p60", "1080p30", "720p60"]
-                                : quality === "1080p60" ? ["1080p60", "1080p30", "720p60"]
-                                : quality === "1080p30" ? ["1080p30", "720p60"]
-                                : ["720p60"];
+        const tiers: Quality[] = quality === "4k" ? ["4k", "1080p", "720p"]
+                                : quality === "1080p" ? ["1080p", "720p"]
+                                : ["720p"];
         for (const q of tiers) {
           try { stream = await navigator.mediaDevices.getUserMedia(getConstraints(q)); break; }
           catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
@@ -735,14 +704,9 @@ function Prompter({
         if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
         // Lock the camera at 1x zoom after acquisition as a safety net; some
         // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
-        // Re-assert the frame rate too: the first negotiation often lands on 30.
-        const want = QUALITY_PROFILES[quality];
-        for (const track of stream.getVideoTracks()) {
-          try { await track.applyConstraints({ frameRate: { ideal: want.fps }, advanced: [{ zoom: 1 }, { frameRate: want.fps }] } as any); } catch {}
-        }
-        const vs = stream.getVideoTracks()[0]?.getSettings?.() || {};
-        if (!cancelled) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0), deliveredFps: 0 });
-
+        stream.getVideoTracks().forEach(track => {
+          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any); } catch {}
+        });
         streamRef.current = stream;
         if (videoElRef.current) {
           videoElRef.current.srcObject = stream;
@@ -782,8 +746,6 @@ function Prompter({
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       setCamReady(false);
-      setCamStats(null);
-
       setActiveMicLabel("");
       setMicIsExternal(false);
       currentMicIdRef.current = "";
@@ -791,38 +753,6 @@ function Prompter({
     // Re-acquire on quality change
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoMode, quality]);
-
-  // getSettings() reports the negotiated target, not the frames Safari is
-  // actually painting. Measure delivered frames directly so overload is real.
-  useEffect(() => {
-    if (!videoMode || !camReady) return;
-    const video = videoElRef.current as (HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb: (now: number) => void) => number;
-      cancelVideoFrameCallback?: (id: number) => void;
-    }) | null;
-    if (!video?.requestVideoFrameCallback) return;
-    let stopped = false;
-    let callbackId = 0;
-    let windowStart = performance.now();
-    let frames = 0;
-    const countFrame = (now: number) => {
-      if (stopped) return;
-      frames += 1;
-      const span = now - windowStart;
-      if (span >= 1000) {
-        deliveredFpsRef.current = Math.round((frames * 1000) / span);
-        frames = 0;
-        windowStart = now;
-      }
-      callbackId = video.requestVideoFrameCallback?.(countFrame) ?? 0;
-    };
-    callbackId = video.requestVideoFrameCallback(countFrame);
-    return () => {
-      stopped = true;
-      if (callbackId) video.cancelVideoFrameCallback?.(callbackId);
-      deliveredFpsRef.current = 0;
-    };
-  }, [videoMode, camReady]);
 
 
   // Load existing clips, recover any orphan session from a prior crash / close,
@@ -873,21 +803,9 @@ function Prompter({
   // Recording timer tick
   useEffect(() => {
     if (!recording) return;
-    const id = window.setInterval(() => {
-      setElapsedMs(Date.now() - recordStartRef.current);
-      const vs = streamRef.current?.getVideoTracks()[0]?.getSettings?.();
-      if (vs) {
-        const deliveredFps = deliveredFpsRef.current;
-        setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0), deliveredFps });
-        // Protect capture automatically if real delivery falls well below the
-        // negotiated rate. This pauses optional speech analysis, not recording.
-        const requested = QUALITY_PROFILES[quality].fps;
-        setCaptureProtection(deliveredFps > 0 && deliveredFps < requested * 0.78);
-      }
-    }, 1000);
-
-    return () => { window.clearInterval(id); setCaptureProtection(false); };
-  }, [recording, quality]);
+    const id = window.setInterval(() => setElapsedMs(Date.now() - recordStartRef.current), 200);
+    return () => window.clearInterval(id);
+  }, [recording]);
 
   const pickMime = (): string => {
     const candidates = [
@@ -902,187 +820,6 @@ function Prompter({
     }
     return "";
   };
-
-  // ---- Recording in parts -------------------------------------------------
-  // A take is recorded as a sequence of self-contained videos that share one
-  // takeId. Each part is finalized to storage while the next one is already
-  // rolling, so a crash can never cost more than the current part, and saving
-  // never has to hand iOS one enormous file.
-  const takeIdRef = useRef<string>("");
-  const partIndexRef = useRef(0);
-  const partTimerRef = useRef<number | null>(null);
-  const stopAllRef = useRef(false);
-  const takeStartRef = useRef(0);
-
-  type PartPrep = { recordingId: string; startedAt: number };
-
-  const prepareSession = useCallback(async (mime: string, takeId: string, partIndex: number): Promise<PartPrep | null> => {
-    const stream = streamRef.current;
-    const track = stream?.getVideoTracks()[0];
-    const s = track?.getSettings?.() || {};
-    const recordingId = Math.random().toString(36).slice(2, 12);
-    const startedAt = Date.now();
-    try {
-      await createSession({
-        id: recordingId,
-        scriptId: script.id,
-        mimeType: mime,
-        startedAt,
-        width: (s.width as number) || 0,
-        height: (s.height as number) || 0,
-        takeId,
-        partIndex,
-      });
-    } catch { return null; }
-    return { recordingId, startedAt };
-  }, [script.id]);
-
-  // Launches one part. `next` is prepared ahead of time on rotation so the
-  // gap between parts stays inside a single frame.
-  const launchPartRef = useRef<((prep: PartPrep, mime: string, bps: number) => void) | null>(null);
-
-  const launchPart = useCallback((prep: PartPrep, mimeType: string, bps: number) => {
-    const stream = streamRef.current;
-    if (!stream) return;
-    const audioBps = 192_000;
-    // Supplying both aggregate and per-track bitrate makes some iOS Safari
-    // releases run two conflicting rate-control paths and collapse frame rate.
-    // Per-track values are the stable WebKit path.
-    const opts: MediaRecorderOptions = {
-      videoBitsPerSecond: bps,
-      audioBitsPerSecond: audioBps,
-    };
-    let rec: MediaRecorder;
-    try {
-      rec = new MediaRecorder(stream, mimeType ? { mimeType, ...opts } : opts);
-    } catch {
-      try { rec = new MediaRecorder(stream, opts); } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
-    }
-
-
-    const recordingId = prep.recordingId;
-    let nextChunkSeq = 0;
-    recordingIdRef.current = recordingId;
-    appendQueueRef.current = Promise.resolve();
-    queuedRef.current = 0;
-    writtenRef.current = 0;
-
-    // Serialize durable writes. Do not retain a second full recording in RAM:
-    // long high-quality takes otherwise exceed iPhone Safari's memory limit.
-    // Each write is retried: a transient storage hiccup must never silently
-    // drop a second of footage.
-    const writeChunk = async (blob: Blob, seq: number) => {
-      for (let attempt = 0; attempt < 4; attempt++) {
-        try {
-          await appendChunk(recordingId, blob, seq);
-          writtenRef.current += 1;
-          return;
-        } catch {
-          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
-        }
-      }
-      writtenRef.current += 1;
-      writeFailRef.current += 1;
-      setWriteWarn(true);
-    };
-
-    rec.ondataavailable = (e) => {
-      if (!e.data || e.data.size === 0) return;
-      const blob = e.data;
-      const seq = nextChunkSeq++;
-      queuedRef.current += 1;
-      if (queuedRef.current - writtenRef.current > 2) setCaptureProtection(true);
-      appendQueueRef.current = appendQueueRef.current
-        .catch(() => {})
-        .then(() => writeChunk(blob, seq));
-    };
-
-    const partStartedAt = Date.now();
-    let finished = false;
-
-    // Closes out this part. When the take continues, the next part is started
-    // immediately and this one is written out in the background.
-    const finishPart = () => {
-      if (finished) return;
-      finished = true;
-      if (partTimerRef.current) { window.clearTimeout(partTimerRef.current); partTimerRef.current = null; }
-
-      const isLast = stopAllRef.current;
-      const pending = appendQueueRef.current;
-      const queuedAtStop = queuedRef.current;
-
-      if (isLast) {
-        recordingRef.current = false;
-        recorderRef.current = null;
-        recordingIdRef.current = null;
-        setRecording(false);
-        setPlaying(false);
-        setControlsVisible(true);
-        setFinalizing({ done: writtenRef.current, total: Math.max(queuedAtStop, 1), phase: "writing" });
-        const tick = window.setInterval(() => {
-          setFinalizing((f) => (f && f.phase === "writing"
-            ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
-            : f));
-        }, 120);
-        pending
-          .catch(() => {})
-          .then(() => {
-            window.clearInterval(tick);
-            setFinalizing({ done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" });
-            return finalizeSession(recordingId, { durationMs: Date.now() - partStartedAt });
-          })
-          .then((clip) => {
-            if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
-            setFinalizing(null);
-          })
-          .catch(() => {
-            window.clearInterval(tick);
-            setWriteWarn(true);
-            setFinalizing((f) => (f ? { ...f, phase: "error" } : null));
-          });
-        return;
-      }
-
-      // Rotation: this part is written out quietly in the background.
-      pending
-        .catch(() => {})
-        .then(() => finalizeSession(recordingId, { durationMs: Date.now() - partStartedAt }))
-        .then((clip) => { if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]); })
-        .catch(() => setWriteWarn(true));
-    };
-
-    rec.onerror = () => {
-      setCamError("Recording stopped unexpectedly. Everything already stored is being recovered now.");
-      setWriteWarn(true);
-      stopAllRef.current = true;
-      finishPart();
-    };
-    rec.onstop = finishPart;
-
-    recordingRef.current = true;
-    // Two-second chunks halve IndexedDB transaction pressure versus one-second
-    // writes while keeping crash recovery granular and memory bounded.
-    try { rec.start(2000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
-    recorderRef.current = rec;
-
-    // Schedule the rollover to the next part.
-    const partMs = partMinutesRef.current * 60_000;
-    if (partMs > 0) {
-      partTimerRef.current = window.setTimeout(() => {
-        void (async () => {
-          if (stopAllRef.current || recorderRef.current !== rec) return;
-          partIndexRef.current += 1;
-          const next = await prepareSession(rec.mimeType || mimeType || "video/mp4", takeIdRef.current, partIndexRef.current);
-          if (!next || stopAllRef.current || recorderRef.current !== rec) return;
-          try { if (rec.state === "recording") rec.requestData(); } catch {}
-          try { if (rec.state !== "inactive") rec.stop(); } catch {}
-          launchPartRef.current?.(next, mimeType, bps);
-        })();
-      }, partMs);
-    }
-  }, [prepareSession]);
-
-  useEffect(() => { launchPartRef.current = launchPart; }, [launchPart]);
 
   const startRecording = useCallback(async () => {
     const stream = streamRef.current;
@@ -1108,47 +845,124 @@ function Prompter({
       setCamError("No working microphone was found. Reconnect the microphone and try again.");
       return;
     }
-    // Refuse to begin if storage is already almost exhausted. Starting a take
-    // that cannot be committed is less safe than showing an actionable warning.
-    try {
-      const estimate = await navigator.storage?.estimate?.();
-      const free = (estimate?.quota ?? 0) - (estimate?.usage ?? 0);
-      if (estimate?.quota && free < 750 * 1024 * 1024) {
-        setCamError("Less than 750 MB is available. Free space before recording so this take cannot be lost.");
-        return;
-      }
-    } catch {}
     const mimeType = pickMime();
-    // Use a high sustained rate that does not make Safari sacrifice frames.
-    const bps = QUALITY_PROFILES[quality].bps;
+    // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
+    // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
+    // as good as the native Camera app.
+    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    const audioBps = 192_000;
+    let rec: MediaRecorder;
+    try {
+      rec = new MediaRecorder(stream, mimeType
+        ? { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: audioBps }
+        : { videoBitsPerSecond: bps, audioBitsPerSecond: audioBps });
+    } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
 
+    const recordingId = Math.random().toString(36).slice(2, 12);
+    const track = stream.getVideoTracks()[0];
+    const s = track?.getSettings?.() || {};
+    const finalMime = rec.mimeType || mimeType || "video/mp4";
+    const startedAt = Date.now();
+    try {
+      await createSession({
+        id: recordingId,
+        scriptId: script.id,
+        mimeType: finalMime,
+        startedAt,
+        width: (s.width as number) || 0,
+        height: (s.height as number) || 0,
+      });
+    } catch { return; }
 
-    stopAllRef.current = false;
-    takeIdRef.current = Math.random().toString(36).slice(2, 12);
-    partIndexRef.current = 0;
+    recordingIdRef.current = recordingId;
+    appendQueueRef.current = Promise.resolve();
     writeFailRef.current = 0;
+    queuedRef.current = 0;
+    writtenRef.current = 0;
     setWriteWarn(false);
-    setCaptureProtection(false);
     setFinalizing(null);
 
-    const prep = await prepareSession(mimeType || "video/mp4", takeIdRef.current, 0);
-    if (!prep) return;
+    // Serialize durable writes. Do not retain a second full recording in RAM:
+    // long high-quality takes otherwise exceed iPhone Safari's memory limit.
+    // Each write is retried: a transient storage hiccup must never silently
+    // drop a second of footage.
+    const writeChunk = async (blob: Blob) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await appendChunk(recordingId, blob);
+          writtenRef.current += 1;
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+        }
+      }
+      writtenRef.current += 1;
+      writeFailRef.current += 1;
+      setWriteWarn(true);
+    };
+
+    rec.ondataavailable = (e) => {
+      if (!e.data || e.data.size === 0) return;
+      const blob = e.data;
+      queuedRef.current += 1;
+      appendQueueRef.current = appendQueueRef.current
+        .catch(() => {})
+        .then(() => writeChunk(blob));
+    };
+
+    let finalized = false;
+    const finishRecording = () => {
+      if (finalized) return;
+      finalized = true;
+      recordingRef.current = false;
+      recorderRef.current = null;
+      recordingIdRef.current = null;
+      setRecording(false);
+      setPlaying(false);
+      setControlsVisible(true);
+      setFinalizing({ done: writtenRef.current, total: Math.max(queuedRef.current, 1), phase: "writing" });
+      const tick = window.setInterval(() => {
+        setFinalizing((f) => (f && f.phase === "writing"
+          ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
+          : f));
+      }, 120);
+      appendQueueRef.current
+        .catch(() => {})
+        .then(() => {
+          window.clearInterval(tick);
+          setFinalizing({ done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" });
+          return finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current });
+        })
+        .then((clip) => {
+          if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+          setFinalizing(null);
+        })
+        .catch(() => {
+          window.clearInterval(tick);
+          setWriteWarn(true);
+          setFinalizing((f) => (f ? { ...f, phase: "error" } : null));
+        });
+    };
+
+    rec.onerror = finishRecording;
+
+    rec.onstop = finishRecording;
 
     recordStartRef.current = Date.now();
-    takeStartRef.current = Date.now();
     setElapsedMs(0);
-    launchPart(prep, mimeType, bps);
-    if (!recordingRef.current) return;
+    // 1s timeslice = big enough to keep write overhead low, small enough
+    // that at most ~1s of footage is ever unflushed if the process dies.
+    recordingRef.current = true;
+    try { rec.start(1000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
+    recorderRef.current = rec;
     setRecording(true);
     // Start the script rolling in sync with the recording
     setPlaying(true);
     setControlsVisible(false);
     setPanel(null);
-  }, [quality, recording, launchPart, prepareSession]);
+  }, [quality, recording, script.id]);
 
   const stopRecording = useCallback(() => {
-    stopAllRef.current = true;
-    if (partTimerRef.current) { window.clearTimeout(partTimerRef.current); partTimerRef.current = null; }
     const rec = recorderRef.current;
     if (!rec) return;
     try { if (rec.state === "recording") rec.requestData(); } catch {}
@@ -1166,7 +980,6 @@ function Prompter({
     }
   }, [readerStateKey]);
 
-
   // Stop recording cleanly if user backgrounds the app, and flush scroll position
   useEffect(() => {
     if (!videoMode) return;
@@ -1181,10 +994,7 @@ function Prompter({
         if (recording) stopRecording();
       }
     };
-    const onPageHide = () => {
-      flush();
-      if (recordingRef.current) stopRecording();
-    };
+    const onPageHide = () => flush();
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("pagehide", onPageHide);
     return () => {
@@ -1197,8 +1007,8 @@ function Prompter({
   // the share sheet for a real .mp4 with a clean MIME type, one file at a
   // time, and only when share() is reached inside the tap that triggered it —
   // so no awaits before the call, no codec parameters, no multi-file batches.
-  const exportClip = useCallback((cs: ClipMeta[]) => {
-    startSave(cs, script.title, setSaveJob);
+  const exportClip = useCallback((clip: ClipMeta) => {
+    startSave(clip, script.title, setSaveJob);
   }, [script.title]);
 
 
@@ -1746,35 +1556,15 @@ function Prompter({
           {videoMode && (
             <div className="mt-3">
               <div className="mb-1 text-xs text-neutral-300">Recording quality</div>
-              <div className="grid grid-cols-2 gap-2">
-                {(["1080p60", "1080p30", "4k30", "720p60"] as const).map((q) => (
-                  <button key={q} disabled={recording} onClick={() => setQuality(q)}
-                    className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                    {QUALITY_PROFILES[q].label} · {Math.round(QUALITY_PROFILES[q].bps / 1_000_000)} Mbps
-                    {q === "1080p60" ? " ★" : ""}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-2 text-[11px] text-neutral-400">
-                1080p60 ★ balances sharp faces with a stable iPhone frame rate. 4K needs more heat, power, and storage.
-                {camStats && camStats.width > 0 && (
-                  <span className={camStats.fps && camStats.fps < QUALITY_PROFILES[quality].fps ? " text-amber-300" : " text-emerald-300"}>
-                    {" "}Camera is giving {camStats.width}×{camStats.height}{camStats.fps ? ` · ${camStats.fps} fps` : ""}.
-                  </span>
-                )}
-              </p>
-              <div className="mt-3 mb-1 text-xs text-neutral-300">Split recording</div>
               <div className="flex gap-2">
-                {[0, 1, 2, 5, 10].map((m) => (
-                  <button key={m} disabled={recording} onClick={() => setPartMinutes(m)}
-                    className={`flex-1 rounded-lg border px-2 py-2 text-xs font-semibold disabled:opacity-40 ${partMinutes === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                    {m === 0 ? "Off" : `${m} min`}
+                {(["720p", "1080p", "4k"] as const).map((q) => (
+                  <button key={q} disabled={recording} onClick={() => setQuality(q)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {q === "4k" ? "4K (try)" : q}
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] text-neutral-400">Off means one unbroken file from record to stop — no frame can be lost at a cut. Splitting only helps if a very long take gets hard to save.</p>
-
-
+              <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
             </div>
           )}
           {/* Reading assist toggles */}
@@ -1922,25 +1712,6 @@ function Prompter({
           <span className="truncate">{micIsExternal ? activeMicLabel : "Built-in mic"}</span>
         </div>
       )}
-
-      {/* Honest capture readout: what the camera is really delivering. */}
-      {videoMode && camReady && camStats && camStats.width > 0 && controlsVisible && (
-        <div
-          className={`absolute z-40 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold backdrop-blur-sm ${
-            (camStats.deliveredFps || camStats.fps) < QUALITY_PROFILES[quality].fps * 0.9 ? "text-amber-300" : "text-neutral-200"
-          }`}
-          style={{
-            top: "calc(env(safe-area-inset-top, 0px) + 2.6rem)",
-            left: "50%",
-            transform: `translateX(-50%)${mirrorV ? " scaleY(-1)" : ""}`,
-          }}
-        >
-          {camStats.height ? `${camStats.height}p` : `${camStats.width}px`}
-          {(camStats.deliveredFps || camStats.fps) ? ` · ${camStats.deliveredFps || camStats.fps} fps live` : ""} · {Math.round(QUALITY_PROFILES[quality].bps / 1_000_000)} Mbps
-          {captureProtection ? " · protection on" : ""}
-        </div>
-      )}
-
 
 
 
@@ -2091,32 +1862,22 @@ function ClipsSheet({
   onClose: () => void;
   onDelete: (id: string) => void | Promise<void>;
   onDeleteAll: () => void | Promise<void>;
-  onExport: (clips: ClipMeta[]) => void | Promise<void>;
+  onExport: (clip: ClipMeta) => void | Promise<void>;
   onReplace: (clip: ClipRecord) => void;
   onRescue: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [broken, setBroken] = useState<Set<string>>(new Set());
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const takes = useMemo(() => groupTakes(clips), [clips]);
-  // Playback runs through a take's parts back to back so a split recording
-  // watches like one continuous video.
-  const [playParts, setPlayParts] = useState<ClipMeta[] | null>(null);
-  const [playIdx, setPlayIdx] = useState(0);
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
-  const openTake = useCallback(async (parts: ClipMeta[], idx = 0) => {
-    const meta = parts[idx];
-    if (!meta) return;
+  const openClip = useCallback(async (meta: ClipMeta) => {
     setBusy(meta.id);
     try {
       const c = await getClip(meta.id);
       if (!c) { setNote("This recording is missing from phone storage."); return; }
       setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
-      setPlayParts(parts);
-      setPlayIdx(idx);
       setPlayingClip(c);
     } finally {
       setBusy(null);
@@ -2125,11 +1886,8 @@ function ClipsSheet({
   const closePlayer = useCallback(() => {
     setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
     setPlayingClip(null);
-    setPlayParts(null);
-    setPlayIdx(0);
   }, []);
   useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
-
 
   // Rebuild an unplayable recording from the raw data still in storage.
   const doRepair = useCallback(async (c: ClipMeta) => {
@@ -2146,8 +1904,6 @@ function ClipsSheet({
         if (report.playable) {
           setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
           setPlayingClip(clip);
-          setPlayParts([clip]); setPlayIdx(0);
-
         }
       } else {
         setNote("No footage left in storage for this take.");
@@ -2176,8 +1932,6 @@ function ClipsSheet({
           : `Full length confirmed: ${fmtDuration(report.durationMs)} · ${fmtSize(report.bytes)}. Ready to save.`);
         setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
         setPlayingClip(clip);
-        setPlayParts([clip]); setPlayIdx(0);
-
       } else {
         setNote(`Kept all ${fmtSize(report.bytes)} of footage, but this device can't decode it. Save it to Files and it can still be repaired on a computer.`);
       }
@@ -2194,79 +1948,46 @@ function ClipsSheet({
       <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
         onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
-          <div className="text-base font-bold">All videos <span className="text-neutral-400 font-normal">({takes.length})</span></div>
+          <div className="text-base font-bold">All videos <span className="text-neutral-400 font-normal">({clips.length})</span></div>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
         <div className="max-h-[55vh] overflow-y-auto px-3 py-2">
-          {takes.length === 0 ? (
+          {clips.length === 0 ? (
             <div className="px-3 py-10 text-center text-sm text-neutral-400">No clips yet. Tap the red record button to start.</div>
           ) : (
             <ul className="space-y-2">
-              {takes.map((t) => {
-                const open = expanded.has(t.takeId);
-                const multi = t.parts.length > 1;
-                const anyBroken = t.parts.some((p) => broken.has(p.id));
-                return (
-                <li key={t.takeId} className="rounded-xl border border-white/10 bg-white/[0.03] p-2">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => openTake(t.parts, 0)} className="flex-1 min-w-0 text-left active:opacity-70">
-                      <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                        <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> {scriptTitles[t.scriptId] || "Deleted script"}
-                        {anyBroken && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
-                      </div>
-                      <div className="text-[11px] text-neutral-400">
-                        {new Date(t.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(t.durationMs)} · {fmtSize(t.sizeBytes)}{multi ? ` · ${t.parts.length} parts` : ""}
-                      </div>
+              {clips.map((c) => (
+                <li key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+                  <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
+                    <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> {scriptTitles[c.scriptId] || "Deleted script"}
+                      {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
+                    </div>
+                    <div className="text-[11px] text-neutral-400">
+                      {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
+                    </div>
+                  </button>
+                  {broken.has(c.id) ? (
+                    <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
+                      {busy === c.id ? "Repairing…" : "Repair"}
                     </button>
-                    <button onClick={() => onExport(t.parts)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this take">
-                      <Download className="h-4 w-4" />
+                  ) : (
+                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
+                      {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
-                    <button onClick={() => { if (confirm(multi ? "Delete this whole take?" : "Delete this clip?")) t.parts.forEach((p) => onDelete(p.id)); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <button
-                      onClick={() => setExpanded((s) => { const n = new Set(s); n.has(t.takeId) ? n.delete(t.takeId) : n.add(t.takeId); return n; })}
-                      className="rounded-full px-2 py-1 text-[11px] text-neutral-400 hover:text-neutral-200"
-                    >
-                      {open ? "Hide parts" : multi ? `Show ${t.parts.length} parts` : "More"}
-                    </button>
-                  </div>
-                  {open && (
-                    <ul className="mt-1 space-y-1 border-t border-white/10 pt-2">
-                      {t.parts.map((c, i) => (
-                        <li key={c.id} className="flex items-center gap-2 pl-1">
-                          <button onClick={() => openTake(t.parts, i)} className="flex-1 min-w-0 text-left text-[11px] text-neutral-300 active:opacity-70">
-                            Part {i + 1} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)}
-                            {broken.has(c.id) && <span className="ml-1 text-red-300">needs repair</span>}
-                          </button>
-                          {broken.has(c.id) ? (
-                            <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-2 py-1 text-[11px] font-bold text-amber-300 disabled:opacity-50">
-                              {busy === c.id ? "Repairing…" : "Repair"}
-                            </button>
-                          ) : (
-                            <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-2 py-1 text-[11px] font-bold text-emerald-300 disabled:opacity-50">
-                              {busy === c.id ? "Restoring…" : "Restore full"}
-                            </button>
-                          )}
-                          <button onClick={() => onExport([c])} className="grid h-8 w-8 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label={`Save part ${i + 1}`}>
-                            <Download className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => { if (confirm("Delete this part?")) onDelete(c.id); }} className="grid h-8 w-8 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label={`Delete part ${i + 1}`}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
                   )}
+                   <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip">
+                    <Download className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </li>
-              ); })}
+              ))}
             </ul>
           )}
-
         </div>
         {note && <div className="px-4 pb-2 text-[11px] leading-snug text-amber-200/90">{note}</div>}
         <div className="border-t border-white/10 px-3 py-2">
@@ -2304,9 +2025,7 @@ function ClipsSheet({
             playsInline
             preload="auto"
             onCanPlay={() => { videoElRef.current?.play().catch(() => {}); }}
-            onEnded={() => { if (playParts && playIdx + 1 < playParts.length) void openTake(playParts, playIdx + 1); }}
             onError={() => setBroken((b) => new Set(b).add(playingClip.id))}
-
             className="absolute inset-0 h-full w-full object-contain"
           />
 
@@ -2331,7 +2050,7 @@ function ClipsSheet({
               left: "calc(env(safe-area-inset-left, 0px) + 0.5rem)",
             }}
           >
-            {scriptTitles[playingClip.scriptId] || "Deleted script"} · {new Date(playingClip.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{playParts && playParts.length > 1 ? ` · part ${playIdx + 1}/${playParts.length}` : ""}
+            {scriptTitles[playingClip.scriptId] || "Deleted script"} · {new Date(playingClip.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
           </div>
 
           {/* Floating action row — bottom, above native video controls */}
@@ -2343,7 +2062,7 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-             <button onClick={() => onExport(playParts ?? [playingClip])} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+             <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
                <Download className="h-5 w-5" /> Save video
             </button>
             {broken.has(playingClip.id) && (

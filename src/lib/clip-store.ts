@@ -4,7 +4,7 @@
 // recording and assembled either on stop or on the next app open (recovery).
 
 const DB_NAME = "prompter.clips.v1";
-const DB_VERSION = 4;
+const DB_VERSION = 3;
 const STORE = "clips";
 const META_STORE = "clipMeta";
 const CHUNK_STORE = "chunks";
@@ -19,23 +19,9 @@ export type ClipMeta = {
   createdAt: number;
   width: number;
   height: number;
-  // Long recordings are stored as a sequence of self-contained parts that all
-  // share one takeId. Older single-file recordings get takeId = id on upgrade.
-  takeId?: string;
-  partIndex?: number;
 };
 
 export type ClipRecord = ClipMeta & { blob: Blob };
-
-// A take is one continuous recording session, made of one or more parts.
-export type Take = {
-  takeId: string;
-  scriptId: string;
-  createdAt: number;
-  durationMs: number;
-  sizeBytes: number;
-  parts: ClipMeta[];
-};
 
 export type RecordingSession = {
   id: string;
@@ -45,12 +31,9 @@ export type RecordingSession = {
   width: number;
   height: number;
   nextSeq: number;
-  takeId?: string;
-  partIndex?: number;
 };
 
 type ChunkRecord = { recordingId: string; seq: number; blob: Blob };
-
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -86,26 +69,7 @@ function openDB(): Promise<IDBDatabase> {
           row.continue();
         };
       }
-      // v4: group clips into takes. Every existing single-file recording
-      // becomes a one-part take so nothing in the library is lost.
-      const metaStore = req.transaction?.objectStore(META_STORE);
-      if (metaStore) {
-        if (!metaStore.indexNames.contains("takeId")) {
-          metaStore.createIndex("takeId", "takeId", { unique: false });
-        }
-        const backfill = metaStore.openCursor();
-        backfill.onsuccess = () => {
-          const row = backfill.result;
-          if (!row) return;
-          const value = row.value as ClipMeta;
-          if (!value.takeId) {
-            row.update({ ...value, takeId: value.id, partIndex: 0 });
-          }
-          row.continue();
-        };
-      }
     };
-
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -205,19 +169,8 @@ export async function updateSession(id: string, patch: Partial<RecordingSession>
 
 // Append one MediaRecorder chunk. Runs its own transaction so a failure to
 // write chunk N never poisons chunk N+1.
-export async function appendChunk(recordingId: string, blob: Blob, knownSeq?: number): Promise<number> {
+export async function appendChunk(recordingId: string, blob: Blob): Promise<number> {
   const db = await openDB();
-  // The recorder already owns a monotonic sequence. Using it avoids a session
-  // read + rewrite for every media fragment, which can starve iPhone capture.
-  if (typeof knownSeq === "number") {
-    return new Promise<number>((resolve, reject) => {
-      const t = db.transaction(CHUNK_STORE, "readwrite");
-      t.objectStore(CHUNK_STORE).put({ recordingId, seq: knownSeq, blob } as ChunkRecord);
-      t.oncomplete = () => resolve(knownSeq);
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error || new Error("aborted"));
-    });
-  }
   return new Promise<number>((resolve, reject) => {
     const t = db.transaction([SESSION_STORE, CHUNK_STORE], "readwrite");
     const sessions = t.objectStore(SESSION_STORE);
@@ -296,10 +249,7 @@ export async function finalizeSession(
     createdAt: session.startedAt,
     width: session.width,
     height: session.height,
-    takeId: session.takeId || recordingId,
-    partIndex: session.partIndex ?? 0,
     blob,
-
   };
   await saveClip(rec);
   await clearSession(recordingId);
@@ -501,36 +451,6 @@ export async function listClipMeta(scriptId: string): Promise<ClipMeta[]> {
     req.onerror = () => reject(req.error);
   });
 }
-
-// Group clip metadata into takes. Parts of one take are ordered oldest-first
-// (playback order); takes themselves are newest-first.
-export function groupTakes(clips: ClipMeta[]): Take[] {
-  const byTake = new Map<string, ClipMeta[]>();
-  for (const c of clips) {
-    const key = c.takeId || c.id;
-    const arr = byTake.get(key);
-    if (arr) arr.push(c); else byTake.set(key, [c]);
-  }
-  const takes: Take[] = [];
-  for (const [takeId, rawParts] of byTake) {
-    const parts = rawParts.slice().sort((a, b) =>
-      ((a.partIndex ?? 0) - (b.partIndex ?? 0)) || (a.createdAt - b.createdAt) || a.id.localeCompare(b.id));
-    takes.push({
-      takeId,
-      scriptId: parts[0].scriptId,
-      createdAt: parts[0].createdAt,
-      durationMs: parts.reduce((n, p) => n + (p.durationMs || 0), 0),
-      sizeBytes: parts.reduce((n, p) => n + (p.sizeBytes || 0), 0),
-      parts,
-    });
-  }
-  return takes.sort((a, b) => (b.createdAt - a.createdAt) || b.takeId.localeCompare(a.takeId));
-}
-
-export async function listTakes(): Promise<Take[]> {
-  return groupTakes(await listAllClips());
-}
-
 
 // Every byte we still have for a recording: the finalized clip AND any raw
 // chunks that survived (a take can end up truncated if a chunk write failed
