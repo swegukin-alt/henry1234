@@ -99,6 +99,9 @@ function Diagnostics() {
   if (!import.meta.env.DEV) {
     return <main className="p-8 text-sm text-muted-foreground">Not available in this build.</main>;
   }
+  if (!ready) {
+    return <main className="p-8 text-sm text-muted-foreground">Reading device capabilities…</main>;
+  }
 
   const runtime = describeRuntime();
   const speech = speechCapabilities();
