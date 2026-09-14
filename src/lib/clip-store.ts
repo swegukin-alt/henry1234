@@ -313,9 +313,9 @@ async function clearSession(recordingId: string): Promise<void> {
   });
 }
 
-// Assemble whatever chunks exist for `recordingId` and store as a finalized
-// ClipRecord. Returns the record (or null if there were no chunks). Cleans up
-// the session + chunks on success.
+// Turn an in-flight session into a finished clip. The recorded pieces are the
+// video: we keep them and only write a small metadata row, so stopping a take
+// is instant and never copies gigabytes a second time.
 export async function finalizeSession(
   recordingId: string,
   extra?: { durationMs?: number }
@@ -324,21 +324,31 @@ export async function finalizeSession(
   if (!session) return null;
   const chunks = await getChunks(recordingId);
   if (chunks.length === 0) { await clearSession(recordingId); return null; }
-  const blob = new Blob(chunks, { type: session.mimeType });
-  const rec: ClipRecord = {
+  const mime = session.mimeType;
+  const sizeBytes = chunks.reduce((n, c) => n + c.size, 0);
+  const meta: ClipMeta = {
     id: recordingId,
     scriptId: session.scriptId,
-    mimeType: session.mimeType,
+    mimeType: mime,
     durationMs: extra?.durationMs ?? Math.max(0, Date.now() - session.startedAt),
-    sizeBytes: blob.size,
+    sizeBytes,
     createdAt: session.startedAt,
     width: session.width,
     height: session.height,
-    blob,
+    chunked: true,
   };
-  await saveClip(rec);
-  await clearSession(recordingId);
-  return rec;
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction([STORE, META_STORE, SESSION_STORE], "readwrite");
+    t.objectStore(STORE).put({ ...meta });
+    t.objectStore(META_STORE).put(meta);
+    // Drop only the session row; the chunks stay as the clip's data.
+    t.objectStore(SESSION_STORE).delete(recordingId);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error || new Error("Could not save recording"));
+  });
+  return { ...meta, blob: new Blob(chunks, { type: mime.split(";")[0].trim() }) };
 }
 
 // On app open: recover any sessions left in the DB from a prior crash / close.
