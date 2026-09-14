@@ -147,4 +147,14 @@ export const clipFilePath = async (id: string) => {
   return store.filePath ? store.filePath(id) : null;
 };
 
+/** Adopt a natively recorded file as a take. Native only. */
+export const importRecording = async (
+  meta: NewSession & { durationMs: number; sizeBytes?: number },
+  sourceUri: string,
+) => {
+  const store = await mediaStore();
+  if (!store.importRecording) return null;
+  return store.importRecording(meta, sourceUri);
+};
+
 export { fmtSize, fmtDuration, assembleBest, measureDuration, probePlayable } from "@/lib/clip-store";

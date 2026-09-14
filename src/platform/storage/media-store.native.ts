@@ -32,8 +32,10 @@ type FilesystemPlugin = {
   }) => Promise<{ uri: string }>;
   appendFile: (o: { path: string; directory: Directory; data: string; encoding?: string }) => Promise<void>;
   deleteFile: (o: { path: string; directory: Directory }) => Promise<void>;
-  stat: (o: { path: string; directory: Directory }) => Promise<{ size: number; uri: string }>;
+  stat: (o: { path: string; directory?: Directory }) => Promise<{ size: number; uri: string }>;
   getUri: (o: { path: string; directory: Directory }) => Promise<{ uri: string }>;
+  rename: (o: { from: string; to: string; directory?: Directory; toDirectory?: Directory }) => Promise<void>;
+  copy: (o: { from: string; to: string; directory?: Directory; toDirectory?: Directory }) => Promise<void>;
 };
 
 type FsModule = { Filesystem?: FilesystemPlugin; Directory?: Record<string, string> };
