@@ -2,7 +2,7 @@ import { isNative } from "../runtime";
 import type { FileStoreService } from "./types";
 
 export type * from "./types";
-export { settings, hydrateSettings, getSetting, setSetting } from "./settings";
+export { settings, hydrateSettings, getSetting, setSetting, settingsHydrationStatus, type SettingsHydrationStatus } from "./settings";
 
 /**
  * Where large recordings live on this runtime. The web store is the existing

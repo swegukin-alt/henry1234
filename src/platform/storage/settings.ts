@@ -143,6 +143,6 @@ export const settings: SettingsService = {
   },
 };
 
-export const hydrateSettings = () => settings.hydrate();
+export const hydrateSettings = (): Promise<void> => settings.hydrate();
 export const getSetting = <T>(key: string, fallback: T): T => settings.get(key, fallback);
 export const setSetting = <T>(key: string, value: T): void => settings.set(key, value);
