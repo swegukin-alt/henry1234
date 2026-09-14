@@ -4,7 +4,7 @@
 // recording and assembled either on stop or on the next app open (recovery).
 
 const DB_NAME = "prompter.clips.v1";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE = "clips";
 const META_STORE = "clipMeta";
 const CHUNK_STORE = "chunks";
@@ -19,9 +19,23 @@ export type ClipMeta = {
   createdAt: number;
   width: number;
   height: number;
+  // Long recordings are stored as a sequence of self-contained parts that all
+  // share one takeId. Older single-file recordings get takeId = id on upgrade.
+  takeId?: string;
+  partIndex?: number;
 };
 
 export type ClipRecord = ClipMeta & { blob: Blob };
+
+// A take is one continuous recording session, made of one or more parts.
+export type Take = {
+  takeId: string;
+  scriptId: string;
+  createdAt: number;
+  durationMs: number;
+  sizeBytes: number;
+  parts: ClipMeta[];
+};
 
 export type RecordingSession = {
   id: string;
@@ -31,9 +45,12 @@ export type RecordingSession = {
   width: number;
   height: number;
   nextSeq: number;
+  takeId?: string;
+  partIndex?: number;
 };
 
 type ChunkRecord = { recordingId: string; seq: number; blob: Blob };
+
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
