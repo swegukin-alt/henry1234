@@ -205,8 +205,19 @@ export async function updateSession(id: string, patch: Partial<RecordingSession>
 
 // Append one MediaRecorder chunk. Runs its own transaction so a failure to
 // write chunk N never poisons chunk N+1.
-export async function appendChunk(recordingId: string, blob: Blob): Promise<number> {
+export async function appendChunk(recordingId: string, blob: Blob, knownSeq?: number): Promise<number> {
   const db = await openDB();
+  // The recorder already owns a monotonic sequence. Using it avoids a session
+  // read + rewrite for every media fragment, which can starve iPhone capture.
+  if (typeof knownSeq === "number") {
+    return new Promise<number>((resolve, reject) => {
+      const t = db.transaction(CHUNK_STORE, "readwrite");
+      t.objectStore(CHUNK_STORE).put({ recordingId, seq: knownSeq, blob } as ChunkRecord);
+      t.oncomplete = () => resolve(knownSeq);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error || new Error("aborted"));
+    });
+  }
   return new Promise<number>((resolve, reject) => {
     const t = db.transaction([SESSION_STORE, CHUNK_STORE], "readwrite");
     const sessions = t.objectStore(SESSION_STORE);
