@@ -157,7 +157,9 @@ function Diagnostics() {
       <Section
         title="Storage"
         rows={[
-          { label: "Media store", value: mediaStoreKind() },
+          { label: "Media store (declared)", value: mediaStoreKind() },
+          { label: "Media store (live)", value: liveStore ?? "…" },
+          { label: "Recordings held", value: storeUsage ? `${(storeUsage.clipBytes / 1e9).toFixed(2)} GB` : "…" },
           { label: "Used", value: usage ? `${(usage.usedBytes / 1e9).toFixed(2)} GB` : "…" },
           { label: "Quota", value: usage?.quotaBytes ? `${(usage.quotaBytes / 1e9).toFixed(2)} GB` : "unknown" },
         ]}
