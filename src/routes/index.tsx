@@ -1100,8 +1100,8 @@ function Prompter({
   // the share sheet for a real .mp4 with a clean MIME type, one file at a
   // time, and only when share() is reached inside the tap that triggered it —
   // so no awaits before the call, no codec parameters, no multi-file batches.
-  const exportClip = useCallback((clip: ClipMeta) => {
-    startSave(clip, script.title, setSaveJob);
+  const exportClip = useCallback((cs: ClipMeta[]) => {
+    startSave(cs, script.title, setSaveJob);
   }, [script.title]);
 
 
