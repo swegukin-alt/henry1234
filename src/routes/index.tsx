@@ -642,39 +642,41 @@ function Prompter({
       setMicIsExternal(pick.external);
       return;
     }
-    try {
-      const audioConstraints: MediaTrackConstraints = pick.external
-        ? {
-            deviceId: { exact: pick.id },
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-            sampleRate: 48000,
-            channelCount: 2,
-          } as any
-        : {
-            deviceId: { exact: pick.id },
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            sampleRate: 48000,
-            channelCount: 2,
-          } as any;
-      const newAudio = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    const swap = async (constraints: MediaTrackConstraints): Promise<boolean> => {
+      const newAudio = await navigator.mediaDevices.getUserMedia({ audio: constraints });
       const newTrack = newAudio.getAudioTracks()[0];
-      if (!newTrack) return;
+      if (!newTrack) return false;
       // Swap tracks atomically on the same stream so the video element and
       // any future MediaRecorder see a single continuous stream.
       if (currentTrack) {
         stream.removeTrack(currentTrack);
         try { currentTrack.stop(); } catch {}
       }
+      newTrack.enabled = true;
       stream.addTrack(newTrack);
       currentMicIdRef.current = pick.id;
       setActiveMicLabel(pick.label);
       setMicIsExternal(pick.external);
+      setMicLive(true);
+      return true;
+    };
+    // Preferences only — an unsatisfiable audio requirement must never cost us
+    // the microphone entirely.
+    const preferred: MediaTrackConstraints = {
+      deviceId: { exact: pick.id },
+      echoCancellation: !pick.external,
+      noiseSuppression: !pick.external,
+      autoGainControl: !pick.external,
+      sampleRate: { ideal: 48000 },
+      channelCount: { ideal: 2 },
+    } as any;
+    try {
+      await swap(preferred);
     } catch {
-      // Keep whatever audio track we have if the swap fails.
+      try { await swap({ deviceId: { exact: pick.id } } as any); }
+      catch {
+        // Keep whatever audio track we have if the swap fails.
+      }
     }
   };
 
