@@ -330,6 +330,47 @@ export async function createNativeMediaStore(): Promise<MediaStore | null> {
       const { uri } = await Filesystem.getUri({ path: e.file, directory: DATA });
       return uri;
     },
+
+    // The native camera writes the whole take itself, so adopting it is a move
+    // on disk: no chunks, no base64, nothing through JavaScript memory.
+    async importRecording(meta, sourceUri) {
+      const idx = await readIndex();
+      const file = filenameFor(meta.id, meta.mimeType);
+      try {
+        await Filesystem.rename({ from: sourceUri, to: file, toDirectory: DATA });
+      } catch {
+        // Across volumes iOS refuses a move; a copy is the correct fallback and
+        // the original stays put until the copy succeeded.
+        await Filesystem.copy({ from: sourceUri, to: file, toDirectory: DATA });
+        try {
+          await Filesystem.deleteFile({ path: sourceUri, directory: undefined as unknown as Directory });
+        } catch {
+          /* the temporary file is cleaned up by iOS */
+        }
+      }
+      let size = meta.sizeBytes ?? 0;
+      try {
+        size = (await Filesystem.stat({ path: file, directory: DATA })).size || size;
+      } catch {
+        /* keep the reported size */
+      }
+      if (!size) throw new Error("The recording file is empty.");
+      const record: IndexEntry = {
+        id: meta.id,
+        scriptId: meta.scriptId,
+        mimeType: meta.mimeType,
+        durationMs: meta.durationMs,
+        sizeBytes: size,
+        createdAt: meta.startedAt,
+        width: meta.width,
+        height: meta.height,
+        file,
+      };
+      idx.clips = [record, ...idx.clips.filter((c) => c.id !== meta.id)];
+      await saveIndex();
+      const { file: _f, open: _o, ...out } = record;
+      return out;
+    },
   };
 
   return store;
