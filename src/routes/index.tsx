@@ -778,6 +778,8 @@ function Prompter({
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       setCamReady(false);
+      setCamStats(null);
+
       setActiveMicLabel("");
       setMicIsExternal(false);
       currentMicIdRef.current = "";
