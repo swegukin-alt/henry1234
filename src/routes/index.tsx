@@ -13,6 +13,7 @@ import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
 // implementations when the app runs inside Capacitor).
 import {
   getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings,
+  settingsHydrationStatus,
   isNative, startCamera, stopCamera, startRecording as startNativeCapture, cameraCapabilities,
   requestPermission, openAppSettings, haptic, onLifecycleChange, pickBestMicrophone,
   type PreviewHandle, type RecordingHandle,
@@ -121,12 +122,31 @@ function Index() {
 
   useEffect(() => {
     let cancelled = false;
+    let done = false;
     // On the web this resolves immediately; inside the iPhone app it pulls the
-    // saved settings out of native storage first.
-    void hydrateSettings().then(() => {
-      if (!cancelled) hydrateFromStore();
-    });
-    return () => { cancelled = true; };
+    // saved settings out of native storage first. Native storage can never
+    // hold the app hostage: whatever it does, the UI boots.
+    const boot = () => {
+      if (done || cancelled) return;
+      done = true;
+      hydrateFromStore();
+    };
+    // Last-resort failsafe in case the promise itself never settles.
+    const failsafe = setTimeout(() => {
+      console.warn("[boot] settings hydration failsafe fired — starting with local settings");
+      boot();
+    }, 2000);
+
+    void hydrateSettings()
+      .catch((err: unknown) => {
+        console.warn("[boot] settings hydration failed:", err);
+      })
+      .finally(() => {
+        console.info("[boot] settings hydration:", settingsHydrationStatus());
+        boot();
+      });
+
+    return () => { cancelled = true; clearTimeout(failsafe); };
   }, []);
 
   function hydrateFromStore() {
@@ -173,7 +193,12 @@ function Index() {
     if (activeId === id) setActiveId(null);
   };
 
-  if (!hydrated) return <div className="min-h-screen bg-[#0a0a0a]" />;
+  if (!hydrated)
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a] text-sm text-neutral-400">
+        Loading…
+      </div>
+    );
 
   if ((mode === "play" || mode === "video") && active) {
     return (

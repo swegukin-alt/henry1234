@@ -17,7 +17,7 @@ export type { AudioService, MicInfo } from "./audio";
 export { speechCapabilities } from "./speech";
 export type { SpeechCapabilities } from "./speech";
 
-export { settings, hydrateSettings, getSetting, setSetting, mediaStoreKind, storageEstimate } from "./storage";
+export { settings, hydrateSettings, getSetting, setSetting, settingsHydrationStatus, type SettingsHydrationStatus, mediaStoreKind, storageEstimate } from "./storage";
 
 export { mediaLibraryCapabilities, saveToPhotos } from "./media-library";
 export { shareCapabilities, shareFilePath } from "./share";
