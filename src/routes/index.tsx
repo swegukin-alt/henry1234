@@ -929,7 +929,7 @@ function Prompter({
       startedAt,
       width: (s.width as number) || 0,
       height: (s.height as number) || 0,
-    }).catch(() => { setWriteWarn(true); });
+    }).catch((err) => { setWriteWarn(true); setWriteWarnMsg(describeStorageError(err)); });
 
     recordingIdRef.current = recordingId;
     appendQueueRef.current = sessionReady;
@@ -937,26 +937,33 @@ function Prompter({
     queuedRef.current = 0;
     writtenRef.current = 0;
     setWriteWarn(false);
+    setWriteWarnMsg("");
     setFinalizing(null);
 
     // Serialize durable writes. Do not retain a second full recording in RAM:
     // long high-quality takes otherwise exceed iPhone Safari's memory limit.
-    // Each write is retried: a transient storage hiccup must never silently
-    // drop a second of footage.
+    // Each write is retried with growing backoff: a transient storage hiccup
+    // (Safari briefly refusing writes while it reclaims space) must never
+    // silently drop a second of footage.
     const writeChunk = async (blob: Blob) => {
-      for (let attempt = 0; attempt < 4; attempt++) {
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 6; attempt++) {
         try {
           await appendChunk(recordingId, blob);
           writtenRef.current += 1;
+          if (writeFailRef.current === 0) { setWriteWarn(false); setWriteWarnMsg(""); }
           return;
-        } catch {
-          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+        } catch (err) {
+          lastErr = err;
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
         }
       }
       writtenRef.current += 1;
       writeFailRef.current += 1;
       setWriteWarn(true);
+      setWriteWarnMsg(describeStorageError(lastErr));
     };
+
 
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
