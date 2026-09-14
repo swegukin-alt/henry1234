@@ -1302,7 +1302,7 @@ function Prompter({
     if (el) {
       try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: el.scrollTop, updatedAt: Date.now() })); } catch {}
     }
-  }, [readerStateKey]);
+  }, [readerStateKey, finishNativeRecording]);
 
   // Stop recording cleanly if user backgrounds the app, and flush scroll position
   useEffect(() => {
