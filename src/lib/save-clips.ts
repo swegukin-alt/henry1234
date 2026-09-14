@@ -92,78 +92,61 @@ export function startSave(
       const totalBytes = complete.sizeBytes || complete.blob.size;
 
       const nav: any = navigator;
-      const tooBig = file.size > SHARE_LIMIT;
-      const canShare = !tooBig && !!nav.share && (!nav.canShare || (() => { try { return nav.canShare({ files: [file] }); } catch { return false; } })());
+      let sharing = false;
 
-      if (canShare) {
-        let sharing = false;
-        const saveToFiles = () => {
-          downloadFile(file);
-          patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads, then move it wherever you like." });
-        };
+      const saveToFiles = () => {
+        downloadFile(file);
+        patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads, then move it wherever you like." });
+      };
 
-        const share = () => {
-          // Two shares at once makes iOS reject the second one instantly, which
-          // is exactly what looked like "cancelled" before.
-          if (sharing) return;
-          sharing = true;
-          const tapped = Date.now();
-          patch({ phase: "working", title: "Opening share sheet…", detail: "This can take a few seconds for a long take." });
+      const share = () => {
+        // Two shares at once makes iOS reject the second one instantly.
+        if (sharing) return;
+        sharing = true;
+        const tapped = Date.now();
 
-          let result: Promise<void>;
-          // The share call must happen inside the tap, with no await before it.
-          try { result = nav.share({ files: [file] }); }
-          catch { sharing = false; saveToFiles(); return; }
+        let result: Promise<void>;
+        // The share call must happen inside the tap, with no await before it.
+        try { result = nav.share({ files: [file], title: name }); }
+        catch (e: any) {
+          sharing = false;
+          patch({
+            phase: "ready", file, bytes: totalBytes,
+            title: "Share sheet didn't open",
+            detail: `${fmtSize(totalBytes)} · Tap Share to try again.`,
+            actionLabel: "Share", runPrimary: share, saveToFiles,
+          });
+          return;
+        }
 
-          result
-            .then(() => {
-              sharing = false;
-              patch({ phase: "done", title: "Shared", detail: "Pick AirDrop, Save Video, or Save to Files to finish." });
-            })
-            .catch((e: any) => {
-              sharing = false;
-              const quick = Date.now() - tapped < 1200;
-              // iOS rejects with AbortError both when the user closes the sheet
-              // and when the sheet never opened at all. A rejection that fast
-              // means it never opened, so save the file instead of giving up.
-              if (e?.name === "AbortError" && !quick) {
-                patch({
-                  phase: "ready", file, bytes: totalBytes,
-                  title: "Share closed",
-                  detail: `${fmtSize(totalBytes)} · Nothing was saved yet. Tap Share again, or use Save to Files below.`,
-                  actionLabel: "Share",
-                  runPrimary: share,
-                  saveToFiles,
-                });
-                return;
-              }
-              saveToFiles();
+        patch({ phase: "working", title: "Opening share sheet…", detail: "This can take a few seconds for a long take." });
+
+        result
+          .then(() => {
+            sharing = false;
+            patch({ phase: "done", title: "Shared", detail: "Pick AirDrop, Save Video, or Save to Files to finish." });
+          })
+          .catch(() => {
+            sharing = false;
+            const quick = Date.now() - tapped < 1200;
+            patch({
+              phase: "ready", file, bytes: totalBytes,
+              title: quick ? "Share sheet didn't open" : "Share closed",
+              detail: `${fmtSize(totalBytes)} · Nothing was saved yet. Tap Share to open the iPhone share menu again.`,
+              actionLabel: "Share", runPrimary: share, saveToFiles,
             });
-        };
-
-        patch({
-          phase: "ready", file, bytes: totalBytes,
-          title: "Ready to share",
-          detail: `${fmtSize(totalBytes)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
-          actionLabel: "Share",
-          runPrimary: share,
-          saveToFiles,
-        });
-        return;
-      }
+          });
+      };
 
       patch({
         phase: "ready", file, bytes: totalBytes,
-        title: tooBig ? "Ready for Files" : "Ready to save",
-        detail: tooBig
-          ? `${fmtSize(totalBytes)} · This take is too large for the iPhone share sheet — it goes straight to Files.`
-          : `${fmtSize(totalBytes)} · Tap Save to put it in Files → Downloads.`,
-        actionLabel: "Save to Files",
-        runPrimary: () => {
-          downloadFile(file);
-          patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads." });
-        },
+        title: "Ready to share",
+        detail: `${fmtSize(totalBytes)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
+        actionLabel: "Share",
+        runPrimary: share,
+        saveToFiles,
       });
+
     } catch (e: any) {
       patch({ phase: "error", title: "Couldn't save", detail: String(e?.message || e) });
     }
