@@ -745,7 +745,67 @@ function Prompter({
     check();
     const id = window.setInterval(check, 2000);
     return () => window.clearInterval(id);
-  }, [videoMode, reacquireMic]);
+  }, [videoMode, nativeApp, reacquireMic]);
+
+  // Native camera: a real AVFoundation preview layer behind the WebView. The
+  // teleprompter HTML stays exactly as it is and simply sits on top of it.
+  useEffect(() => {
+    if (!videoMode || !nativeApp) return;
+    let cancelled = false;
+    (async () => {
+      const perm = await requestPermission("camera");
+      if (cancelled) return;
+      if (perm === "denied" || perm === "restricted") {
+        setCamError("Camera access is off for this app. Turn it on in iOS Settings, then come back.");
+        return;
+      }
+      await requestPermission("microphone");
+      if (cancelled) return;
+      const res = await startCamera({ quality, facing: "front" });
+      if (cancelled) {
+        if (res.ok) await stopCamera(res.value);
+        return;
+      }
+      if (!res.ok) {
+        setCamError(res.error);
+        return;
+      }
+      previewRef.current = res.value;
+      setCamReady(true);
+      setCamError(null);
+      const mic = await pickBestMicrophone();
+      if (cancelled) return;
+      setMicLive(true);
+      if (mic) {
+        setActiveMicLabel(mic.label);
+        setMicIsExternal(mic.external);
+      }
+      void lockOrientation("landscape");
+    })();
+    return () => {
+      cancelled = true;
+      const rec = nativeRecRef.current;
+      nativeRecRef.current = null;
+      // iOS must never be left holding the camera. A take still rolling is
+      // stopped and kept, not discarded.
+      if (rec) void rec.stop().catch(() => {});
+      void stopCamera(previewRef.current);
+      previewRef.current = null;
+      setCamReady(false);
+      setMicLive(false);
+      void lockOrientation("any");
+    };
+  }, [videoMode, nativeApp, quality]);
+
+  // Native lifecycle: if iOS suspends the app mid-take, the recording has
+  // genuinely stopped. Close the file, keep it, and show the true state.
+  useEffect(() => {
+    if (!videoMode || !nativeApp) return;
+    return onLifecycleChange((state) => {
+      if (state !== "background") return;
+      if (nativeRecRef.current) void finishNativeRecordingRef.current?.();
+    });
+  }, [videoMode, nativeApp]);
 
 
 
