@@ -2026,6 +2026,13 @@ function ClipsSheet({
   }, []);
   useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
 
+  // What the app is holding on this phone, refreshed whenever the list changes.
+  const [space, setSpace] = useState<{ clipBytes: number; usage: number; quota: number } | null>(null);
+  const refreshSpace = useCallback(async () => {
+    try { setSpace(await storageUsage()); } catch { setSpace(null); }
+  }, []);
+  useEffect(() => { refreshSpace(); }, [refreshSpace, clips.length]);
+
   // Rebuild an unplayable recording from the raw data still in storage.
   const doRepair = useCallback(async (c: ClipMeta) => {
     setBusy(c.id);
