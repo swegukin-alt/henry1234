@@ -2021,6 +2021,8 @@ function ClipsSheet({
         if (report.playable) {
           setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
           setPlayingClip(clip);
+          setPlayParts([clip]); setPlayIdx(0);
+
         }
       } else {
         setNote("No footage left in storage for this take.");
