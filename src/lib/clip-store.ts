@@ -19,6 +19,10 @@ export type ClipMeta = {
   createdAt: number;
   width: number;
   height: number;
+  // When true the video still lives as its recorded pieces in the chunk store
+  // and is stitched together on demand. This makes stopping a take instant and
+  // uses half the disk space of keeping a second, combined copy.
+  chunked?: boolean;
 };
 
 export type ClipRecord = ClipMeta & { blob: Blob };
