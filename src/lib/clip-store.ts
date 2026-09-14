@@ -491,6 +491,36 @@ export async function listClipMeta(scriptId: string): Promise<ClipMeta[]> {
   });
 }
 
+// Group clip metadata into takes. Parts of one take are ordered oldest-first
+// (playback order); takes themselves are newest-first.
+export function groupTakes(clips: ClipMeta[]): Take[] {
+  const byTake = new Map<string, ClipMeta[]>();
+  for (const c of clips) {
+    const key = c.takeId || c.id;
+    const arr = byTake.get(key);
+    if (arr) arr.push(c); else byTake.set(key, [c]);
+  }
+  const takes: Take[] = [];
+  for (const [takeId, rawParts] of byTake) {
+    const parts = rawParts.slice().sort((a, b) =>
+      ((a.partIndex ?? 0) - (b.partIndex ?? 0)) || (a.createdAt - b.createdAt) || a.id.localeCompare(b.id));
+    takes.push({
+      takeId,
+      scriptId: parts[0].scriptId,
+      createdAt: parts[0].createdAt,
+      durationMs: parts.reduce((n, p) => n + (p.durationMs || 0), 0),
+      sizeBytes: parts.reduce((n, p) => n + (p.sizeBytes || 0), 0),
+      parts,
+    });
+  }
+  return takes.sort((a, b) => (b.createdAt - a.createdAt) || b.takeId.localeCompare(a.takeId));
+}
+
+export async function listTakes(): Promise<Take[]> {
+  return groupTakes(await listAllClips());
+}
+
+
 // Every byte we still have for a recording: the finalized clip AND any raw
 // chunks that survived (a take can end up truncated if a chunk write failed
 // near the end). Returns whichever is longer, without dropping anything.
