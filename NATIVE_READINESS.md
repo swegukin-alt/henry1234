@@ -208,18 +208,26 @@ HDMI out; a second device as a remote over the local network.
 
 ---
 
-## Packages to install on the Mac
+## Packages
+
+Already installed in this repo (used by the implemented native paths):
 
 ```
-bun add @capacitor/core @capacitor/app @capacitor/filesystem @capacitor/preferences \
-        @capacitor/share @capacitor/haptics @capacitor/keyboard @capacitor/status-bar \
+@capacitor/core  @capacitor/filesystem  @capacitor/share  @capacitor/preferences
+@capacitor-community/media          (Photos saving)
+-d @capacitor/cli  @capacitor/ios
+```
+
+Still to add on the Mac, for the parts that are not implemented yet:
+
+```
+bun add @capacitor/app @capacitor/haptics @capacitor/keyboard @capacitor/status-bar \
         @capacitor/screen-orientation @capacitor/network
 bun add @capacitor-community/camera-preview @capacitor-community/bluetooth-le \
         @capacitor-community/keep-awake
-bun add -d @capacitor/cli @capacitor/ios
 ```
-Photos saving: `@capacitor-community/media`, or a small Swift `PHPhotoLibrary`
-plugin if that package lags Capacitor 8.
+If `@capacitor-community/media` lags Capacitor 8 at install time, swap in a
+small Swift `PHPhotoLibrary` plugin behind the same `saveVideoToPhotos()` call.
 
 ## Xcode / iOS work still required
 
