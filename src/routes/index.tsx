@@ -735,15 +735,12 @@ function Prompter({
                 : q === "1080p" ? { width: 1920, height: 1080 }
                 : { width: 1280, height: 720 };
       const videoConstraints: any = {
-        // Use the front camera, but let the browser fall back if it can't
-        // satisfy every ideal constraint.
+        // Every value is a preference, never a requirement: one unsatisfiable
+        // requirement makes the whole camera fail to open.
         facingMode: { ideal: "user" },
         width: { ideal: dims.width },
         height: { ideal: dims.height },
-        // Prefer 60fps for the smoothest, sharpest capture; the camera
-        // will fall back to 30 automatically if 60 isn't available at
-        // the chosen resolution.
-        frameRate: { ideal: 60, min: 30 },
+        frameRate: { ideal: 60 },
       };
 
       return {
@@ -752,23 +749,32 @@ function Prompter({
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 2,
-        },
+          sampleRate: { ideal: 48000 },
+          channelCount: { ideal: 2 },
+        } as MediaTrackConstraints,
       };
     };
     const start = async () => {
       try {
-        // Try requested quality; fall back to 1080p then 720p on failure.
+        // Try requested quality, then lower tiers, then a bare request. The
+        // camera must always open: a picky constraint is never a reason to
+        // leave the user with a dead record button.
         let stream: MediaStream | null = null;
         const tiers: Quality[] = quality === "4k" ? ["4k", "1080p", "720p"]
                                 : quality === "1080p" ? ["1080p", "720p"]
                                 : ["720p"];
-        for (const q of tiers) {
-          try { stream = await navigator.mediaDevices.getUserMedia(getConstraints(q)); break; }
-          catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
+        const attempts: MediaStreamConstraints[] = [
+          ...tiers.map(getConstraints),
+          { video: { facingMode: { ideal: "user" } }, audio: true },
+          { video: true, audio: true },
+        ];
+        let lastErr: unknown = null;
+        for (const constraints of attempts) {
+          try { stream = await navigator.mediaDevices.getUserMedia(constraints); break; }
+          catch (e) { lastErr = e; }
         }
-        if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
+        if (!stream) throw lastErr || new Error("Camera unavailable.");
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
         // Lock the camera at 1x zoom after acquisition as a safety net; some
         // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
         stream.getVideoTracks().forEach(track => {
