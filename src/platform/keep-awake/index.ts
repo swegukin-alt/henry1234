@@ -1,18 +1,36 @@
 // The screen must never dim while reading or recording.
 // Web: Screen Wake Lock, re-taken whenever the tab comes back.
-// Native: a keep-awake plugin (see NATIVE_READINESS.md) — until it is
-// installed, the WebView wake lock still applies inside the app.
+// iOS app: @capacitor-community/keep-awake (a real UIApplication idle-timer
+// disable). navigator.wakeLock is not used on native.
 
-import { hasPlugin, isNative } from "../runtime";
+import { hasPlugin, isNative, noteImpl } from "../runtime";
+import { loadModule, PLUGIN_MODULES } from "../native-plugins";
 
 type WakeLockSentinel = { released: boolean; release: () => Promise<void> };
 type WakeLockNavigator = Navigator & {
   wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinel> };
 };
 
+type KeepAwakePlugin = { keepAwake: () => Promise<void>; allowSleep: () => Promise<void> };
+
 export function keepAwakeSupported(): boolean {
-  if (isNative() && hasPlugin("KeepAwake")) return true;
+  if (isNative()) return hasPlugin("KeepAwake");
   return typeof navigator !== "undefined" && !!(navigator as WakeLockNavigator).wakeLock;
+}
+
+function nativeKeepAwake(): () => void {
+  let released = false;
+  noteImpl("keep-awake", "native (@capacitor-community/keep-awake)");
+  void loadModule<{ KeepAwake?: KeepAwakePlugin }>(PLUGIN_MODULES.keepAwake).then((mod) => {
+    if (!mod?.KeepAwake || released) return;
+    void mod.KeepAwake.keepAwake().catch(() => {});
+  });
+  return () => {
+    released = true;
+    void loadModule<{ KeepAwake?: KeepAwakePlugin }>(PLUGIN_MODULES.keepAwake).then((mod) =>
+      mod?.KeepAwake?.allowSleep().catch(() => {}),
+    );
+  };
 }
 
 /**
@@ -20,9 +38,11 @@ export function keepAwakeSupported(): boolean {
  * when unsupported — it simply does nothing and reports that honestly.
  */
 export function keepScreenAwake(): () => void {
+  if (isNative()) return nativeKeepAwake();
   if (typeof navigator === "undefined") return () => {};
   const nav = navigator as WakeLockNavigator;
   if (!nav.wakeLock) return () => {};
+  noteImpl("keep-awake", "web (Screen Wake Lock)");
 
   let sentinel: WakeLockSentinel | null = null;
   let released = false;
