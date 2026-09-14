@@ -9,7 +9,7 @@
 import { hasPlugin, isNative } from "../runtime";
 import { fail, ok, type ServiceResult } from "../types";
 
-const MEDIA_MODULE = "@capacitor-community/media";
+import { loadModule, PLUGIN_MODULES } from "../native-plugins";
 
 type MediaPlugin = {
   saveVideo: (o: { path: string; album?: string }) => Promise<unknown>;
@@ -48,7 +48,8 @@ export async function saveVideoToPhotos(path: string): Promise<ServiceResult<voi
     return fail("The Photos plugin is not installed in this build.", "plugin-missing");
   }
   try {
-    const mod = (await import(/* @vite-ignore */ MEDIA_MODULE)) as { Media?: MediaPlugin };
+    const mod = await loadModule<{ Media?: MediaPlugin }>(PLUGIN_MODULES.media);
+    if (!mod?.Media) return fail("The Photos plugin is not installed in this build.", "plugin-missing");
     if (!mod.Media) return fail("The Photos plugin is not installed in this build.", "plugin-missing");
     await mod.Media.saveVideo({ path });
     return ok(undefined);
