@@ -15,6 +15,7 @@ import { shareCapabilities } from "./share";
 import { keepAwakeSupported } from "./keep-awake";
 import { orientationSupport } from "./orientation";
 import { hapticsSupported } from "./haptics";
+import { capacitorCore, customCapturePlugin } from "./native-plugins";
 
 export type ImplRow = {
   feature: string;
@@ -102,5 +103,48 @@ export async function implementationReport(): Promise<ImplRow[]> {
     row("Voice follow", "web capture + server transcription", false),
     row("Remote control", "keyboard/HID events (identical on both)", false),
     // Share and Photos legitimately use the browser path on the website.
+  ];
+}
+
+export type BridgeRow = { label: string; value: string };
+
+/**
+ * Raw answers straight from the bundled @capacitor/core module — what the
+ * WebView itself reports, with no interpretation.
+ */
+export async function bridgeReport(): Promise<BridgeRow[]> {
+  const core = await capacitorCore();
+  if (!core?.Capacitor) {
+    return [{ label: "Capacitor core module", value: "not loaded (web build)" }];
+  }
+  const yn = (b: boolean) => (b ? "yes" : "no");
+  const avail = (n: string) => {
+    try {
+      return yn(core.Capacitor?.isPluginAvailable?.(n) === true);
+    } catch {
+      return "no";
+    }
+  };
+  let registered = "no";
+  try {
+    registered = yn((await customCapturePlugin()) !== null);
+  } catch {
+    registered = "no";
+  }
+  return [
+    { label: "Capacitor core module", value: "loaded" },
+    { label: "isNativePlatform()", value: yn(core.Capacitor.isNativePlatform?.() === true) },
+    { label: "getPlatform()", value: core.Capacitor.getPlatform?.() ?? "unknown" },
+    { label: 'isPluginAvailable("TeleprompterCapture")', value: avail("TeleprompterCapture") },
+    { label: "TeleprompterCapture registered", value: registered },
+    { label: "CameraPreview registered", value: avail("CameraPreview") },
+    { label: "Filesystem registered", value: avail("Filesystem") },
+    { label: "Share registered", value: avail("Share") },
+    { label: "Preferences registered", value: avail("Preferences") },
+    { label: "Media registered", value: avail("Media") },
+    { label: "App registered", value: avail("App") },
+    { label: "Haptics registered", value: avail("Haptics") },
+    { label: "KeepAwake registered", value: avail("KeepAwake") },
+    { label: "ScreenOrientation registered", value: avail("ScreenOrientation") },
   ];
 }
