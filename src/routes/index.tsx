@@ -6,6 +6,9 @@ import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
 import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
+// Device access goes through the platform layer (browser today, native iOS
+// implementations when the app runs inside Capacitor).
+import { getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings } from "@/platform";
 
 
 export const Route = createFileRoute("/")({
