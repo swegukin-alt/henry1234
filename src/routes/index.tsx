@@ -67,6 +67,22 @@ Welcome. This is your teleprompter. Paste a script, tap Play, and the words will
 
 화면 하단에 남은 분량이 퍼센트로 표시됩니다. Adjust speed and font size from the controls. Tap the screen to pause.`;
 
+// Turn a raw storage failure into something true and useful. A write can fail
+// for reasons that have nothing to do with a full phone (Safari reclaiming
+// space, private browsing, the database being closed), so never claim "full"
+// unless the browser actually said so.
+function describeStorageError(err: unknown): string {
+  const name = (err as any)?.name || "";
+  const msg = String((err as any)?.message || "");
+  if (name === "QuotaExceededError" || /quota/i.test(msg)) {
+    return "This browser hit its own storage limit for the app. Free space by deleting older takes in All videos, then keep recording.";
+  }
+  if (name === "InvalidStateError" || /closed|database/i.test(msg)) {
+    return "The recording store hiccuped. Recording continues — stop and check the take when you can.";
+  }
+  return "A piece of this take could not be written. Recording continues, but stop soon and check it.";
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -535,6 +551,8 @@ function Prompter({
   // how a 31-minute take ends up 25 minutes long, so it is surfaced live.
   const writeFailRef = useRef(0);
   const [writeWarn, setWriteWarn] = useState(false);
+  // Plain-language reason for the warning; a failed write is not always a full disk.
+  const [writeWarnMsg, setWriteWarnMsg] = useState<string>("");
   // Live counters so stopping a take can show real "saving to phone" progress
   // instead of a blank screen while the last chunks are still being written.
   const queuedRef = useRef(0);
@@ -624,39 +642,41 @@ function Prompter({
       setMicIsExternal(pick.external);
       return;
     }
-    try {
-      const audioConstraints: MediaTrackConstraints = pick.external
-        ? {
-            deviceId: { exact: pick.id },
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-            sampleRate: 48000,
-            channelCount: 2,
-          } as any
-        : {
-            deviceId: { exact: pick.id },
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            sampleRate: 48000,
-            channelCount: 2,
-          } as any;
-      const newAudio = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    const swap = async (constraints: MediaTrackConstraints): Promise<boolean> => {
+      const newAudio = await navigator.mediaDevices.getUserMedia({ audio: constraints });
       const newTrack = newAudio.getAudioTracks()[0];
-      if (!newTrack) return;
+      if (!newTrack) return false;
       // Swap tracks atomically on the same stream so the video element and
       // any future MediaRecorder see a single continuous stream.
       if (currentTrack) {
         stream.removeTrack(currentTrack);
         try { currentTrack.stop(); } catch {}
       }
+      newTrack.enabled = true;
       stream.addTrack(newTrack);
       currentMicIdRef.current = pick.id;
       setActiveMicLabel(pick.label);
       setMicIsExternal(pick.external);
+      setMicLive(true);
+      return true;
+    };
+    // Preferences only — an unsatisfiable audio requirement must never cost us
+    // the microphone entirely.
+    const preferred: MediaTrackConstraints = {
+      deviceId: { exact: pick.id },
+      echoCancellation: !pick.external,
+      noiseSuppression: !pick.external,
+      autoGainControl: !pick.external,
+      sampleRate: { ideal: 48000 },
+      channelCount: { ideal: 2 },
+    } as any;
+    try {
+      await swap(preferred);
     } catch {
-      // Keep whatever audio track we have if the swap fails.
+      try { await swap({ deviceId: { exact: pick.id } } as any); }
+      catch {
+        // Keep whatever audio track we have if the swap fails.
+      }
     }
   };
 
@@ -669,8 +689,8 @@ function Prompter({
     try {
       const fresh = await navigator.mediaDevices.getUserMedia({
         audio: currentMicIdRef.current
-          ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
-          : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 } as any),
+          ? ({ deviceId: { exact: currentMicIdRef.current } } as any)
+          : true,
       });
       const t = fresh.getAudioTracks()[0];
       if (!t) return false;
@@ -717,15 +737,12 @@ function Prompter({
                 : q === "1080p" ? { width: 1920, height: 1080 }
                 : { width: 1280, height: 720 };
       const videoConstraints: any = {
-        // Use the front camera, but let the browser fall back if it can't
-        // satisfy every ideal constraint.
+        // Every value is a preference, never a requirement: one unsatisfiable
+        // requirement makes the whole camera fail to open.
         facingMode: { ideal: "user" },
         width: { ideal: dims.width },
         height: { ideal: dims.height },
-        // Prefer 60fps for the smoothest, sharpest capture; the camera
-        // will fall back to 30 automatically if 60 isn't available at
-        // the chosen resolution.
-        frameRate: { ideal: 60, min: 30 },
+        frameRate: { ideal: 60 },
       };
 
       return {
@@ -734,41 +751,61 @@ function Prompter({
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 2,
-        },
+          sampleRate: { ideal: 48000 },
+          channelCount: { ideal: 2 },
+        } as MediaTrackConstraints,
       };
     };
     const start = async () => {
       try {
-        // Try requested quality; fall back to 1080p then 720p on failure.
+        // Try requested quality, then lower tiers, then a bare request. The
+        // camera must always open: a picky constraint is never a reason to
+        // leave the user with a dead record button.
         let stream: MediaStream | null = null;
         const tiers: Quality[] = quality === "4k" ? ["4k", "1080p", "720p"]
                                 : quality === "1080p" ? ["1080p", "720p"]
                                 : ["720p"];
-        for (const q of tiers) {
-          try { stream = await navigator.mediaDevices.getUserMedia(getConstraints(q)); break; }
-          catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
+        const attempts: MediaStreamConstraints[] = [
+          ...tiers.map(getConstraints),
+          { video: { facingMode: { ideal: "user" } }, audio: true },
+          { video: true, audio: true },
+        ];
+        let lastErr: unknown = null;
+        for (const constraints of attempts) {
+          try { stream = await navigator.mediaDevices.getUserMedia(constraints); break; }
+          catch (e) { lastErr = e; }
         }
-        if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
+        if (!stream) throw lastErr || new Error("Camera unavailable.");
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
         // Lock the camera at 1x zoom after acquisition as a safety net; some
         // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
         stream.getVideoTracks().forEach(track => {
-          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any); } catch {}
+          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any)?.catch?.(() => {}); } catch {}
         });
         streamRef.current = stream;
         if (videoElRef.current) {
           videoElRef.current.srcObject = stream;
           try { await videoElRef.current.play(); } catch {}
         }
+        // The camera is usable the moment a live video track exists. Audio is
+        // handled separately: a mic problem must never leave the record button
+        // permanently disabled.
+        const liveVideo = stream.getVideoTracks().some((t) => t.readyState === "live");
+        if (!liveVideo) throw new Error("The camera didn't start. Close other apps using the camera and reopen Video mode.");
+        setCamReady(true);
+        setCamError(null);
+
         // Now that mic permission is granted, labels are visible — pick the
         // best available input (external USB / wireless mic if present).
         await refineAudioTrack();
         if (cancelled) return;
         const liveAudio = stream.getAudioTracks().some((audioTrack) => audioTrack.readyState === "live");
-        if (!liveAudio) throw new Error("No working microphone was found. Reconnect the microphone and reopen Video mode.");
-        setCamReady(true);
-        setCamError(null);
+        setMicLive(liveAudio);
+        if (!liveAudio) {
+          const ok = await reacquireMic();
+          if (!ok) setCamError("No microphone detected. Reconnect it — recording needs sound.");
+        }
+
 
         // iOS drops out of fullscreen when the camera-permission prompt appears
         // on first grant. Re-request landscape now that the prompt is gone so
@@ -817,6 +854,27 @@ function Prompter({
     })();
     return () => { cancelled = true; };
   }, [videoMode, script.id]);
+
+  // Real headroom, straight from the browser. Shown alongside any storage
+  // warning so the message is never a guess.
+  const [freeSpaceLabel, setFreeSpaceLabel] = useState("");
+  useEffect(() => {
+    if (!videoMode) return;
+    let stop = false;
+    const read = async () => {
+      try {
+        const est = await navigator.storage?.estimate?.();
+        if (stop || !est || !est.quota) return;
+        const free = Math.max(0, (est.quota || 0) - (est.usage || 0));
+        setFreeSpaceLabel(`${fmtSize(free)} left for the app`);
+      } catch {}
+    };
+    void read();
+    const id = window.setInterval(read, 20000);
+    return () => { stop = true; window.clearInterval(id); };
+  }, [videoMode]);
+
+
 
   // Restore reader state per script in video mode (scrollTop only; other prefs already persist globally)
   const readerStateKey = `prompter.readerState.${script.id}`;
@@ -927,7 +985,7 @@ function Prompter({
       startedAt,
       width: (s.width as number) || 0,
       height: (s.height as number) || 0,
-    }).catch(() => { setWriteWarn(true); });
+    }).catch((err) => { setWriteWarn(true); setWriteWarnMsg(describeStorageError(err)); });
 
     recordingIdRef.current = recordingId;
     appendQueueRef.current = sessionReady;
@@ -935,26 +993,33 @@ function Prompter({
     queuedRef.current = 0;
     writtenRef.current = 0;
     setWriteWarn(false);
+    setWriteWarnMsg("");
     setFinalizing(null);
 
     // Serialize durable writes. Do not retain a second full recording in RAM:
     // long high-quality takes otherwise exceed iPhone Safari's memory limit.
-    // Each write is retried: a transient storage hiccup must never silently
-    // drop a second of footage.
+    // Each write is retried with growing backoff: a transient storage hiccup
+    // (Safari briefly refusing writes while it reclaims space) must never
+    // silently drop a second of footage.
     const writeChunk = async (blob: Blob) => {
-      for (let attempt = 0; attempt < 4; attempt++) {
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 6; attempt++) {
         try {
           await appendChunk(recordingId, blob);
           writtenRef.current += 1;
+          if (writeFailRef.current === 0) { setWriteWarn(false); setWriteWarnMsg(""); }
           return;
-        } catch {
-          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+        } catch (err) {
+          lastErr = err;
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
         }
       }
       writtenRef.current += 1;
       writeFailRef.current += 1;
       setWriteWarn(true);
+      setWriteWarnMsg(describeStorageError(lastErr));
     };
+
 
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
@@ -1699,18 +1764,22 @@ function Prompter({
         </div>
       )}
 
-      {/* Storage trouble — a silently failed write is how a take ends short */}
+      {/* Storage trouble — a silently failed write is how a take ends short.
+          The text states the real cause; it never claims the phone is full. */}
       {videoMode && writeWarn && (
-        <div
-          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-xs font-bold leading-snug text-white"
+        <button
+          type="button"
+          onClick={() => { setWriteWarn(false); setWriteWarnMsg(""); }}
+          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-left text-xs font-bold leading-snug text-white"
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 3.2rem)",
             left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
             transform: mirrorV ? "scaleY(-1)" : undefined,
           }}
         >
-          Storage is full — stop soon and free space, or the end of this take will be lost.
-        </div>
+          {writeWarnMsg || "A piece of this take could not be written. Recording continues, but stop soon and check it."}
+          {freeSpaceLabel ? ` (${freeSpaceLabel})` : ""}
+        </button>
       )}
 
       {/* Saving-to-phone progress after Stop. The take is not in the library
