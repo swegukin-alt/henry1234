@@ -821,30 +821,21 @@ function Prompter({
     return "";
   };
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(() => {
     const stream = streamRef.current;
-    if (!stream || recording) return;
-    // Make sure a live mic track is on the stream before we start. iOS can end
-    // the audio track (another app / session took the mic), which would produce
-    // a silent recording. Re-acquire and attach one if needed.
+    if (!stream) { setCamError("The camera isn't ready yet. Give it a second and press record again."); return; }
+    if (recording || recordingRef.current) return;
+
+    // Wake up any muted/disabled mic track synchronously. Anything that needs
+    // the network or the camera permission dialog must NOT run before
+    // rec.start(): on iOS an await can cost the user-gesture and the recorder
+    // then silently refuses to start.
+    let hasAudio = false;
     try {
-      const live = stream.getAudioTracks().filter((t) => t.readyState === "live");
-      live.forEach((t) => { t.enabled = true; });
-      if (live.length === 0) {
-        stream.getAudioTracks().forEach((t) => { try { stream.removeTrack(t); } catch {} });
-        const fresh = await navigator.mediaDevices.getUserMedia({
-          audio: currentMicIdRef.current
-            ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
-            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
-        });
-        const t = fresh.getAudioTracks()[0];
-        if (t) { t.enabled = true; stream.addTrack(t); }
-      }
+      stream.getAudioTracks().forEach((t) => { t.enabled = true; });
+      hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live");
     } catch {}
-    if (!stream.getAudioTracks().some((track) => track.readyState === "live")) {
-      setCamError("No working microphone was found. Reconnect the microphone and try again.");
-      return;
-    }
+
     const mimeType = pickMime();
     // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
     // and 4K30 at ~40-50 Mbps; we mirror those numbers so recordings look
@@ -856,26 +847,33 @@ function Prompter({
       rec = new MediaRecorder(stream, mimeType
         ? { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: audioBps }
         : { videoBitsPerSecond: bps, audioBitsPerSecond: audioBps });
-    } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
+    } catch {
+      try { rec = new MediaRecorder(stream); }
+      catch {
+        setCamError("This browser can't record video. Open the app in Safari and try again.");
+        return;
+      }
+    }
 
     const recordingId = Math.random().toString(36).slice(2, 12);
     const track = stream.getVideoTracks()[0];
     const s = track?.getSettings?.() || {};
     const finalMime = rec.mimeType || mimeType || "video/mp4";
     const startedAt = Date.now();
-    try {
-      await createSession({
-        id: recordingId,
-        scriptId: script.id,
-        mimeType: finalMime,
-        startedAt,
-        width: (s.width as number) || 0,
-        height: (s.height as number) || 0,
-      });
-    } catch { return; }
+
+    // Creating the durable session happens in the background; chunk writes
+    // queue behind it, so no footage can be written before it exists.
+    const sessionReady = createSession({
+      id: recordingId,
+      scriptId: script.id,
+      mimeType: finalMime,
+      startedAt,
+      width: (s.width as number) || 0,
+      height: (s.height as number) || 0,
+    }).catch(() => { setWriteWarn(true); });
 
     recordingIdRef.current = recordingId;
-    appendQueueRef.current = Promise.resolve();
+    appendQueueRef.current = sessionReady;
     writeFailRef.current = 0;
     queuedRef.current = 0;
     writtenRef.current = 0;
@@ -953,13 +951,40 @@ function Prompter({
     // 1s timeslice = big enough to keep write overhead low, small enough
     // that at most ~1s of footage is ever unflushed if the process dies.
     recordingRef.current = true;
-    try { rec.start(1000); } catch { try { rec.start(); } catch { recordingRef.current = false; return; } }
+    try {
+      rec.start(1000);
+    } catch {
+      try { rec.start(); }
+      catch {
+        recordingRef.current = false;
+        recordingIdRef.current = null;
+        setCamError("Recording couldn't start. Close other apps using the camera, then try again.");
+        return;
+      }
+    }
     recorderRef.current = rec;
     setRecording(true);
+    setCamError(null);
     // Start the script rolling in sync with the recording
     setPlaying(true);
     setControlsVisible(false);
     setPanel(null);
+
+    // Mic recovery, after the recorder is live so it can never block the start.
+    if (!hasAudio) {
+      setCamError("Recording started, but no microphone was detected — the video may have no sound.");
+      navigator.mediaDevices
+        .getUserMedia({
+          audio: currentMicIdRef.current
+            ? ({ deviceId: { exact: currentMicIdRef.current } } as any)
+            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
+        })
+        .then((fresh) => {
+          const t = fresh.getAudioTracks()[0];
+          if (t) { t.enabled = true; try { stream.addTrack(t); } catch {} }
+        })
+        .catch(() => {});
+    }
   }, [quality, recording, script.id]);
 
   const stopRecording = useCallback(() => {
