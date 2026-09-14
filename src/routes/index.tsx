@@ -693,19 +693,16 @@ function Prompter({
     if (!videoMode) return;
     let cancelled = false;
     const getConstraints = (q: Quality): MediaStreamConstraints => {
-      const dims = q === "4k" ? { width: 3840, height: 2160 }
-                : q === "1080p" ? { width: 1920, height: 1080 }
-                : { width: 1280, height: 720 };
+      const p = QUALITY_PROFILES[q];
       const videoConstraints: any = {
         // Use the front camera, but let the browser fall back if it can't
         // satisfy every ideal constraint.
         facingMode: { ideal: "user" },
-        width: { ideal: dims.width },
-        height: { ideal: dims.height },
-        // Prefer 60fps for the smoothest, sharpest capture; the camera
-        // will fall back to 30 automatically if 60 isn't available at
-        // the chosen resolution.
-        frameRate: { ideal: 60, min: 30 },
+        width: { ideal: p.width },
+        height: { ideal: p.height },
+        // Ask firmly for the profile's frame rate. A bare "ideal: 60" lets
+        // iPhone quietly settle on 30fps, which is what makes motion smear.
+        frameRate: { ideal: p.fps, min: p.fps === 60 ? 50 : 24 },
       };
 
       return {
@@ -721,11 +718,12 @@ function Prompter({
     };
     const start = async () => {
       try {
-        // Try requested quality; fall back to 1080p then 720p on failure.
+        // Try requested profile, then progressively easier ones.
         let stream: MediaStream | null = null;
-        const tiers: Quality[] = quality === "4k" ? ["4k", "1080p", "720p"]
-                                : quality === "1080p" ? ["1080p", "720p"]
-                                : ["720p"];
+        const tiers: Quality[] = quality === "4k30" ? ["4k30", "1080p60", "1080p30", "720p60"]
+                                : quality === "1080p60" ? ["1080p60", "1080p30", "720p60"]
+                                : quality === "1080p30" ? ["1080p30", "720p60"]
+                                : ["720p60"];
         for (const q of tiers) {
           try { stream = await navigator.mediaDevices.getUserMedia(getConstraints(q)); break; }
           catch (e) { if (q === tiers[tiers.length - 1]) throw e; }
@@ -733,9 +731,14 @@ function Prompter({
         if (cancelled || !stream) { stream?.getTracks().forEach(t => t.stop()); return; }
         // Lock the camera at 1x zoom after acquisition as a safety net; some
         // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
-        stream.getVideoTracks().forEach(track => {
-          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any); } catch {}
-        });
+        // Re-assert the frame rate too: the first negotiation often lands on 30.
+        const want = QUALITY_PROFILES[quality];
+        for (const track of stream.getVideoTracks()) {
+          try { await track.applyConstraints({ frameRate: { ideal: want.fps }, advanced: [{ zoom: 1 }, { frameRate: want.fps }] } as any); } catch {}
+        }
+        const vs = stream.getVideoTracks()[0]?.getSettings?.() || {};
+        if (!cancelled) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0) });
+
         streamRef.current = stream;
         if (videoElRef.current) {
           videoElRef.current.srcObject = stream;
