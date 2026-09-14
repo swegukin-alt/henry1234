@@ -13,6 +13,7 @@ import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
 // implementations when the app runs inside Capacitor).
 import {
   getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings,
+  settingsHydrationStatus,
   isNative, startCamera, stopCamera, startRecording as startNativeCapture, cameraCapabilities,
   requestPermission, openAppSettings, haptic, onLifecycleChange, pickBestMicrophone,
   type PreviewHandle, type RecordingHandle,
@@ -192,7 +193,12 @@ function Index() {
     if (activeId === id) setActiveId(null);
   };
 
-  if (!hydrated) return <div className="min-h-screen bg-[#0a0a0a]" />;
+  if (!hydrated)
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a] text-sm text-neutral-400">
+        Loading…
+      </div>
+    );
 
   if ((mode === "play" || mode === "video") && active) {
     return (
