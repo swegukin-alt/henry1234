@@ -977,23 +977,7 @@ function Prompter({
     setPlaying(true);
     setControlsVisible(false);
     setPanel(null);
-
-    // Mic recovery, after the recorder is live so it can never block the start.
-    if (!hasAudio) {
-      setCamError("Recording started, but no microphone was detected — the video may have no sound.");
-      navigator.mediaDevices
-        .getUserMedia({
-          audio: currentMicIdRef.current
-            ? ({ deviceId: { exact: currentMicIdRef.current } } as any)
-            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
-        })
-        .then((fresh) => {
-          const t = fresh.getAudioTracks()[0];
-          if (t) { t.enabled = true; try { stream.addTrack(t); } catch {} }
-        })
-        .catch(() => {});
-    }
-  }, [quality, recording, script.id]);
+  }, [quality, recording, script.id, reacquireMic]);
 
   const stopRecording = useCallback(() => {
     const rec = recorderRef.current;
