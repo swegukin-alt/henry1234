@@ -2062,7 +2062,8 @@ function ClipsSheet({
           ? `Restored ${fmtDuration(clip.durationMs)} · ${fmtSize(clip.sizeBytes)}. Tap it to play, then Save to Photos to keep it.`
           : `Recovered ${fmtSize(clip.sizeBytes)} of footage but this device still can't decode it. Use Save to Photos to get the file off the phone.`);
         if (report.playable) {
-          setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
+          const url = URL.createObjectURL(clip.blob);
+          setSource(url, () => URL.revokeObjectURL(url));
           setPlayingClip(clip);
         }
       } else {
