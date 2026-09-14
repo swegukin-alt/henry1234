@@ -11,7 +11,13 @@ import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chun
 import { useVoiceFollow, isVoiceFollowSupported } from "@/lib/voice-follow-v2";
 // Device access goes through the platform layer (browser today, native iOS
 // implementations when the app runs inside Capacitor).
-import { getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings } from "@/platform";
+import {
+  getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings,
+  isNative, startCamera, stopCamera, startRecording as startNativeCapture, cameraCapabilities,
+  requestPermission, openAppSettings, haptic, onLifecycleChange, pickBestMicrophone,
+  type PreviewHandle, type RecordingHandle,
+} from "@/platform";
+import { importRecording } from "@/platform/storage/media-store";
 
 
 export const Route = createFileRoute("/")({
@@ -546,6 +552,17 @@ function Prompter({
   const [micLive, setMicLive] = useState(false);
   const currentMicIdRef = useRef<string>("");
 
+  // Inside the iPhone app the camera, the microphone and the recording are
+  // native: no getUserMedia, no MediaRecorder, no blobs. Detected after mount
+  // so the server-rendered markup and the first client render always match.
+  const [nativeApp, setNativeApp] = useState(false);
+  useEffect(() => { setNativeApp(isNative()); }, []);
+  const nativeAppRef = useRef(false);
+  useEffect(() => { nativeAppRef.current = nativeApp; }, [nativeApp]);
+  const previewRef = useRef<PreviewHandle | null>(null);
+  const nativeRecRef = useRef<RecordingHandle | null>(null);
+  const nativeTakeRef = useRef<{ id: string; startedAt: number; width: number; height: number } | null>(null);
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingIdRef = useRef<string | null>(null);
   const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -714,8 +731,10 @@ function Prompter({
 
   // Mic watchdog: while the camera is open, keep checking that a live audio
   // track is attached and repair it before the user ever presses record.
+  // Native iOS has no MediaStream to watch — the capture session owns the mic
+  // and reports its own route changes through the audio service.
   useEffect(() => {
-    if (!videoMode) return;
+    if (!videoMode || nativeApp) return;
     const check = () => {
       const stream = streamRef.current;
       if (!stream) return;
@@ -726,13 +745,75 @@ function Prompter({
     check();
     const id = window.setInterval(check, 2000);
     return () => window.clearInterval(id);
-  }, [videoMode, reacquireMic]);
+  }, [videoMode, nativeApp, reacquireMic]);
+
+  // Native camera: a real AVFoundation preview layer behind the WebView. The
+  // teleprompter HTML stays exactly as it is and simply sits on top of it.
+  useEffect(() => {
+    if (!videoMode || !nativeApp) return;
+    let cancelled = false;
+    (async () => {
+      const perm = await requestPermission("camera");
+      if (cancelled) return;
+      if (perm === "denied" || perm === "restricted") {
+        setCamError("Camera access is off for this app. Turn it on in iOS Settings, then come back.");
+        return;
+      }
+      await requestPermission("microphone");
+      if (cancelled) return;
+      const res = await startCamera({ quality, facing: "front" });
+      if (cancelled) {
+        if (res.ok) await stopCamera(res.value);
+        return;
+      }
+      if (!res.ok) {
+        setCamError(res.reason);
+        return;
+      }
+      previewRef.current = res.value;
+      setCamReady(true);
+      setCamError(null);
+      const mic = await pickBestMicrophone();
+      if (cancelled) return;
+      setMicLive(true);
+      if (mic) {
+        setActiveMicLabel(mic.label);
+        setMicIsExternal(mic.external);
+      }
+      void lockOrientation("landscape");
+    })();
+    return () => {
+      cancelled = true;
+      const rec = nativeRecRef.current;
+      nativeRecRef.current = null;
+      // iOS must never be left holding the camera. A take still rolling is
+      // stopped and kept, not discarded.
+      if (rec) void rec.stop().catch(() => {});
+      void stopCamera(previewRef.current);
+      previewRef.current = null;
+      setCamReady(false);
+      setMicLive(false);
+      void lockOrientation("any");
+    };
+  }, [videoMode, nativeApp, quality]);
+
+  // Native lifecycle: if iOS suspends the app mid-take, the recording has
+  // genuinely stopped. Close the file, keep it, and show the true state.
+  useEffect(() => {
+    if (!videoMode || !nativeApp) return;
+    return onLifecycleChange((state) => {
+      if (state !== "background") return;
+      if (nativeRecRef.current) void finishNativeRecordingRef.current?.();
+    });
+  }, [videoMode, nativeApp]);
 
 
 
 
   useEffect(() => {
-    if (!videoMode) return;
+    // Browser camera only. Inside the iPhone app the native effect above owns
+    // the camera and getUserMedia is never called.
+    if (!videoMode || nativeApp) return;
     let cancelled = false;
     const getConstraints = (q: Quality): MediaStreamConstraints => {
       const dims = q === "4k" ? { width: 3840, height: 2160 }
@@ -840,7 +921,7 @@ function Prompter({
     };
     // Re-acquire on quality change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoMode, quality]);
+  }, [videoMode, nativeApp, quality]);
 
 
   // Load existing clips, recover any orphan session from a prior crash / close,
@@ -930,7 +1011,96 @@ function Prompter({
     return "";
   };
 
+  // ==== Native iOS capture ====
+  // The camera writes the take itself, straight to a real file in the app's
+  // own storage. Nothing here touches MediaRecorder, blobs or the browser
+  // database — those are the web implementation only.
+  const finishNativeRecordingRef = useRef<(() => Promise<void>) | null>(null);
+
+  const finishNativeRecording = useCallback(async () => {
+    const rec = nativeRecRef.current;
+    const take = nativeTakeRef.current;
+    nativeRecRef.current = null;
+    nativeTakeRef.current = null;
+    if (!rec || !take) return;
+    recordingRef.current = false;
+    setRecording(false);
+    setPlaying(false);
+    setControlsVisible(true);
+    setFinalizing({ done: 0, total: 1, phase: "assembling" });
+    try {
+      const { mimeType, filePath } = await rec.stop();
+      if (!filePath) throw new Error("The recording finished but iOS did not hand back the file.");
+      const clip = await importRecording(
+        {
+          id: take.id,
+          scriptId: script.id,
+          mimeType: mimeType || "video/mp4",
+          startedAt: take.startedAt,
+          width: take.width,
+          height: take.height,
+          durationMs: Date.now() - take.startedAt,
+        },
+        filePath,
+      );
+      if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+      setFinalizing(null);
+      haptic("record-stop");
+    } catch (e) {
+      setFinalizing({ done: 0, total: 1, phase: "error" });
+      setWriteWarn(true);
+      setWriteWarnMsg((e as { message?: string })?.message || "The take could not be stored.");
+      haptic("error");
+    }
+  }, [script.id]);
+  useEffect(() => { finishNativeRecordingRef.current = finishNativeRecording; }, [finishNativeRecording]);
+
+  const startNativeRecording = useCallback(async () => {
+    const handle = previewRef.current;
+    if (!handle) {
+      setCamError("The camera isn't ready yet. Give it a second and press record again.");
+      return;
+    }
+    if (recordingRef.current) return;
+    const mic = await requestPermission("microphone");
+    if (mic === "denied" || mic === "restricted") {
+      setCamError("Microphone access is off for this app. Turn it on in iOS Settings — a take without sound is worthless.");
+      void openAppSettings();
+      haptic("error");
+      return;
+    }
+    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    recordingRef.current = true;
+    const res = await startNativeCapture(handle, {
+      videoBitsPerSecond: bps,
+      audioBitsPerSecond: 192_000,
+      timesliceMs: 1000,
+    });
+    if (!res.ok) {
+      recordingRef.current = false;
+      setCamError(res.reason);
+      haptic("error");
+      return;
+    }
+    nativeRecRef.current = res.value;
+    nativeTakeRef.current = {
+      id: Math.random().toString(36).slice(2, 12),
+      startedAt: Date.now(),
+      width: handle.width,
+      height: handle.height,
+    };
+    recordStartRef.current = Date.now();
+    setElapsedMs(0);
+    setRecording(true);
+    setCamError(null);
+    setPlaying(true);
+    setControlsVisible(false);
+    setPanel(null);
+    haptic("record-start");
+  }, [quality]);
+
   const startRecording = useCallback(() => {
+    if (nativeAppRef.current) { void startNativeRecording(); return; }
     const stream = streamRef.current;
     if (!stream) { setCamError("The camera isn't ready yet. Give it a second and press record again."); return; }
     if (recording || recordingRef.current) return;
@@ -1106,9 +1276,17 @@ function Prompter({
     setPlaying(true);
     setControlsVisible(false);
     setPanel(null);
-  }, [quality, recording, script.id, reacquireMic]);
+  }, [quality, recording, script.id, reacquireMic, startNativeRecording]);
 
   const stopRecording = useCallback(() => {
+    if (nativeAppRef.current) {
+      void finishNativeRecording();
+      const elNative = scrollRef.current;
+      if (elNative) {
+        try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: elNative.scrollTop, updatedAt: Date.now() })); } catch {}
+      }
+      return;
+    }
     const rec = recorderRef.current;
     if (!rec) return;
     try { if (rec.state === "recording") rec.requestData(); } catch {}
@@ -1124,7 +1302,7 @@ function Prompter({
     if (el) {
       try { localStorage.setItem(readerStateKey, JSON.stringify({ scrollTop: el.scrollTop, updatedAt: Date.now() })); } catch {}
     }
-  }, [readerStateKey]);
+  }, [readerStateKey, finishNativeRecording]);
 
   // Stop recording cleanly if user backgrounds the app, and flush scroll position
   useEffect(() => {
@@ -1585,18 +1763,28 @@ function Prompter({
   const iconBtn = "grid h-10 w-10 sm:h-11 sm:w-11 shrink-0 place-items-center rounded-full text-neutral-300 active:scale-90 transition";
 
   return (
-    <div className={`${bgClass} fixed inset-0 overflow-hidden select-none`} style={{ fontFamily: "var(--font-prompter)" }}>
+    <div
+      className={`${videoMode && nativeApp ? "text-neutral-50" : bgClass} fixed inset-0 overflow-hidden select-none`}
+      style={{
+        fontFamily: "var(--font-prompter)",
+        // In the iPhone app the camera is a native layer behind the WebView, so
+        // the page itself must stay see-through.
+        ...(videoMode && nativeApp ? { background: "transparent" } : null),
+      }}
+    >
       {/* Camera preview — behind everything in video mode. Mirrored for natural feel; recorded stream is NOT mirrored. */}
       {videoMode && (
         <>
-          <video
-            ref={videoElRef}
-            className="absolute inset-0 h-full w-full object-cover"
-            style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform" }}
-            autoPlay
-            muted
-            playsInline
-          />
+          {!nativeApp && (
+            <video
+              ref={videoElRef}
+              className="absolute inset-0 h-full w-full object-cover"
+              style={{ transform: "scaleX(-1) translateZ(0)", willChange: "transform" }}
+              autoPlay
+              muted
+              playsInline
+            />
+          )}
           {/* Dark scrim so the script stays readable over the video */}
           <div className="pointer-events-none absolute inset-0 bg-black/45" />
           {camError && (

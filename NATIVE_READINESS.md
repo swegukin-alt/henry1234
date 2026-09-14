@@ -28,7 +28,7 @@ Legend — Where: `web` = stays browser, `native` = should use iOS,
 `both` = shared engine with a native adapter. Test: `sim` = iOS Simulator is
 enough, `device` = needs a real iPhone.
 
-### 1. Camera preview and video recording — PRIORITY 1
+### 1. Camera preview and video recording — PRIORITY 1 — IMPLEMENTED
 - Now: `getUserMedia` with quality tiers (4K → 1080p → 720p → bare), 60 fps
   *ideal*, zoom 1 via `applyConstraints`, live-track check before enabling
   record. `MediaRecorder` at 45/14/6 Mbps + 192 kbps audio, MIME fallback chain,
@@ -52,8 +52,17 @@ enough, `device` = needs a real iPhone.
 - Permission: `NSCameraUsageDescription`.
 - Test: device (the Simulator has no camera).
 - Risk to web: none — the web class is the same code as before.
+- **Implemented:** `src/platform/camera/native.ts` prefers the custom
+  `TeleprompterCapture` plugin (`ios-plugin/TeleprompterCapture/`, registered via
+  `registerPlugin`), then `@capacitor-community/camera-preview`. If neither is
+  present it returns `plugin-missing` and the screen shows a visible camera
+  error — it never reopens `getUserMedia`. `src/routes/index.tsx` has a separate
+  native camera effect and `startRecording`/`stopRecording` branch to
+  `startNativeRecording`/`finishNativeRecording`, which hand the native file
+  straight to `importRecording()` in the filesystem take store. No Blob, no
+  MediaRecorder, no IndexedDB on the native path.
 
-### 2. Microphone and audio session — PRIORITY 1
+### 2. Microphone and audio session — PRIORITY 1 — IMPLEMENTED (needs the Swift plugin)
 - Now: `enumerateDevices` + label matching to prefer an external mic (DJI, USB,
   wireless); external mics get raw audio, built-in keeps processing; track swap
   without disturbing the recorder; 2 s watchdog reacquires a dropped mic;
@@ -67,6 +76,14 @@ enough, `device` = needs a real iPhone.
   required** for the audio session. Documented, not stubbed as working.
 - Permission: `NSMicrophoneUsageDescription`.
 - Test: device (external mic and route changes cannot be simulated).
+- **Implemented:** the Swift plugin is written
+  (`ios-plugin/TeleprompterCapture/TeleprompterCapture.swift`): `AVAudioSession`
+  `playAndRecord` / `videoRecording` with `allowBluetooth`, input enumeration and
+  selection, plus `audioRouteChange` and `audioInterruption` events surfaced to
+  `src/platform/audio/native.ts`. Audio is captured by the capture session
+  itself, so recording never touches `getUserMedia` on iOS. Drop the two Swift
+  files into the Xcode target; without them the camera reports unavailable
+  rather than falling back.
 
 ### 3. Voice follow / speech recognition — PRIORITY 3
 - Now: PCM windows → WAV → `/api/public/transcribe` (AI gateway). The browser
@@ -163,7 +180,9 @@ enough, `device` = needs a real iPhone.
 - Now: Screen Wake Lock, re-requested on `visibilitychange`; now
   `src/platform/keep-awake` (`keepScreenAwake()` returns a release function, held
   for the whole reading/recording session).
-- Native: `@capacitor-community/keep-awake`. Test: sim.
+- **Implemented:** `keepScreenAwake()` calls `KeepAwake.keepAwake()/allowSleep()`
+  on native and `navigator.wakeLock` on web. Install
+  `@capacitor-community/keep-awake` on the Mac. Test: sim.
 
 ### 12. Orientation and fullscreen — PRIORITY 2
 - Now: `requestFullscreen` + `screen.orientation.lock("landscape")` on entering
@@ -172,6 +191,10 @@ enough, `device` = needs a real iPhone.
 - Now `src/platform/orientation`. Native: `@capacitor/screen-orientation` can
   really lock landscape during recording, and `@capacitor/status-bar` hides the
   status bar for the reading screen only, restoring it on exit.
+- **Implemented:** `lockOrientation()` uses `ScreenOrientation.lock/unlock` on
+  native (`@capacitor/screen-orientation`) and `screen.orientation.lock` on web;
+  `enterImmersive()` is a no-op on native, where WebView fullscreen throws.
+  The video screen locks landscape on entry and unlocks on exit.
 - Test: sim.
 
 ### 13. App lifecycle and interruptions — PRIORITY 1
@@ -181,6 +204,10 @@ enough, `device` = needs a real iPhone.
   network changes. Native should use `@capacitor/app`; if iOS stops a recording,
   the UI must say so — never pretend it continued. The existing chunk store
   means whatever was written is already recoverable.
+- **Implemented:** `onLifecycleChange()` uses `@capacitor/app`
+  (`appStateChange`/`pause`/`resume`) on native. While recording in the app, a
+  move to background finalises the take through `finishNativeRecording()` so the
+  real file is saved and the UI shows the true state.
 - Test: device.
 
 ### 14. Permissions — PRIORITY 2
@@ -188,7 +215,12 @@ enough, `device` = needs a real iPhone.
   requested at startup — keep it that way.
 - `src/platform/permissions` centralises states (`not-requested`, `granted`,
   `denied`, `restricted`, `unavailable`) and exposes `openAppSettings()` for the
-  native hard-denial case.
+  native hard-denial case. **Implemented natively:** camera and microphone go
+  through `TeleprompterCapture.checkPermissions/requestPermissions`, Photos
+  through `@capacitor-community/media`, and `openAppSettings()` opens
+  `app-settings:`. Permission is requested when the video screen is opened by
+  the user, never at startup; a denied camera or mic shows a plain message with
+  a route into iOS Settings.
 
 ### 15. Safe areas, keyboard, haptics, network, clipboard
 - Safe areas: `env(safe-area-inset-*)` already applied throughout the reader,
@@ -196,7 +228,9 @@ enough, `device` = needs a real iPhone.
   Dynamic Island in landscape.
 - Keyboard: the editor is a plain textarea; `capacitor.config.ts` sets
   `Keyboard.resize: "none"` so the teleprompter viewport is never resized.
-- Haptics: none today. `src/platform/haptics` is optional and no-ops silently.
+- Haptics: **implemented** — `haptic()` fires `@capacitor/haptics` impact on
+  record start/stop and an error notification on a failed take; on web it uses
+  `navigator.vibrate` and silently does nothing when unavailable.
 - Network: only transcription needs the network. `isOnline()` exists so a lost
   connection is never reported as a camera or storage fault.
 - Clipboard, external links, in-app navigation, auth/session storage: **not used
@@ -225,6 +259,15 @@ bun add @capacitor/app @capacitor/haptics @capacitor/keyboard @capacitor/status-
         @capacitor/screen-orientation @capacitor/network
 bun add @capacitor-community/camera-preview @capacitor-community/bluetooth-le \
         @capacitor-community/keep-awake
+```
+
+`@capacitor/app`, `@capacitor/haptics`, `@capacitor/screen-orientation` and
+`@capacitor-community/keep-awake` are already wired in code — installing them is
+all that is left. `@capacitor-community/bluetooth-le` is only needed if a real
+BLE peripheral is added later; the Desview remote is HID and must stay on the
+existing keyboard-event path.
+
+```
 ```
 If `@capacitor-community/media` lags Capacitor 8 at install time, swap in a
 small Swift `PHPhotoLibrary` plugin behind the same `saveVideoToPhotos()` call.

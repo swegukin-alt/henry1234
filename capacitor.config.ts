@@ -25,7 +25,8 @@ const config: CapacitorConfig = {
   ios: {
     // The native camera preview renders behind the WebView, so the WebView
     // itself must be able to show through it.
-    backgroundColor: "#000000",
+    backgroundColor: "#00000000",
+    webContentsDebuggingEnabled: true,
     contentInset: "never",
     limitsNavigationsToAppBoundDomains: true,
     // Media capture must never open a system player or require a tap.

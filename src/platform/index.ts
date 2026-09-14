@@ -38,3 +38,4 @@ export { onLifecycleChange, onNetworkChange, isOnline } from "./lifecycle";
 export type { LifecycleState } from "./lifecycle";
 export { haptic, hapticsSupported } from "./haptics";
 export { permissionService, checkPermission, requestPermission, openAppSettings } from "./permissions";
+export { readOrientation } from "./orientation";

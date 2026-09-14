@@ -57,6 +57,16 @@ export type MediaStore = {
 
   /** Native only: the on-disk file URI, used for the iOS share sheet and Photos. */
   filePath?: (id: string) => Promise<string | null>;
+
+  /**
+   * Native only: adopt a file iOS just recorded (the native camera writes the
+   * whole take itself) into the take library, without copying it through
+   * JavaScript memory.
+   */
+  importRecording?: (
+    meta: NewSession & { durationMs: number; sizeBytes?: number },
+    sourceUri: string,
+  ) => Promise<ClipMeta | null>;
 };
 
 export const webMediaStore: MediaStore = {
@@ -135,6 +145,16 @@ export const rescueAll = async (scriptId: string) => (await mediaStore()).rescue
 export const clipFilePath = async (id: string) => {
   const store = await mediaStore();
   return store.filePath ? store.filePath(id) : null;
+};
+
+/** Adopt a natively recorded file as a take. Native only. */
+export const importRecording = async (
+  meta: NewSession & { durationMs: number; sizeBytes?: number },
+  sourceUri: string,
+) => {
+  const store = await mediaStore();
+  if (!store.importRecording) return null;
+  return store.importRecording(meta, sourceUri);
 };
 
 export { fmtSize, fmtDuration, assembleBest, measureDuration, probePlayable } from "@/lib/clip-store";

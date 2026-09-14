@@ -1,4 +1,4 @@
-import { pickImpl } from "../runtime";
+import { pickStrict } from "../runtime";
 import { webAudio } from "./web";
 import type { AudioService, MicInfo } from "./types";
 
@@ -6,8 +6,12 @@ export type * from "./types";
 
 let resolved: Promise<AudioService> | null = null;
 
+/**
+ * The microphone service. Inside the iPhone app this is always the native one:
+ * recording audio is captured by the native session, never by getUserMedia.
+ */
 export function audioService(): Promise<AudioService> {
-  resolved ??= pickImpl(webAudio, async () => (await import("./native")).nativeAudio);
+  resolved ??= pickStrict(webAudio, async () => (await import("./native")).nativeAudio);
   return resolved;
 }
 
