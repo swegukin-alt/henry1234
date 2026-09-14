@@ -290,17 +290,30 @@ export async function createNativeMediaStore(): Promise<MediaStore | null> {
 
     async repairClip(id) {
       const clip = await noRepair(id);
+      const bytes = clip?.blob.size ?? 0;
       const report: RepairReport = {
-        playable: !!clip && clip.blob.size > 0,
-      } as RepairReport;
+        container: /webm/i.test(clip?.mimeType ?? "") ? "webm" : "mp4",
+        hadHeader: bytes > 0,
+        chunkCount: bytes > 0 ? 1 : 0,
+        bytes,
+        changedMime: false,
+        rebuiltFromChunks: false,
+        playable: bytes > 0,
+      };
       return { clip, report };
     },
 
     async deepRestore(id) {
       const clip = await noRepair(id);
+      const bytes = clip?.blob.size ?? 0;
       const report: RestoreReport = {
-        playable: !!clip && clip.blob.size > 0,
-      } as RestoreReport;
+        bytes,
+        trimmedBytes: 0,
+        durationMs: clip?.durationMs ?? 0,
+        previousDurationMs: clip?.durationMs ?? 0,
+        playable: bytes > 0,
+        rebuiltFromChunks: false,
+      };
       return { clip, report };
     },
 
