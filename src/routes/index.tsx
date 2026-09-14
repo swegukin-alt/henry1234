@@ -1658,6 +1658,17 @@ function Prompter({
                 ))}
               </div>
               <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
+              <div className="mt-3 mb-1 text-xs text-neutral-300">Split recording every</div>
+              <div className="flex gap-2">
+                {[1, 2, 5, 10].map((m) => (
+                  <button key={m} disabled={recording} onClick={() => setPartMinutes(m)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${partMinutes === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {m} min
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-neutral-400">Recording never pauses. Shorter parts are quicker and far more reliable to save; they still play back as one take.</p>
+
             </div>
           )}
           {/* Reading assist toggles */}
