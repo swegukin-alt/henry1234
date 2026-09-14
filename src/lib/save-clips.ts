@@ -1,11 +1,9 @@
 // Saving a recording off the phone.
 //
-// The whole UI here is deliberately one button. iOS only offers "Save Video",
-// AirDrop, Files etc. through its own share sheet, and it only opens that sheet
-// when navigator.share() is reached inside the tap that triggered it — so the
-// file is prepared first (ring), and then a single Share button fires share()
-// synchronously. The stored playable Blob is reused unchanged: rebuilding a
-// multi-GB take before sharing can exhaust iPhone Safari's memory.
+// The whole UI here is deliberately one button. Normal takes use Apple's share
+// sheet. Long takes that exceed iPhone Web Share's attachment capacity use the
+// browser download manager instead, which saves them to Files > Downloads.
+// The stored playable Blob is reused unchanged in both paths.
 
 import type { ClipMeta, ClipRecord } from "./clip-store";
 import { fmtSize, getClip } from "./clip-store";
@@ -23,11 +21,16 @@ export type SaveJob = {
   runPrimary?: () => void;
 };
 
-// No size gate: the iPhone share sheet is always the primary (and only) path.
-
-
+// iPhone Web Share commonly refuses large local attachments before its menu
+// opens. Downloads do not pass through that attachment handoff.
+const IPHONE_SHARE_SAFE_BYTES = 256 * 1024 * 1024;
+const activeDownloadUrls = new Set<string>();
 function downloadFile(f: File) {
   const url = URL.createObjectURL(f);
+  // Keep the URL alive. Safari's download manager may continue reading a long
+  // video after this page has been backgrounded; timed revocation can truncate
+  // an otherwise healthy recording.
+  activeDownloadUrls.add(url);
   const a = document.createElement("a");
   a.href = url;
   a.download = f.name;
@@ -35,7 +38,6 @@ function downloadFile(f: File) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
 }
 
 function openInPlayer(f: File) {
@@ -102,6 +104,15 @@ export function startSave(
       const nav: any = navigator;
       let sharing = false;
 
+      const saveToFiles = () => {
+        downloadFile(file);
+        patch({
+          phase: "done",
+          title: "Saving to Files",
+          detail: `${fmtSize(totalBytes)} · Open the Files app, then Downloads. Keep this app open until iPhone finishes.`,
+        });
+      };
+
       const share = () => {
         // Two shares at once makes iOS reject the second one instantly.
         if (sharing) return;
@@ -139,16 +150,34 @@ export function startSave(
           .catch((error: any) => {
             sharing = false;
             const cancelled = error?.name === "AbortError" && performance.now() - shareStartedAt > 1200;
+            if (!cancelled) {
+              patch({
+                phase: "ready", file, bytes: totalBytes,
+                title: "Save the full video",
+                detail: `${fmtSize(totalBytes)} · iPhone refused the share attachment. Save the same playable video directly to Files instead.`,
+                actionLabel: "Save to Files", runPrimary: saveToFiles,
+              });
+              return;
+            }
             patch({
               phase: "ready", file, bytes: totalBytes,
-              title: cancelled ? "Share closed" : "iPhone couldn't attach this video",
-              detail: cancelled
-                ? `${fmtSize(totalBytes)} · Nothing was saved. Tap Share to open the menu again.`
-                : `${fmtSize(totalBytes)} · The full recording is safe and still plays here. iPhone rejected the web attachment before opening its menu.`,
+              title: "Share closed",
+              detail: `${fmtSize(totalBytes)} · Nothing was saved. Tap Share to open the menu again.`,
               actionLabel: "Share", runPrimary: share,
             });
           });
       };
+
+      if (totalBytes > IPHONE_SHARE_SAFE_BYTES) {
+        patch({
+          phase: "ready", file, bytes: totalBytes,
+          title: "Ready to save",
+          detail: `${fmtSize(totalBytes)} · This long take will save directly to Files > Downloads.`,
+          actionLabel: "Save to Files",
+          runPrimary: saveToFiles,
+        });
+        return;
+      }
 
       patch({
         phase: "ready", file, bytes: totalBytes,
