@@ -104,7 +104,6 @@ export function startSave(
         // Two shares at once makes iOS reject the second one instantly.
         if (sharing) return;
         sharing = true;
-        const tapped = Date.now();
 
         let result: Promise<void>;
         // The share call must happen inside the tap, with no await before it.
