@@ -811,7 +811,9 @@ function Prompter({
 
 
   useEffect(() => {
-    if (!videoMode) return;
+    // Browser camera only. Inside the iPhone app the native effect above owns
+    // the camera and getUserMedia is never called.
+    if (!videoMode || nativeApp) return;
     let cancelled = false;
     const getConstraints = (q: Quality): MediaStreamConstraints => {
       const dims = q === "4k" ? { width: 3840, height: 2160 }
@@ -919,7 +921,7 @@ function Prompter({
     };
     // Re-acquire on quality change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoMode, quality]);
+  }, [videoMode, nativeApp, quality]);
 
 
   // Load existing clips, recover any orphan session from a prior crash / close,
