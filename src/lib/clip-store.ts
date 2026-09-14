@@ -110,24 +110,31 @@ export async function saveClip(rec: ClipRecord): Promise<void> {
 
 export async function getClip(id: string): Promise<ClipRecord | null> {
   const store = await storeIn(STORE, "readonly");
-  return new Promise((resolve, reject) => {
+  const row = await new Promise<any>((resolve, reject) => {
     const req = store.get(id);
-    req.onsuccess = () => resolve((req.result as ClipRecord | undefined) || null);
+    req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
+  if (!row) return null;
+  if (row.blob instanceof Blob && row.blob.size > 0) return row as ClipRecord;
+  // Chunked clip: stitch the recorded pieces together on demand.
+  const chunks = await getChunks(id).catch(() => [] as Blob[]);
+  if (chunks.length === 0) return null;
+  const blob = new Blob(chunks, { type: (row.mimeType || "video/mp4").split(";")[0].trim() });
+  return { ...(row as ClipMeta), blob, sizeBytes: blob.size };
 }
 
 export async function listClips(scriptId: string): Promise<ClipRecord[]> {
-  const store = await storeIn(STORE, "readonly");
-  return new Promise((resolve, reject) => {
-    const req = store.index("scriptId").getAll(IDBKeyRange.only(scriptId));
-    req.onsuccess = () => {
-      const arr = (req.result as ClipRecord[]).sort((a, b) => a.createdAt - b.createdAt);
-      resolve(arr);
-    };
-    req.onerror = () => reject(req.error);
-  });
+  const metas = await listClipMeta(scriptId);
+  const out: ClipRecord[] = [];
+  for (const m of metas) {
+    // eslint-disable-next-line no-await-in-loop
+    const c = await getClip(m.id).catch(() => null);
+    if (c) out.push(c);
+  }
+  return out.sort((a, b) => a.createdAt - b.createdAt);
 }
+
 
 export async function deleteClip(id: string): Promise<void> {
   const db = await openDB();
