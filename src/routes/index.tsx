@@ -547,25 +547,40 @@ function Prompter({
   const [clipsOpen, setClipsOpen] = useState(false);
   const [saveJob, setSaveJob] = useState<SaveJob | null>(null);
 
-  type Quality = "720p" | "1080p" | "4k";
+  // Capture profiles. Bitrates match or exceed what the iPhone Camera app
+  // uses, so busy scenes keep facial detail instead of smearing.
+  type Quality = "720p60" | "1080p30" | "1080p60" | "4k30";
+  const QUALITY_PROFILES: Record<Quality, { width: number; height: number; fps: number; bps: number; label: string }> = {
+    "720p60": { width: 1280, height: 720, fps: 60, bps: 12_000_000, label: "720p60" },
+    "1080p30": { width: 1920, height: 1080, fps: 30, bps: 18_000_000, label: "1080p30" },
+    "1080p60": { width: 1920, height: 1080, fps: 60, bps: 30_000_000, label: "1080p60" },
+    "4k30": { width: 3840, height: 2160, fps: 30, bps: 60_000_000, label: "4K30" },
+  };
   const [quality, setQuality] = useState<Quality>(() => {
-    if (typeof window === "undefined") return "1080p";
-    return (localStorage.getItem("prompter.quality") as Quality) || "1080p";
+    if (typeof window === "undefined") return "1080p60";
+    const raw = localStorage.getItem("prompter.quality") || "";
+    const migrated: Record<string, Quality> = { "720p": "720p60", "1080p": "1080p60", "4k": "4k30" };
+    if (migrated[raw]) return migrated[raw];
+    return (["720p60", "1080p30", "1080p60", "4k30"].includes(raw) ? raw : "1080p60") as Quality;
   });
   useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
 
-  // How long each recorded part is. Shorter parts save more reliably on
-  // iPhone; the take still plays back as one continuous recording.
+  // What the camera is actually delivering (can differ from what we asked for).
+  const [camStats, setCamStats] = useState<{ width: number; height: number; fps: number } | null>(null);
+
+  // Optional splitting. Off by default: one unbroken file, no frame can be
+  // lost at a cut. Longer takes can opt into parts if saving gets painful.
   const [partMinutes, setPartMinutes] = useState<number>(() => {
-    if (typeof window === "undefined") return 5;
+    if (typeof window === "undefined") return 0;
     const raw = Number(localStorage.getItem("prompter.partMinutes"));
-    return [1, 2, 5, 10].includes(raw) ? raw : 5;
+    return [0, 1, 2, 5, 10].includes(raw) ? raw : 0;
   });
   const partMinutesRef = useRef(partMinutes);
   useEffect(() => {
     partMinutesRef.current = partMinutes;
     try { localStorage.setItem("prompter.partMinutes", String(partMinutes)); } catch {}
   }, [partMinutes]);
+
 
 
   // Update scroll direction when mirrorV changes
