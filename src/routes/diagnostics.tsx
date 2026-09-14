@@ -76,6 +76,7 @@ function Diagnostics() {
   const [events, setEvents] = useState<RemoteEvent[]>([]);
   const [lifecycle, setLifecycle] = useState<LifecycleState>("active");
   const [bleSupported, setBleSupported] = useState(false);
+  const [impls, setImpls] = useState<ImplRow[]>([]);
   // Device capabilities only exist in the browser, so nothing is read until
   // after hydration.
   const [ready, setReady] = useState(false);
@@ -89,6 +90,7 @@ function Diagnostics() {
       void s.storageUsage().then(setStoreUsage).catch(() => {});
     });
     void remoteService().then((s) => setBleSupported(s.capabilities().supportsBle));
+    void implementationReport().then(setImpls);
     void Promise.all(
       (["camera", "microphone", "photos", "bluetooth", "speech"] as const).map(async (p) => [
         p,
@@ -131,6 +133,18 @@ function Diagnostics() {
           { label: "Lifecycle state", value: lifecycle },
           { label: "Online", value: yn(isOnline()) },
         ]}
+      />
+
+      <Section
+        title="Active implementations"
+        rows={
+          impls.length
+            ? impls.map((r) => ({
+                label: `${r.feature}${r.fallback && r.critical ? "  ⚠ unexpected fallback" : ""}`,
+                value: r.impl,
+              }))
+            : [{ label: "Implementations", value: "reading…" }]
+        }
       />
 
       <Section
