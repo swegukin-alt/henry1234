@@ -67,19 +67,20 @@ export function SaveOverlay({
         <div className="mt-3 flex w-full flex-col items-center gap-3">
           {ready && job.runPrimary && (
             <button
+              type="button"
               onClick={job.runPrimary}
-              className="w-full rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95"
+              className="w-full touch-manipulation rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95"
             >
               {job.actionLabel || "Share"}
             </button>
           )}
           {error && job.file && (
-            <button onClick={onFallback} className="w-full rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95">
+            <button type="button" onClick={onFallback} className="w-full touch-manipulation rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95">
               Try again
             </button>
           )}
 
-          <button onClick={onClose} className="text-sm text-neutral-400 underline underline-offset-4 active:scale-95">
+          <button type="button" onClick={onClose} className="touch-manipulation text-sm text-neutral-400 underline underline-offset-4 active:scale-95">
             {working ? "Cancel" : "Done"}
           </button>
         </div>
