@@ -303,8 +303,7 @@ export async function updateSession(id: string, patch: Partial<RecordingSession>
 // Append one MediaRecorder chunk. Runs its own transaction so a failure to
 // write chunk N never poisons chunk N+1.
 export async function appendChunk(recordingId: string, blob: Blob): Promise<number> {
-  const db = await openDB();
-  return new Promise<number>((resolve, reject) => {
+  return withDB((db) => new Promise<number>((resolve, reject) => {
     const t = db.transaction([SESSION_STORE, CHUNK_STORE], "readwrite");
     const sessions = t.objectStore(SESSION_STORE);
     const chunks = t.objectStore(CHUNK_STORE);
@@ -320,7 +319,7 @@ export async function appendChunk(recordingId: string, blob: Blob): Promise<numb
     t.oncomplete = () => resolve(seq);
     t.onerror = () => reject(t.error);
     t.onabort = () => reject(t.error || new Error("aborted"));
-  });
+  }));
 }
 
 async function getSession(id: string): Promise<RecordingSession | undefined> {
