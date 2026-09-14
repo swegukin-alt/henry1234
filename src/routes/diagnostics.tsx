@@ -18,6 +18,7 @@ import {
   keepAwakeSupported,
   mediaLibraryCapabilities,
   mediaStoreKind,
+  settingsHydrationStatus,
   onLifecycleChange,
   orientationSupport,
   remoteService,
@@ -116,6 +117,7 @@ function Diagnostics() {
   }
 
   const runtime = describeRuntime();
+  const hydration = settingsHydrationStatus();
   const speech = speechCapabilities();
   const share = shareCapabilities();
   const media = mediaLibraryCapabilities();
@@ -186,6 +188,8 @@ function Diagnostics() {
       <Section
         title="Storage"
         rows={[
+          { label: "Settings hydration", value: `${hydration.state} (${hydration.ms} ms, ${hydration.keysLoaded} keys)` },
+          { label: "Settings hydration detail", value: hydration.detail ?? "—" },
           { label: "Media store (declared)", value: mediaStoreKind() },
           { label: "Media store (live)", value: liveStore ?? "…" },
           { label: "Recordings held", value: storeUsage ? `${(storeUsage.clipBytes / 1e9).toFixed(2)} GB` : "…" },
