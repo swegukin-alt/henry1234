@@ -72,8 +72,12 @@ function Diagnostics() {
   const [events, setEvents] = useState<RemoteEvent[]>([]);
   const [lifecycle, setLifecycle] = useState<LifecycleState>("active");
   const [bleSupported, setBleSupported] = useState(false);
+  // Device capabilities only exist in the browser, so nothing is read until
+  // after hydration.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    setReady(true);
     void cameraCapabilities().then(setCaps);
     void storageEstimate().then(setUsage);
     void remoteService().then((s) => setBleSupported(s.capabilities().supportsBle));
