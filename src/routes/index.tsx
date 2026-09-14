@@ -535,6 +535,8 @@ function Prompter({
   // how a 31-minute take ends up 25 minutes long, so it is surfaced live.
   const writeFailRef = useRef(0);
   const [writeWarn, setWriteWarn] = useState(false);
+  // Plain-language reason for the warning; a failed write is not always a full disk.
+  const [writeWarnMsg, setWriteWarnMsg] = useState<string>("");
   // Live counters so stopping a take can show real "saving to phone" progress
   // instead of a blank screen while the last chunks are still being written.
   const queuedRef = useRef(0);
