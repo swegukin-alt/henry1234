@@ -276,6 +276,10 @@ small Swift `PHPhotoLibrary` plugin behind the same `saveVideoToPhotos()` call.
 
 1. `bun run build:ios` (static bundle into `dist-ios/`).
 2. `npx cap add ios && npx cap sync ios`.
+2b. Drag `ios-plugin/TeleprompterCapture/*.swift` into the `App` target (see
+   `ios-plugin/TeleprompterCapture/README.md`). Without it the app falls back to
+   `@capacitor-community/camera-preview`, and without that too the camera
+   reports unavailable — it never uses the browser camera.
 3. Add the Info.plist keys below.
 4. Enable Background Modes → Audio only if recording must survive
    backgrounding.
