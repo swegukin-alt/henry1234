@@ -58,9 +58,26 @@ export function SaveOverlay({
 
         <div className="text-lg font-black text-white">{job.title}</div>
         <div className="text-sm leading-snug text-neutral-300">{job.detail}</div>
+
+        {job.totalBytes > 0 && (
+          <div className="w-full">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-amber-400 transition-[width] duration-300"
+                style={{ width: `${Math.min(100, Math.round((job.savedBytes / job.totalBytes) * 100))}%` }}
+              />
+            </div>
+            <div className="mt-1.5 flex justify-between text-[11px] text-neutral-400">
+              <span>{job.partCount > 1 ? `Part ${Math.min(job.partIndex + 1, job.partCount)} of ${job.partCount}` : "1 video"}</span>
+              <span>{Math.min(100, Math.round((job.savedBytes / job.totalBytes) * 100))}%</span>
+            </div>
+          </div>
+        )}
+
         {working && (
           <div className="text-xs text-neutral-400">{secs}s · long takes need a moment — keep this screen open</div>
         )}
+
 
         {/* One action, nothing else. The iPhone share sheet already offers
             AirDrop / Save Video / Save to Files. */}
