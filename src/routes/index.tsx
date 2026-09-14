@@ -2074,7 +2074,7 @@ function ClipsSheet({
     } finally {
       setBusy(null);
     }
-  }, [onReplace]);
+  }, [onReplace, setSource]);
 
   // Rebuild a take to its full recoverable length (fixes takes that stop
   // short: the tail fragment was cut mid-write so players ignore the rest).
