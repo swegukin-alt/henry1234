@@ -895,12 +895,20 @@ function Prompter({
     const stream = streamRef.current;
     if (!stream) return;
     const audioBps = 192_000;
+    // Some Safari builds honour only bitsPerSecond, others only
+    // videoBitsPerSecond — set both so the high bitrate actually applies.
+    const opts: MediaRecorderOptions = {
+      videoBitsPerSecond: bps,
+      audioBitsPerSecond: audioBps,
+      bitsPerSecond: bps + audioBps,
+    } as MediaRecorderOptions;
     let rec: MediaRecorder;
     try {
-      rec = new MediaRecorder(stream, mimeType
-        ? { mimeType, videoBitsPerSecond: bps, audioBitsPerSecond: audioBps }
-        : { videoBitsPerSecond: bps, audioBitsPerSecond: audioBps });
-    } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
+      rec = new MediaRecorder(stream, mimeType ? { mimeType, ...opts } : opts);
+    } catch {
+      try { rec = new MediaRecorder(stream, opts); } catch { try { rec = new MediaRecorder(stream); } catch { return; } }
+    }
+
 
     const recordingId = prep.recordingId;
     recordingIdRef.current = recordingId;
