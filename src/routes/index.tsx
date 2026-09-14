@@ -552,6 +552,17 @@ function Prompter({
   const [micLive, setMicLive] = useState(false);
   const currentMicIdRef = useRef<string>("");
 
+  // Inside the iPhone app the camera, the microphone and the recording are
+  // native: no getUserMedia, no MediaRecorder, no blobs. Detected after mount
+  // so the server-rendered markup and the first client render always match.
+  const [nativeApp, setNativeApp] = useState(false);
+  useEffect(() => { setNativeApp(isNative()); }, []);
+  const nativeAppRef = useRef(false);
+  useEffect(() => { nativeAppRef.current = nativeApp; }, [nativeApp]);
+  const previewRef = useRef<PreviewHandle | null>(null);
+  const nativeRecRef = useRef<RecordingHandle | null>(null);
+  const nativeTakeRef = useRef<{ id: string; startedAt: number; width: number; height: number } | null>(null);
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingIdRef = useRef<string | null>(null);
   const appendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
