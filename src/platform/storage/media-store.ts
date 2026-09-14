@@ -57,6 +57,16 @@ export type MediaStore = {
 
   /** Native only: the on-disk file URI, used for the iOS share sheet and Photos. */
   filePath?: (id: string) => Promise<string | null>;
+
+  /**
+   * Native only: adopt a file iOS just recorded (the native camera writes the
+   * whole take itself) into the take library, without copying it through
+   * JavaScript memory.
+   */
+  importRecording?: (
+    meta: NewSession & { durationMs: number; sizeBytes?: number },
+    sourceUri: string,
+  ) => Promise<ClipMeta | null>;
 };
 
 export const webMediaStore: MediaStore = {
