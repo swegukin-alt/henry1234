@@ -731,8 +731,10 @@ function Prompter({
 
   // Mic watchdog: while the camera is open, keep checking that a live audio
   // track is attached and repair it before the user ever presses record.
+  // Native iOS has no MediaStream to watch — the capture session owns the mic
+  // and reports its own route changes through the audio service.
   useEffect(() => {
-    if (!videoMode) return;
+    if (!videoMode || nativeApp) return;
     const check = () => {
       const stream = streamRef.current;
       if (!stream) return;
