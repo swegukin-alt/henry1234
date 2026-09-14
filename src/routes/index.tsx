@@ -835,7 +835,12 @@ function Prompter({
   // Recording timer tick
   useEffect(() => {
     if (!recording) return;
-    const id = window.setInterval(() => setElapsedMs(Date.now() - recordStartRef.current), 200);
+    const id = window.setInterval(() => {
+      setElapsedMs(Date.now() - recordStartRef.current);
+      const vs = streamRef.current?.getVideoTracks()[0]?.getSettings?.();
+      if (vs) setCamStats({ width: (vs.width as number) || 0, height: (vs.height as number) || 0, fps: Math.round((vs.frameRate as number) || 0) });
+    }, 1000);
+
     return () => window.clearInterval(id);
   }, [recording]);
 
