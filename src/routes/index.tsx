@@ -134,7 +134,7 @@ function Index() {
     }
     setSettings({ ...DEFAULT_SETTINGS, ...load<Partial<Settings>>(STORAGE_SETTINGS, {}) });
     setHydrated(true);
-  }, []);
+  }
 
   useEffect(() => { if (hydrated) save(STORAGE_SCRIPTS, scripts); }, [scripts, hydrated]);
   useEffect(() => { if (hydrated && activeId) save(STORAGE_ACTIVE, activeId); }, [activeId, hydrated]);
