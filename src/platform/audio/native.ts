@@ -1,49 +1,46 @@
 // iOS audio.
 //
-// Recording audio on the app is captured by the native capture session
-// alongside the video — there is no getUserMedia anywhere on this path. What
-// this service does is report and steer that session: permission, which input
-// is in use (built-in, wired/USB, AirPods or other Bluetooth), route changes,
-// interruptions (calls, Siri, another app grabbing the mic) and the mic
-// disappearing.
+// Recording audio in the app is captured by the native capture session
+// alongside the video — there is no getUserMedia anywhere on this path, and no
+// MediaStream to hand around (the `stream` arguments are ignored here).
 //
-// Everything beyond "is a microphone present" needs AVAudioSession, which no
-// Capacitor core plugin exposes, so it lives in the custom Swift plugin
-// `ios-plugin/TeleprompterCapture`. Without that plugin this service reports
-// honestly that it cannot steer the session; it never falls back to browser
-// audio inside the app.
+// What this service does is report and steer that session: which input is in
+// use (built-in, wired/USB, AirPods or other Bluetooth), route changes,
+// interruptions (calls, Siri, another app taking the mic) and the mic
+// disappearing. All of that needs AVAudioSession, which no Capacitor core
+// plugin exposes, so it lives in the custom Swift plugin
+// `ios-plugin/TeleprompterCapture`. Without that plugin this service says
+// plainly that it cannot steer the session — it never reverts to browser audio.
 
 import { noteImpl } from "../runtime";
 import { customCapturePlugin } from "../native-plugins";
 import { fail, ok } from "../types";
-import type { AudioInput, AudioService } from "./types";
+import type { AudioCapabilities, AudioService, MicInfo } from "./types";
 
-type AudioStatus = {
-  available: boolean;
-  deviceId: string;
-  label: string;
-  external: boolean;
-  route: string;
-};
+type NativeInput = { deviceId: string; label: string; external: boolean; available: boolean };
 
 type CapturePlugin = {
-  audioStatus: () => Promise<AudioStatus>;
-  listAudioInputs: () => Promise<{ inputs: AudioStatus[] }>;
+  audioStatus: () => Promise<NativeInput & { route: string }>;
+  listAudioInputs: () => Promise<{ inputs: NativeInput[] }>;
   setAudioInput: (o: { deviceId: string }) => Promise<void>;
   addListener: (
     event: "audioInterruption" | "audioRouteChange",
     cb: (data: { type?: string; reason?: string }) => void,
-  ) => Promise<{ remove: () => Promise<void> }> | { remove: () => void };
+  ) => Promise<{ remove: () => void }>;
 };
 
 let plugin: CapturePlugin | null = null;
 let looked = false;
+let liveKnown = true;
 
 async function capture(): Promise<CapturePlugin | null> {
   if (!looked) {
     looked = true;
     plugin = await customCapturePlugin<CapturePlugin>();
-    noteImpl("audio", plugin ? "native (TeleprompterCapture)" : "native capture session (no control plugin)");
+    noteImpl(
+      "audio",
+      plugin ? "native (TeleprompterCapture)" : "native capture session (no control plugin)",
+    );
   }
   return plugin;
 }
@@ -53,62 +50,80 @@ const needsPlugin =
 
 export const nativeAudio: AudioService = {
   name: "audio.ios",
-  // The native capture session always records audio with the video, so this
-  // service is "available" on iOS even before the control plugin is added.
+  // The native capture session always records audio with the video, so audio
+  // itself works on iOS even before the control plugin is added.
   available: () => true,
 
-  async pickBestInput(): Promise<AudioInput | null> {
+  capabilities(): AudioCapabilities {
+    const full = !!plugin;
+    return {
+      supportsDeviceSelection: full,
+      supportsRouteChangeEvents: full,
+      supportsInterruptionEvents: full,
+      supportsAudioSession: full,
+    };
+  },
+
+  async pickBestInput(): Promise<MicInfo | null> {
     const p = await capture();
     if (!p) return null;
     try {
-      const s = await p.audioStatus();
-      if (!s.available) return null;
-      return { id: s.deviceId, label: s.label, external: s.external };
+      const list = await p.listAudioInputs();
+      const inputs = (list.inputs ?? []).filter((i) => i.available);
+      // An external mic (DJI, USB-C, wired or AirPods) beats the built-in one.
+      const best = inputs.find((i) => i.external) ?? inputs[0];
+      liveKnown = inputs.length > 0;
+      return best ? { id: best.deviceId, label: best.label, external: best.external } : null;
     } catch {
       return null;
     }
   },
 
-  async applyInput(input) {
+  async applyInput(_stream, mic) {
     const p = await capture();
     if (!p) return fail(needsPlugin, "plugin-missing");
     try {
-      await p.setAudioInput({ deviceId: input.id });
+      await p.setAudioInput({ deviceId: mic.id });
       return ok(undefined);
     } catch (e) {
       return fail((e as { message?: string })?.message || "That microphone could not be selected.");
     }
   },
 
-  async reacquire() {
+  async reacquire(_stream, preferredId) {
     const p = await capture();
     if (!p) return fail(needsPlugin, "plugin-missing");
     try {
+      if (preferredId) await p.setAudioInput({ deviceId: preferredId });
       const s = await p.audioStatus();
+      liveKnown = !!s.available;
       return s.available
         ? ok(undefined)
         : fail("No microphone is connected. Reconnect it and press record again.");
     } catch {
+      liveKnown = false;
       return fail("The microphone could not be checked.");
     }
   },
 
-  async hasLiveInput() {
-    const p = await capture();
-    if (!p) return true; // the capture session owns the mic; assume nothing else
-    try {
-      return (await p.audioStatus()).available;
-    } catch {
-      return false;
-    }
+  // Synchronous by contract. The value is refreshed by route-change events and
+  // by reacquire(); with no control plugin the capture session owns the mic and
+  // there is nothing that could have taken it away.
+  hasLiveInput() {
+    return plugin ? liveKnown : true;
   },
 
   onDeviceChange(cb) {
     let off: (() => void) | null = null;
     void capture().then(async (p) => {
       if (!p) return;
-      const sub = await p.addListener("audioRouteChange", () => cb());
-      off = () => void (sub as { remove: () => void }).remove();
+      const sub = await p.addListener("audioRouteChange", () => {
+        void p.audioStatus().then((s) => {
+          liveKnown = !!s.available;
+        });
+        cb();
+      });
+      off = () => sub.remove();
     });
     return () => off?.();
   },
@@ -120,7 +135,7 @@ export const nativeAudio: AudioService = {
       const sub = await p.addListener("audioInterruption", (d) =>
         cb(d?.type === "ended" ? "ended" : "began"),
       );
-      off = () => void (sub as { remove: () => void }).remove();
+      off = () => sub.remove();
     });
     return () => off?.();
   },
