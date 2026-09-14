@@ -689,8 +689,8 @@ function Prompter({
     try {
       const fresh = await navigator.mediaDevices.getUserMedia({
         audio: currentMicIdRef.current
-          ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
-          : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 } as any),
+          ? ({ deviceId: { exact: currentMicIdRef.current } } as any)
+          : true,
       });
       const t = fresh.getAudioTracks()[0];
       if (!t) return false;
