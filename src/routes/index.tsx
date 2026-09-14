@@ -2218,7 +2218,7 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-             <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+             <button onClick={() => onExport(playParts ?? [playingClip])} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
                <Download className="h-5 w-5" /> Save video
             </button>
             {broken.has(playingClip.id) && (
