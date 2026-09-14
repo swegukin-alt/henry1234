@@ -13,6 +13,11 @@
     "build:ios": "CAP_IOS=1 vite build && node scripts/collect-ios-build.mjs"
   },
   "dependencies": {
+    "@capacitor-community/media": "^9.1.0",
+    "@capacitor/core": "^8",
+    "@capacitor/filesystem": "^8",
+    "@capacitor/preferences": "^8",
+    "@capacitor/share": "^8",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
