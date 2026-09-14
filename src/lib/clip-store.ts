@@ -95,6 +95,23 @@ export async function requestPersistentStorage(): Promise<boolean> {
   return false;
 }
 
+// A rebuilt clip stores its own combined copy, so the original pieces are no
+// longer needed — dropping them keeps disk usage from doubling.
+async function dropChunksFor(recordingId: string): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve) => {
+    const t = db.transaction(CHUNK_STORE, "readwrite");
+    const cursorReq = t.objectStore(CHUNK_STORE).index("recordingId").openCursor(IDBKeyRange.only(recordingId));
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+    };
+    t.oncomplete = () => resolve();
+    t.onerror = () => resolve();
+    t.onabort = () => resolve();
+  });
+}
+
 export async function saveClip(rec: ClipRecord): Promise<void> {
   const db = await openDB();
   await new Promise<void>((resolve, reject) => {
