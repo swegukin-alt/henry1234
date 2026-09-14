@@ -75,16 +75,10 @@ export function SaveOverlay({
           )}
           {error && job.file && (
             <button onClick={onFallback} className="w-full rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95">
-              Save to Files
+              Try again
             </button>
           )}
-          {/* Quiet second path, so a closed or refused share sheet never leaves
-              the video stuck on the phone. */}
-          {ready && job.saveToFiles && job.actionLabel === "Share" && (
-            <button onClick={job.saveToFiles} className="text-sm text-neutral-300 underline underline-offset-4 active:scale-95">
-              Save to Files instead
-            </button>
-          )}
+
           <button onClick={onClose} className="text-sm text-neutral-400 underline underline-offset-4 active:scale-95">
             {working ? "Cancel" : "Done"}
           </button>
