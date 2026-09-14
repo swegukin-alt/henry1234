@@ -108,8 +108,8 @@ export function startSave(
         downloadFile(file);
         patch({
           phase: "done",
-          title: "Saving to Files",
-          detail: `${fmtSize(totalBytes)} · Open the Files app, then Downloads. Keep this app open until iPhone finishes.`,
+          title: "Copying to your Files app",
+          detail: `${fmtSize(totalBytes)} · Stays on your iPhone, nothing is uploaded. Find it in Files > Downloads. Keep this app open until it finishes.`,
         });
       };
 
