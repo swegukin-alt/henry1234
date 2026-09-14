@@ -1016,8 +1016,12 @@ function Prompter({
       }
       writtenRef.current += 1;
       writeFailRef.current += 1;
-      setWriteWarn(true);
-      setWriteWarnMsg(describeStorageError(lastErr));
+      // One retried-and-recovered hiccup is normal on iOS; only surface a
+      // warning if footage is actually repeatedly failing to store.
+      if (writeFailRef.current >= 2) {
+        setWriteWarn(true);
+        setWriteWarnMsg(describeStorageError(lastErr));
+      }
     };
 
 
@@ -1040,27 +1044,36 @@ function Prompter({
       setRecording(false);
       setPlaying(false);
       setControlsVisible(true);
-      setFinalizing({ done: writtenRef.current, total: Math.max(queuedRef.current, 1), phase: "writing" });
-      const tick = window.setInterval(() => {
-        setFinalizing((f) => (f && f.phase === "writing"
-          ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
-          : f));
-      }, 120);
+      // Saving is normally instant. Only show the progress panel if the last
+      // pieces genuinely take a moment, so a quick stop looks like it always did.
+      let done = false;
+      let tick = 0;
+      const reveal = window.setTimeout(() => {
+        if (done) return;
+        setFinalizing({ done: writtenRef.current, total: Math.max(queuedRef.current, 1), phase: "writing" });
+        tick = window.setInterval(() => {
+          setFinalizing((f) => (f && f.phase === "writing"
+            ? { ...f, done: writtenRef.current, total: Math.max(queuedRef.current, 1) }
+            : f));
+        }, 120);
+      }, 900);
+      const clearTimers = () => { done = true; window.clearTimeout(reveal); if (tick) window.clearInterval(tick); };
       appendQueueRef.current
         .catch(() => {})
         .then(() => {
-          window.clearInterval(tick);
-          setFinalizing({ done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" });
+          if (tick) window.clearInterval(tick);
+          setFinalizing((f) => (f ? { done: queuedRef.current, total: Math.max(queuedRef.current, 1), phase: "assembling" } : null));
           return finalizeSession(recordingId, { durationMs: Date.now() - recordStartRef.current });
         })
         .then((clip) => {
+          clearTimers();
           if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
           setFinalizing(null);
         })
         .catch(() => {
-          window.clearInterval(tick);
+          clearTimers();
           setWriteWarn(true);
-          setFinalizing((f) => (f ? { ...f, phase: "error" } : null));
+          setFinalizing({ done: writtenRef.current, total: Math.max(queuedRef.current, 1), phase: "error" });
         });
     };
 

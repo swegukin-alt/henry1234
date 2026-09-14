@@ -41,6 +41,15 @@ type ChunkRecord = { recordingId: string; seq: number; blob: Blob };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
+// Safari can close an IndexedDB connection out from under us (backgrounding,
+// memory pressure, another tab upgrading). A stale handle then throws
+// InvalidStateError on every write, which used to surface as a scary warning
+// mid-recording. Drop the cached handle whenever that happens so the next call
+// transparently reconnects.
+function resetDB() {
+  dbPromise = null;
+}
+
 function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -74,15 +83,37 @@ function openDB(): Promise<IDBDatabase> {
         };
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onclose = () => resetDB();
+      db.onversionchange = () => { try { db.close(); } catch {} resetDB(); };
+      resolve(db);
+    };
+    req.onerror = () => { resetDB(); reject(req.error); };
   });
+  dbPromise.catch(() => resetDB());
   return dbPromise;
+}
+
+// Run a database operation, reconnecting once if the handle went stale.
+async function withDB<T>(run: (db: IDBDatabase) => Promise<T>): Promise<T> {
+  try {
+    return await run(await openDB());
+  } catch (err) {
+    const name = (err as any)?.name || "";
+    const msg = String((err as any)?.message || err || "");
+    if (name === "InvalidStateError" || /closing|closed|connection/i.test(msg)) {
+      resetDB();
+      return run(await openDB());
+    }
+    throw err;
+  }
 }
 
 function storeIn(name: string, mode: IDBTransactionMode) {
   return openDB().then((db) => db.transaction(name, mode).objectStore(name));
 }
+
 
 // Ask the browser to keep our data even under storage pressure.
 // Silent if unsupported. Call once when video mode opens.
@@ -272,8 +303,7 @@ export async function updateSession(id: string, patch: Partial<RecordingSession>
 // Append one MediaRecorder chunk. Runs its own transaction so a failure to
 // write chunk N never poisons chunk N+1.
 export async function appendChunk(recordingId: string, blob: Blob): Promise<number> {
-  const db = await openDB();
-  return new Promise<number>((resolve, reject) => {
+  return withDB((db) => new Promise<number>((resolve, reject) => {
     const t = db.transaction([SESSION_STORE, CHUNK_STORE], "readwrite");
     const sessions = t.objectStore(SESSION_STORE);
     const chunks = t.objectStore(CHUNK_STORE);
@@ -289,7 +319,7 @@ export async function appendChunk(recordingId: string, blob: Blob): Promise<numb
     t.oncomplete = () => resolve(seq);
     t.onerror = () => reject(t.error);
     t.onabort = () => reject(t.error || new Error("aborted"));
-  });
+  }));
 }
 
 async function getSession(id: string): Promise<RecordingSession | undefined> {
