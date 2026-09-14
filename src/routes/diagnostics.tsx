@@ -29,6 +29,7 @@ import {
   type PermissionState,
   type RemoteEvent,
 } from "@/platform";
+import { mediaStore } from "@/platform/storage/media-store";
 
 export const Route = createFileRoute("/diagnostics")({
   head: () => ({
@@ -69,6 +70,8 @@ function Diagnostics() {
   const [caps, setCaps] = useState<CameraCapabilities | null>(null);
   const [perms, setPerms] = useState<Record<string, PermissionState>>({});
   const [usage, setUsage] = useState<{ usedBytes: number; quotaBytes: number | null } | null>(null);
+  const [liveStore, setLiveStore] = useState<string | null>(null);
+  const [storeUsage, setStoreUsage] = useState<{ clipBytes: number } | null>(null);
   const [events, setEvents] = useState<RemoteEvent[]>([]);
   const [lifecycle, setLifecycle] = useState<LifecycleState>("active");
   const [bleSupported, setBleSupported] = useState(false);
@@ -80,6 +83,10 @@ function Diagnostics() {
     setReady(true);
     void cameraCapabilities().then(setCaps);
     void storageEstimate().then(setUsage);
+    void mediaStore().then((s) => {
+      setLiveStore(s.kind);
+      void s.storageUsage().then(setStoreUsage).catch(() => {});
+    });
     void remoteService().then((s) => setBleSupported(s.capabilities().supportsBle));
     void Promise.all(
       (["camera", "microphone", "photos", "bluetooth", "speech"] as const).map(async (p) => [
@@ -157,7 +164,9 @@ function Diagnostics() {
       <Section
         title="Storage"
         rows={[
-          { label: "Media store", value: mediaStoreKind() },
+          { label: "Media store (declared)", value: mediaStoreKind() },
+          { label: "Media store (live)", value: liveStore ?? "…" },
+          { label: "Recordings held", value: storeUsage ? `${(storeUsage.clipBytes / 1e9).toFixed(2)} GB` : "…" },
           { label: "Used", value: usage ? `${(usage.usedBytes / 1e9).toFixed(2)} GB` : "…" },
           { label: "Quota", value: usage?.quotaBytes ? `${(usage.quotaBytes / 1e9).toFixed(2)} GB` : "unknown" },
         ]}

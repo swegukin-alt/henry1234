@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, FlipVertical2, Play, Pause, SlidersHorizontal, Type, MoreHorizontal, Video, Circle, Square, Film, Download, Trash2, X, Mic, AudioLines, AlignJustify, Timer } from "lucide-react";
-import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, getClip, storageUsage, clearAllStorage, purgeOrphanChunks, type ClipMeta, type ClipRecord } from "@/lib/clip-store";
+// Recorded takes go through the media store: the browser database on the web,
+// real files in the app's own storage inside the iPhone app.
+import { listClipMeta, deleteClip, deleteAllForScript, fmtSize, fmtDuration, createSession, appendChunk, finalizeSession, recoverOrphanSessions, requestPersistentStorage, repairClip, rescueAll, listAllClips, deepRestore, clipSource, storageUsage, clearAllStorage, purgeOrphanChunks } from "@/platform/storage/media-store";
+import type { ClipMeta, ClipRecord } from "@/lib/clip-store";
 import { startSave, type SaveJob } from "@/lib/save-clips";
 import { SaveOverlay } from "@/components/SaveOverlay";
 import { tokenize, wordListFromTokens, detectLang, type Token } from "@/lib/chunk-script";
@@ -2014,22 +2017,30 @@ function ClipsSheet({
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
+  // Whatever the current source needs on teardown: revoking a browser object
+  // URL, or nothing at all when the video streams straight off a native file.
+  const revokeRef = useRef<(() => void) | null>(null);
+  const setSource = useCallback((src: string | null, revoke: () => void = () => {}) => {
+    revokeRef.current?.();
+    revokeRef.current = src ? revoke : null;
+    setPlayUrl(src);
+  }, []);
   const openClip = useCallback(async (meta: ClipMeta) => {
     setBusy(meta.id);
     try {
-      const c = await getClip(meta.id);
-      if (!c) { setNote("This recording is missing from phone storage."); return; }
-      setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
-      setPlayingClip(c);
+      const source = await clipSource(meta);
+      if (!source) { setNote("This recording is missing from phone storage."); return; }
+      setSource(source.src, source.revoke);
+      setPlayingClip({ ...meta, blob: new Blob([], { type: meta.mimeType }) });
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [setSource]);
   const closePlayer = useCallback(() => {
-    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setSource(null);
     setPlayingClip(null);
-  }, []);
-  useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
+  }, [setSource]);
+  useEffect(() => () => { revokeRef.current?.(); }, []);
 
   // What the app is holding on this phone, refreshed whenever the list changes.
   const [space, setSpace] = useState<{ clipBytes: number; usage: number; quota: number } | null>(null);
@@ -2051,7 +2062,8 @@ function ClipsSheet({
           ? `Restored ${fmtDuration(clip.durationMs)} · ${fmtSize(clip.sizeBytes)}. Tap it to play, then Save to Photos to keep it.`
           : `Recovered ${fmtSize(clip.sizeBytes)} of footage but this device still can't decode it. Use Save to Photos to get the file off the phone.`);
         if (report.playable) {
-          setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
+          const url = URL.createObjectURL(clip.blob);
+          setSource(url, () => URL.revokeObjectURL(url));
           setPlayingClip(clip);
         }
       } else {
@@ -2062,7 +2074,7 @@ function ClipsSheet({
     } finally {
       setBusy(null);
     }
-  }, [onReplace]);
+  }, [onReplace, setSource]);
 
   // Rebuild a take to its full recoverable length (fixes takes that stop
   // short: the tail fragment was cut mid-write so players ignore the rest).
@@ -2079,7 +2091,8 @@ function ClipsSheet({
         setNote(gained > 2000
           ? `Restored to ${fmtDuration(report.durationMs)} (+${fmtDuration(gained)}) · ${fmtSize(report.bytes)}. Ready to save.`
           : `Full length confirmed: ${fmtDuration(report.durationMs)} · ${fmtSize(report.bytes)}. Ready to save.`);
-        setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(clip.blob); });
+        const url = URL.createObjectURL(clip.blob);
+        setSource(url, () => URL.revokeObjectURL(url));
         setPlayingClip(clip);
       } else {
         setNote(`Kept all ${fmtSize(report.bytes)} of footage, but this device can't decode it. Save it to Files and it can still be repaired on a computer.`);
@@ -2089,7 +2102,7 @@ function ClipsSheet({
     } finally {
       setBusy(null);
     }
-  }, [onReplace]);
+  }, [onReplace, setSource]);
 
   return (
     <>

@@ -11,7 +11,21 @@ type CapacitorGlobal = {
   isNativePlatform?: () => boolean;
   getPlatform?: () => string;
   isPluginAvailable?: (name: string) => boolean;
+  convertFileSrc?: (url: string) => string;
 };
+
+/**
+ * Turn a native file:// URI into something the WebView can load directly
+ * (streamed off disk, never copied into memory). Returns the input unchanged
+ * on the web, where there are no native file URIs.
+ */
+export function convertFileSrc(uri: string): string {
+  try {
+    return capacitor()?.convertFileSrc?.(uri) ?? uri;
+  } catch {
+    return uri;
+  }
+}
 
 function capacitor(): CapacitorGlobal | null {
   if (typeof window === "undefined") return null;

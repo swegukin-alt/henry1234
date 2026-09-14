@@ -95,34 +95,45 @@ enough, `device` = needs a real iPhone.
   or gain structure (folders, versions, cues), SQLite
   (`@capacitor-community/sqlite`) is the right native home — not Preferences.
 
-### 6. Large recordings — PRIORITY 1
-- Now: IndexedDB `prompter.clips.v1` v3 with `clips` / `clipsMeta` / `chunks` /
-  `sessions`; chunk-per-timeslice writes with retry, orphan-session recovery,
-  metadata-only listing, lazy blob load, repair and deep restore.
-- Nothing large is in localStorage, React state or base64 — verified.
-- Where: native should move the bytes to `@capacitor/filesystem`
-  (`Directory.Library`, excluded from iCloud backup), writing chunks by append
-  and keeping the existing metadata records. WebKit storage must not hold
-  multi-GB native recordings.
-- The current design already survives an interrupted save (chunks + session
-  recovery) and that model maps directly onto the filesystem.
+### 6. Large recordings — PRIORITY 1 — IMPLEMENTED
+- Interface: `src/platform/storage/media-store.ts`. Every call site in
+  `src/routes/index.tsx` and `src/lib/save-clips.ts` goes through it; nothing
+  imports `clip-store` for stateful work any more.
+- Web (`webMediaStore`): forwards verbatim to the existing IndexedDB store
+  `src/lib/clip-store.ts` — same chunk writes, same recovery, same instant stop.
+- iOS (`src/platform/storage/media-store.native.ts`): `@capacitor/filesystem`
+  in `Directory.Data`, one real file per take at `recordings/<id>.<ext>`, plus a
+  small `recordings/index.json` metadata index. Chunks are appended as they
+  arrive (`Filesystem.appendFile`, base64 per timeslice), so a crash, call or
+  force-quit leaves a real playable file; `recoverOrphanSessions()` re-closes
+  any take still marked open and drops empty leftovers.
+- Finalize only rewrites the index entry — no second copy, so stop stays
+  instant and disk use is not doubled.
+- No IndexedDB, Blob URL or WebKit storage is involved on the native path;
+  playback uses `Capacitor.convertFileSrc(uri)` so the video streams off disk.
+- `repairClip` / `deepRestore` on native simply report the file's real state:
+  there are no pieces to stitch on a filesystem store.
+- If the Filesystem plugin is absent, `mediaStore()` falls back to the browser
+  store rather than pretending a file was written.
 - Test: device (multi-GB behaviour); sim can validate the code path.
 
-### 7. Saving to Photos / export — PRIORITY 1
-- Now: `navigator.share({files})` inside the tap, `<a download>` fallback,
-  >1.2 GB goes straight to Files.
-- Where: native must save to the Photos library from a real file path. A fake
-  HTML download link is not an acceptable native answer, so
-  `src/platform/media-library` reports `plugin-missing` until a Photos plugin is
-  installed (`@capacitor-community/media` or a small Swift `PHPhotoLibrary`
-  plugin). The original always stays in app storage until the export succeeds.
+### 7. Saving to Photos / export — PRIORITY 1 — IMPLEMENTED
+- Web: unchanged — `navigator.share({files})` inside the tap, `<a download>`
+  fallback, >1.2 GB straight to Files.
+- iOS: `saveVideoToPhotos(path)` in `src/platform/media-library` calls
+  `@capacitor-community/media` `saveVideo` against the on-disk path. No blob,
+  no download link. The original file stays in app storage regardless of the
+  export result. Missing plugin is reported honestly, never faked.
 - Permission: `NSPhotoLibraryAddUsageDescription` (and
   `NSPhotoLibraryUsageDescription` only if we ever read the library).
 - Test: device.
 
-### 8. Sharing — PRIORITY 2
-- Now: Web Share. Native: `@capacitor/share` with a `file://` path (no size
-  limit, no gesture requirement). Behind `src/platform/share`.
+### 8. Sharing — PRIORITY 2 — IMPLEMENTED
+- Web: unchanged Web Share + Files fallback.
+- iOS: `shareFilePath(uri, title)` in `src/platform/share` calls
+  `@capacitor/share` with the file's own URI — no size limit, no gesture
+  requirement, nothing copied. `src/lib/save-clips.ts` takes this path first
+  whenever a native file exists, with Save to Photos as the secondary action.
 
 ### 9. Script import/export — PRIORITY 3
 - Now: typing/pasting only; no file picker exists today. `src/platform/files`
@@ -197,18 +208,26 @@ HDMI out; a second device as a remote over the local network.
 
 ---
 
-## Packages to install on the Mac
+## Packages
+
+Already installed in this repo (used by the implemented native paths):
 
 ```
-bun add @capacitor/core @capacitor/app @capacitor/filesystem @capacitor/preferences \
-        @capacitor/share @capacitor/haptics @capacitor/keyboard @capacitor/status-bar \
+@capacitor/core  @capacitor/filesystem  @capacitor/share  @capacitor/preferences
+@capacitor-community/media          (Photos saving)
+-d @capacitor/cli  @capacitor/ios
+```
+
+Still to add on the Mac, for the parts that are not implemented yet:
+
+```
+bun add @capacitor/app @capacitor/haptics @capacitor/keyboard @capacitor/status-bar \
         @capacitor/screen-orientation @capacitor/network
 bun add @capacitor-community/camera-preview @capacitor-community/bluetooth-le \
         @capacitor-community/keep-awake
-bun add -d @capacitor/cli @capacitor/ios
 ```
-Photos saving: `@capacitor-community/media`, or a small Swift `PHPhotoLibrary`
-plugin if that package lags Capacitor 8.
+If `@capacitor-community/media` lags Capacitor 8 at install time, swap in a
+small Swift `PHPhotoLibrary` plugin behind the same `saveVideoToPhotos()` call.
 
 ## Xcode / iOS work still required
 

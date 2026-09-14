@@ -1,8 +1,14 @@
 // Sharing. Web keeps navigator.share with the download fallback that already
-// works; native should use @capacitor/share against a real file path.
+// works; native uses @capacitor/share against a real file path.
 
 import { hasPlugin, isNative } from "../runtime";
 import { fail, ok, type ServiceResult } from "../types";
+
+const SHARE_MODULE = "@capacitor/share";
+
+type SharePlugin = {
+  share: (o: { title?: string; text?: string; url?: string; dialogTitle?: string }) => Promise<unknown>;
+};
 
 export type ShareCapabilities = {
   canShareFiles: boolean;
@@ -18,10 +24,21 @@ export function shareCapabilities(): ShareCapabilities {
   return { canShareFiles: !!nav?.share, requiresUserGesture: true };
 }
 
+/**
+ * Open the iOS share sheet for a file already on disk. Nothing is copied: the
+ * sheet is handed the file's own URI, so multi-gigabyte takes share instantly.
+ */
 export async function shareFilePath(path: string, title: string): Promise<ServiceResult<void>> {
   if (!isNative()) return fail("Use the browser share flow on the web.", "web-runtime");
   if (!hasPlugin("Share")) return fail("The share plugin is not installed in this build.", "plugin-missing");
-  void path;
-  void title;
-  return ok(undefined);
+  try {
+    const mod = (await import(/* @vite-ignore */ SHARE_MODULE)) as { Share?: SharePlugin };
+    if (!mod.Share) return fail("The share plugin is not installed in this build.", "plugin-missing");
+    await mod.Share.share({ title, url: path, dialogTitle: title });
+    return ok(undefined);
+  } catch (err) {
+    const msg = (err as { message?: string })?.message || "";
+    if (/cancel/i.test(msg)) return fail("Sharing was cancelled.", "cancelled");
+    return fail(msg || "The share sheet could not be opened.", "share-failed");
+  }
 }
