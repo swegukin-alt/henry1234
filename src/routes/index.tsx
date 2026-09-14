@@ -780,7 +780,7 @@ function Prompter({
         // Lock the camera at 1x zoom after acquisition as a safety net; some
         // browsers ignore zoom in getUserMedia but honor it via applyConstraints.
         stream.getVideoTracks().forEach(track => {
-          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any); } catch {}
+          try { track.applyConstraints({ advanced: [{ zoom: 1 }] } as any)?.catch?.(() => {}); } catch {}
         });
         streamRef.current = stream;
         if (videoElRef.current) {
