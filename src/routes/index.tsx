@@ -1674,25 +1674,34 @@ function Prompter({
           {videoMode && (
             <div className="mt-3">
               <div className="mb-1 text-xs text-neutral-300">Recording quality</div>
-              <div className="flex gap-2">
-                {(["720p", "1080p", "4k"] as const).map((q) => (
+              <div className="grid grid-cols-2 gap-2">
+                {(["1080p60", "1080p30", "4k30", "720p60"] as const).map((q) => (
                   <button key={q} disabled={recording} onClick={() => setQuality(q)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                    {q === "4k" ? "4K (try)" : q}
+                    className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {QUALITY_PROFILES[q].label} · {Math.round(QUALITY_PROFILES[q].bps / 1_000_000)} Mbps
+                    {q === "1080p60" ? " ★" : ""}
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
-              <div className="mt-3 mb-1 text-xs text-neutral-300">Split recording every</div>
+              <p className="mt-2 text-[11px] text-neutral-400">
+                1080p60 ★ is best for busy scenes — smooth motion and sharp faces. 4K is attempted but iPhone may drop to 30fps or a lower setting.
+                {camStats && camStats.width > 0 && (
+                  <span className={camStats.fps && camStats.fps < QUALITY_PROFILES[quality].fps ? " text-amber-300" : " text-emerald-300"}>
+                    {" "}Camera is giving {camStats.width}×{camStats.height}{camStats.fps ? ` · ${camStats.fps} fps` : ""}.
+                  </span>
+                )}
+              </p>
+              <div className="mt-3 mb-1 text-xs text-neutral-300">Split recording</div>
               <div className="flex gap-2">
-                {[1, 2, 5, 10].map((m) => (
+                {[0, 1, 2, 5, 10].map((m) => (
                   <button key={m} disabled={recording} onClick={() => setPartMinutes(m)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${partMinutes === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                    {m} min
+                    className={`flex-1 rounded-lg border px-2 py-2 text-xs font-semibold disabled:opacity-40 ${partMinutes === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                    {m === 0 ? "Off" : `${m} min`}
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] text-neutral-400">Recording never pauses. Shorter parts are quicker and far more reliable to save; they still play back as one take.</p>
+              <p className="mt-2 text-[11px] text-neutral-400">Off means one unbroken file from record to stop — no frame can be lost at a cut. Splitting only helps if a very long take gets hard to save.</p>
+
 
             </div>
           )}
