@@ -139,11 +139,85 @@ export async function listClips(scriptId: string): Promise<ClipRecord[]> {
 export async function deleteClip(id: string): Promise<void> {
   const db = await openDB();
   await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction([STORE, META_STORE], "readwrite");
+    const transaction = db.transaction([STORE, META_STORE, CHUNK_STORE], "readwrite");
     transaction.objectStore(STORE).delete(id);
     transaction.objectStore(META_STORE).delete(id);
+    // Chunked clips keep their pieces — remove those too or the space stays used.
+    const idx = transaction.objectStore(CHUNK_STORE).index("recordingId");
+    const cursorReq = idx.openCursor(IDBKeyRange.only(id));
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+    };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+// How much space the app's recordings take, and what the browser still allows.
+export async function storageUsage(): Promise<{ clipBytes: number; usage: number; quota: number }> {
+  const metas = await listAllClipsRaw();
+  const clipBytes = metas.reduce((n, m) => n + (m.sizeBytes || 0), 0);
+  let usage = 0;
+  let quota = 0;
+  try {
+    const est = await navigator.storage?.estimate?.();
+    usage = est?.usage || 0;
+    quota = est?.quota || 0;
+  } catch {}
+  return { clipBytes, usage, quota };
+}
+
+// Delete every recording, every leftover piece and every unfinished session.
+export async function clearAllStorage(): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction([STORE, META_STORE, CHUNK_STORE, SESSION_STORE], "readwrite");
+    t.objectStore(STORE).clear();
+    t.objectStore(META_STORE).clear();
+    t.objectStore(CHUNK_STORE).clear();
+    t.objectStore(SESSION_STORE).clear();
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+
+// Remove orphaned pieces left behind by older versions: chunks whose recording
+// is neither a saved clip nor an in-flight session.
+export async function purgeOrphanChunks(): Promise<number> {
+  const db = await openDB();
+  const ids = new Set<string>();
+  const metas = await listAllClipsRaw();
+  metas.forEach((m) => ids.add(m.id));
+  const sessions = await new Promise<RecordingSession[]>((resolve, reject) => {
+    const req = db.transaction(SESSION_STORE, "readonly").objectStore(SESSION_STORE).getAll();
+    req.onsuccess = () => resolve(req.result as RecordingSession[]);
+    req.onerror = () => reject(req.error);
+  });
+  sessions.forEach((s) => ids.add(s.id));
+  return new Promise<number>((resolve, reject) => {
+    let removed = 0;
+    const t = db.transaction(CHUNK_STORE, "readwrite");
+    const cursorReq = t.objectStore(CHUNK_STORE).openCursor();
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (!cursor) return;
+      const rec = cursor.value as ChunkRecord;
+      if (!ids.has(rec.recordingId)) { cursor.delete(); removed += 1; }
+      cursor.continue();
+    };
+    t.oncomplete = () => resolve(removed);
+    t.onerror = () => reject(t.error);
+  });
+}
+
+async function listAllClipsRaw(): Promise<ClipMeta[]> {
+  const store = await storeIn(META_STORE, "readonly");
+  return new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result as ClipMeta[]);
+    req.onerror = () => reject(req.error);
   });
 }
 
