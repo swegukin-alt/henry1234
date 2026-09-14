@@ -111,6 +111,16 @@ function Index() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    // On the web this resolves immediately; inside the iPhone app it pulls the
+    // saved settings out of native storage first.
+    void hydrateSettings().then(() => {
+      if (!cancelled) hydrateFromStore();
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  function hydrateFromStore() {
     const loaded = load<Script[]>(STORAGE_SCRIPTS, []);
     if (loaded.length === 0) {
       const first: Script = { id: uid(), title: "Sample script", body: SAMPLE, updatedAt: Date.now() };
