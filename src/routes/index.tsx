@@ -2017,22 +2017,30 @@ function ClipsSheet({
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
+  // Whatever the current source needs on teardown: revoking a browser object
+  // URL, or nothing at all when the video streams straight off a native file.
+  const revokeRef = useRef<(() => void) | null>(null);
+  const setSource = useCallback((src: string | null, revoke: () => void = () => {}) => {
+    revokeRef.current?.();
+    revokeRef.current = src ? revoke : null;
+    setPlayUrl(src);
+  }, []);
   const openClip = useCallback(async (meta: ClipMeta) => {
     setBusy(meta.id);
     try {
-      const c = await getClip(meta.id);
-      if (!c) { setNote("This recording is missing from phone storage."); return; }
-      setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
-      setPlayingClip(c);
+      const source = await clipSource(meta);
+      if (!source) { setNote("This recording is missing from phone storage."); return; }
+      setSource(source.src, source.revoke);
+      setPlayingClip({ ...meta, blob: new Blob([], { type: meta.mimeType }) });
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [setSource]);
   const closePlayer = useCallback(() => {
-    setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setSource(null);
     setPlayingClip(null);
-  }, []);
-  useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
+  }, [setSource]);
+  useEffect(() => () => { revokeRef.current?.(); }, []);
 
   // What the app is holding on this phone, refreshed whenever the list changes.
   const [space, setSpace] = useState<{ clipBytes: number; usage: number; quota: number } | null>(null);
