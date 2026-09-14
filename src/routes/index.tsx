@@ -1966,22 +1966,32 @@ function ClipsSheet({
   onClose: () => void;
   onDelete: (id: string) => void | Promise<void>;
   onDeleteAll: () => void | Promise<void>;
-  onExport: (clip: ClipMeta) => void | Promise<void>;
+  onExport: (clips: ClipMeta[]) => void | Promise<void>;
   onReplace: (clip: ClipRecord) => void;
   onRescue: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [broken, setBroken] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const takes = useMemo(() => groupTakes(clips), [clips]);
+  // Playback runs through a take's parts back to back so a split recording
+  // watches like one continuous video.
+  const [playParts, setPlayParts] = useState<ClipMeta[] | null>(null);
+  const [playIdx, setPlayIdx] = useState(0);
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
-  const openClip = useCallback(async (meta: ClipMeta) => {
+  const openTake = useCallback(async (parts: ClipMeta[], idx = 0) => {
+    const meta = parts[idx];
+    if (!meta) return;
     setBusy(meta.id);
     try {
       const c = await getClip(meta.id);
       if (!c) { setNote("This recording is missing from phone storage."); return; }
       setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(c.blob); });
+      setPlayParts(parts);
+      setPlayIdx(idx);
       setPlayingClip(c);
     } finally {
       setBusy(null);
@@ -1990,8 +2000,11 @@ function ClipsSheet({
   const closePlayer = useCallback(() => {
     setPlayUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
     setPlayingClip(null);
+    setPlayParts(null);
+    setPlayIdx(0);
   }, []);
   useEffect(() => () => { if (playUrl) URL.revokeObjectURL(playUrl); }, [playUrl]);
+
 
   // Rebuild an unplayable recording from the raw data still in storage.
   const doRepair = useCallback(async (c: ClipMeta) => {
