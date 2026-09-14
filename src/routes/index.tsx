@@ -836,6 +836,27 @@ function Prompter({
     return () => { cancelled = true; };
   }, [videoMode, script.id]);
 
+  // Real headroom, straight from the browser. Shown alongside any storage
+  // warning so the message is never a guess.
+  const [freeSpaceLabel, setFreeSpaceLabel] = useState("");
+  useEffect(() => {
+    if (!videoMode) return;
+    let stop = false;
+    const read = async () => {
+      try {
+        const est = await navigator.storage?.estimate?.();
+        if (stop || !est || !est.quota) return;
+        const free = Math.max(0, (est.quota || 0) - (est.usage || 0));
+        setFreeSpaceLabel(`${fmtSize(free)} left for the app`);
+      } catch {}
+    };
+    void read();
+    const id = window.setInterval(read, 20000);
+    return () => { stop = true; window.clearInterval(id); };
+  }, [videoMode]);
+
+
+
   // Restore reader state per script in video mode (scrollTop only; other prefs already persist globally)
   const readerStateKey = `prompter.readerState.${script.id}`;
   useEffect(() => {
