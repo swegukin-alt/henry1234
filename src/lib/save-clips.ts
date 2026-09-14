@@ -21,8 +21,6 @@ export type SaveJob = {
   openInPlayer: (f: File) => void;
   actionLabel?: string;
   runPrimary?: () => void;
-  /** Always-available escape hatch so a failed share is never a dead end. */
-  saveToFiles?: () => void;
 };
 
 // No size gate: the iPhone share sheet is always the primary (and only) path.
@@ -84,8 +82,16 @@ export function startSave(
       let complete: ClipRecord;
       try { complete = await assembleBest(stored); } catch { complete = stored; }
 
-      const clean = (complete.mimeType || "video/mp4").split(";")[0].trim();
-      const type = clean === "video/webm" ? "video/webm" : "video/mp4";
+      // Preserve the container the recorder actually produced. Giving iOS an
+      // MP4 filename around WebM bytes makes navigator.share reject the payload
+      // before the native sheet appears.
+      const head = new Uint8Array(await complete.blob.slice(0, 64).arrayBuffer());
+      const isWebM = head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3;
+      const hasFtyp = head.some((byte, index) =>
+        byte === 0x66 && head[index + 1] === 0x74 && head[index + 2] === 0x79 && head[index + 3] === 0x70
+      );
+      const declared = (complete.mimeType || "").split(";")[0].trim();
+      const type = isWebM ? "video/webm" : hasFtyp ? "video/mp4" : declared === "video/webm" ? "video/webm" : "video/mp4";
       const stamp = new Date(complete.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const name = `${base}-${stamp}.${type === "video/mp4" ? "mp4" : "webm"}`;
       const file = new File([complete.blob], name, { type });
@@ -93,11 +99,6 @@ export function startSave(
 
       const nav: any = navigator;
       let sharing = false;
-
-      const saveToFiles = () => {
-        downloadFile(file);
-        patch({ phase: "done", title: "Saved to Files", detail: "Find it in Files → Downloads, then move it wherever you like." });
-      };
 
       const share = () => {
         // Two shares at once makes iOS reject the second one instantly.
@@ -107,14 +108,22 @@ export function startSave(
 
         let result: Promise<void>;
         // The share call must happen inside the tap, with no await before it.
-        try { result = nav.share({ files: [file], title: name }); }
+        // Files-only is the smallest valid payload and avoids an iOS Safari
+        // failure where optional title data can make a large video hostile.
+        try {
+          if (typeof nav.share !== "function") throw new Error("The iPhone share menu is unavailable in this browser.");
+          if (typeof nav.canShare === "function" && !nav.canShare({ files: [file] })) {
+            throw new Error(`iPhone rejected this ${type.replace("video/", "").toUpperCase()} video before opening the share menu.`);
+          }
+          result = nav.share({ files: [file] });
+        }
         catch (e: any) {
           sharing = false;
           patch({
             phase: "ready", file, bytes: totalBytes,
             title: "Share sheet didn't open",
-            detail: `${fmtSize(totalBytes)} · Tap Share to try again.`,
-            actionLabel: "Share", runPrimary: share, saveToFiles,
+            detail: `${fmtSize(totalBytes)} · ${String(e?.message || "iPhone rejected the video.")}`,
+            actionLabel: "Share", runPrimary: share,
           });
           return;
         }
@@ -126,14 +135,17 @@ export function startSave(
             sharing = false;
             patch({ phase: "done", title: "Shared", detail: "Pick AirDrop, Save Video, or Save to Files to finish." });
           })
-          .catch(() => {
+          .catch((error: any) => {
             sharing = false;
             const quick = Date.now() - tapped < 1200;
+            const cancelled = error?.name === "AbortError" && !quick;
             patch({
               phase: "ready", file, bytes: totalBytes,
-              title: quick ? "Share sheet didn't open" : "Share closed",
-              detail: `${fmtSize(totalBytes)} · Nothing was saved yet. Tap Share to open the iPhone share menu again.`,
-              actionLabel: "Share", runPrimary: share, saveToFiles,
+              title: cancelled ? "Share closed" : "Share sheet didn't open",
+              detail: cancelled
+                ? `${fmtSize(totalBytes)} · Nothing was saved. Tap Share to open the menu again.`
+                : `${fmtSize(totalBytes)} · ${String(error?.message || "iPhone rejected the video before opening its menu.")}`,
+              actionLabel: "Share", runPrimary: share,
             });
           });
       };
@@ -144,7 +156,6 @@ export function startSave(
         detail: `${fmtSize(totalBytes)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
         actionLabel: "Share",
         runPrimary: share,
-        saveToFiles,
       });
 
     } catch (e: any) {
