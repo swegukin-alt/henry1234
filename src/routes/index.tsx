@@ -2179,7 +2179,9 @@ function ClipsSheet({
             playsInline
             preload="auto"
             onCanPlay={() => { videoElRef.current?.play().catch(() => {}); }}
+            onEnded={() => { if (playParts && playIdx + 1 < playParts.length) void openTake(playParts, playIdx + 1); }}
             onError={() => setBroken((b) => new Set(b).add(playingClip.id))}
+
             className="absolute inset-0 h-full w-full object-contain"
           />
 
