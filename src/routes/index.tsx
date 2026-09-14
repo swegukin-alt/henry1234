@@ -121,12 +121,31 @@ function Index() {
 
   useEffect(() => {
     let cancelled = false;
+    let done = false;
     // On the web this resolves immediately; inside the iPhone app it pulls the
-    // saved settings out of native storage first.
-    void hydrateSettings().then(() => {
-      if (!cancelled) hydrateFromStore();
-    });
-    return () => { cancelled = true; };
+    // saved settings out of native storage first. Native storage can never
+    // hold the app hostage: whatever it does, the UI boots.
+    const boot = () => {
+      if (done || cancelled) return;
+      done = true;
+      hydrateFromStore();
+    };
+    // Last-resort failsafe in case the promise itself never settles.
+    const failsafe = setTimeout(() => {
+      console.warn("[boot] settings hydration failsafe fired — starting with local settings");
+      boot();
+    }, 2000);
+
+    void hydrateSettings()
+      .catch((err: unknown) => {
+        console.warn("[boot] settings hydration failed:", err);
+      })
+      .finally(() => {
+        console.info("[boot] settings hydration:", settingsHydrationStatus());
+        boot();
+      });
+
+    return () => { cancelled = true; clearTimeout(failsafe); };
   }, []);
 
   function hydrateFromStore() {
