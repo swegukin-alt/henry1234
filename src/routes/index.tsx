@@ -88,31 +88,17 @@ function uid() {
 }
 
 // Unified landscape entry — same call from both Play and Video buttons.
-// Must run synchronously inside the user gesture for iOS to honor fullscreen.
+// Both calls reach the device APIs synchronously inside the user gesture,
+// which is what iOS requires for fullscreen.
 function enterLandscape() {
-  if (typeof document === "undefined") return;
-  const el: any = document.documentElement;
-  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitEnterFullscreen;
-  try { req?.call(el)?.catch?.(() => {}); } catch {}
-  try { (screen as any).orientation?.lock?.("landscape")?.catch?.(() => {}); } catch {}
+  void enterImmersive();
+  void lockOrientation("landscape");
 }
 
-function load<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save<T>(key: string, value: T) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
+// Settings go through the platform layer: localStorage in the browser,
+// native preferences inside the iPhone app. Reads stay synchronous.
+const load = <T,>(key: string, fallback: T): T => getSetting(key, fallback);
+const save = <T,>(key: string, value: T): void => setSetting(key, value);
 
 function Index() {
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -1539,15 +1525,8 @@ function Prompter({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nudge, onExit]);
 
-  // Wake lock
-  useEffect(() => {
-    let wakeLock: any = null;
-    const req = async () => { try { wakeLock = await (navigator as any).wakeLock?.request("screen"); } catch {} };
-    req();
-    const onVis = () => { if (document.visibilityState === "visible") req(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { document.removeEventListener("visibilitychange", onVis); try { wakeLock?.release(); } catch {} };
-  }, []);
+  // Keep the screen awake for the whole reading/recording session.
+  useEffect(() => keepScreenAwake(), []);
 
   // On first mount, position scroll based on initial mirror state.
   const didInitScrollRef = useRef(false);
