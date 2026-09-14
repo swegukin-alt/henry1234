@@ -525,6 +525,7 @@ function Prompter({
   // Mic state: label of the currently-active audio input + whether it's external.
   const [activeMicLabel, setActiveMicLabel] = useState<string>("");
   const [micIsExternal, setMicIsExternal] = useState(false);
+  const [micLive, setMicLive] = useState(false);
   const currentMicIdRef = useRef<string>("");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -658,6 +659,54 @@ function Prompter({
       // Keep whatever audio track we have if the swap fails.
     }
   };
+
+  // Put a live microphone back on the camera stream. Safe to call any time:
+  // it never touches a healthy track and never stops the video.
+  const reacquireMic = useCallback(async (): Promise<boolean> => {
+    const stream = streamRef.current;
+    if (!stream) return false;
+    if (stream.getAudioTracks().some((t) => t.readyState === "live")) return true;
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        audio: currentMicIdRef.current
+          ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
+          : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 } as any),
+      });
+      const t = fresh.getAudioTracks()[0];
+      if (!t) return false;
+      stream.getAudioTracks().forEach((old) => { try { stream.removeTrack(old); } catch {} });
+      t.enabled = true;
+      stream.addTrack(t);
+      setMicLive(true);
+      setCamError(null);
+      return true;
+    } catch {
+      // Fall back to the default device if the remembered one vanished.
+      if (currentMicIdRef.current) {
+        currentMicIdRef.current = "";
+        return reacquireMic();
+      }
+      return false;
+    }
+  }, []);
+
+  // Mic watchdog: while the camera is open, keep checking that a live audio
+  // track is attached and repair it before the user ever presses record.
+  useEffect(() => {
+    if (!videoMode) return;
+    const check = () => {
+      const stream = streamRef.current;
+      if (!stream) return;
+      const live = stream.getAudioTracks().some((t) => t.readyState === "live");
+      setMicLive(live);
+      if (!live && !recordingRef.current) void reacquireMic();
+    };
+    check();
+    const id = window.setInterval(check, 2000);
+    return () => window.clearInterval(id);
+  }, [videoMode, reacquireMic]);
+
+
 
 
   useEffect(() => {
@@ -826,15 +875,23 @@ function Prompter({
     if (!stream) { setCamError("The camera isn't ready yet. Give it a second and press record again."); return; }
     if (recording || recordingRef.current) return;
 
-    // Wake up any muted/disabled mic track synchronously. Anything that needs
-    // the network or the camera permission dialog must NOT run before
-    // rec.start(): on iOS an await can cost the user-gesture and the recorder
-    // then silently refuses to start.
+    // MIC FIRST: a take without sound is worthless, so a live microphone is a
+    // hard requirement. The check is synchronous (an await here would cost the
+    // iOS user-gesture and the recorder would silently refuse to start); if the
+    // mic is missing we refuse to roll, repair it in the background, and tell
+    // the user to press record again.
     let hasAudio = false;
     try {
       stream.getAudioTracks().forEach((t) => { t.enabled = true; });
-      hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live");
+      hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live" && !t.muted);
+      if (!hasAudio) hasAudio = stream.getAudioTracks().some((t) => t.readyState === "live");
     } catch {}
+    if (!hasAudio) {
+      setCamError("No live microphone — reconnecting it now. Press record again in a second.");
+      void reacquireMic();
+      return;
+    }
+
 
     const mimeType = pickMime();
     // Match iPhone-native quality tiers. iOS records 1080p60 at ~10-12 Mbps
@@ -969,23 +1026,7 @@ function Prompter({
     setPlaying(true);
     setControlsVisible(false);
     setPanel(null);
-
-    // Mic recovery, after the recorder is live so it can never block the start.
-    if (!hasAudio) {
-      setCamError("Recording started, but no microphone was detected — the video may have no sound.");
-      navigator.mediaDevices
-        .getUserMedia({
-          audio: currentMicIdRef.current
-            ? ({ deviceId: { exact: currentMicIdRef.current } } as any)
-            : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true } as any),
-        })
-        .then((fresh) => {
-          const t = fresh.getAudioTracks()[0];
-          if (t) { t.enabled = true; try { stream.addTrack(t); } catch {} }
-        })
-        .catch(() => {});
-    }
-  }, [quality, recording, script.id]);
+  }, [quality, recording, script.id, reacquireMic]);
 
   const stopRecording = useCallback(() => {
     const rec = recorderRef.current;
@@ -1721,20 +1762,22 @@ function Prompter({
       )}
 
       {/* Mic pill — shows the active audio input; highlights when external (USB / DJI Mic 2 / wireless). */}
-      {videoMode && camReady && activeMicLabel && controlsVisible && (
+      {videoMode && camReady && controlsVisible && (
         <div
           className={`absolute z-40 inline-flex max-w-[60vw] items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-sm ${
-            micIsExternal ? "bg-emerald-500/90 text-black" : "bg-black/60 text-neutral-100"
+            !micLive ? "bg-red-500/90 text-white" : micIsExternal ? "bg-emerald-500/90 text-black" : "bg-black/60 text-neutral-100"
           }`}
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
             left: "50%",
             transform: `translateX(-50%)${mirrorV ? " scaleY(-1)" : ""}`,
           }}
-          aria-label={`Active microphone: ${activeMicLabel}`}
+          aria-label={micLive ? `Active microphone: ${activeMicLabel || "Built-in mic"}` : "No microphone connected"}
         >
           <Mic className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{micIsExternal ? activeMicLabel : "Built-in mic"}</span>
+          <span className="truncate">
+            {!micLive ? "No mic — connecting" : micIsExternal ? activeMicLabel : "Built-in mic"}
+          </span>
         </div>
       )}
 
