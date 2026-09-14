@@ -29,27 +29,81 @@ async function nativePrefs(): Promise<PreferencesPlugin | null> {
   }
 }
 
+/** Hard ceiling on native storage during startup — the UI never waits longer. */
+const HYDRATE_TIMEOUT_MS = 1500;
+
+export type SettingsHydrationStatus = {
+  state: "pending" | "native" | "timeout" | "error" | "web" | "unavailable";
+  keysLoaded: number;
+  ms: number;
+  detail?: string;
+};
+
+let status: SettingsHydrationStatus = { state: "pending", keysLoaded: 0, ms: 0 };
+
+/** What actually happened during startup hydration — shown on /diagnostics. */
+export const settingsHydrationStatus = (): SettingsHydrationStatus => status;
+
+const TIMED_OUT = Symbol("timeout");
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  return Promise.race([p, new Promise<typeof TIMED_OUT>((r) => setTimeout(() => r(TIMED_OUT), ms))]);
+}
+
 export const settings: SettingsService = {
   name: "settings",
   available: () => typeof window !== "undefined",
 
+  /**
+   * Never rejects and never hangs: whatever native storage does, this settles
+   * within HYDRATE_TIMEOUT_MS so the app can always finish booting. A slow or
+   * broken Preferences plugin degrades to the local cache/defaults.
+   */
   async hydrate() {
     if (hydrated || typeof window === "undefined") return;
-    const prefs = await nativePrefs();
-    if (prefs) {
-      try {
-        const { keys } = await prefs.keys();
-        for (const key of keys) {
-          const { value } = await prefs.get({ key });
-          if (value != null) cache.set(key, JSON.parse(value));
-        }
-        hydrated = true;
-        return;
-      } catch {
-        /* fall through to the browser store */
+    const started = Date.now();
+    const finish = (s: SettingsHydrationStatus["state"], keysLoaded: number, detail?: string) => {
+      hydrated = true;
+      status = { state: s, keysLoaded, ms: Date.now() - started, detail };
+      if (s === "timeout" || s === "error") {
+        console.warn(`[settings] native storage ${s}: ${detail ?? ""} — using local settings`);
       }
+    };
+
+    if (!isNative()) {
+      finish("web", 0); // localStorage reads are already synchronous
+      return;
     }
-    hydrated = true; // localStorage reads are already synchronous
+
+    try {
+      const outcome = await withTimeout(
+        (async () => {
+          const prefs = await nativePrefs();
+          if (!prefs) return { kind: "unavailable" as const };
+          const { keys } = await prefs.keys();
+          let loaded = 0;
+          for (const key of keys) {
+            const { value } = await prefs.get({ key });
+            if (value != null) {
+              try {
+                cache.set(key, JSON.parse(value));
+                loaded++;
+              } catch {
+                /* a corrupt value is ignored, the default is used instead */
+              }
+            }
+          }
+          return { kind: "native" as const, loaded };
+        })(),
+        HYDRATE_TIMEOUT_MS,
+      );
+
+      if (outcome === TIMED_OUT) finish("timeout", 0, `no answer in ${HYDRATE_TIMEOUT_MS} ms`);
+      else if (outcome.kind === "unavailable") finish("unavailable", 0, "Preferences plugin not registered");
+      else finish("native", outcome.loaded);
+    } catch (err) {
+      finish("error", 0, (err as { message?: string })?.message || String(err));
+    }
   },
 
   get<T>(key: string, fallback: T): T {
