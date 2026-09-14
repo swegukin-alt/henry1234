@@ -80,6 +80,10 @@ function Diagnostics() {
     setReady(true);
     void cameraCapabilities().then(setCaps);
     void storageEstimate().then(setUsage);
+    void mediaStore().then((s) => {
+      setLiveStore(s.kind);
+      void s.storageUsage().then(setStoreUsage).catch(() => {});
+    });
     void remoteService().then((s) => setBleSupported(s.capabilities().supportsBle));
     void Promise.all(
       (["camera", "microphone", "photos", "bluetooth", "speech"] as const).map(async (p) => [
