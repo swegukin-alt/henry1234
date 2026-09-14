@@ -659,6 +659,54 @@ function Prompter({
     }
   };
 
+  // Put a live microphone back on the camera stream. Safe to call any time:
+  // it never touches a healthy track and never stops the video.
+  const reacquireMic = useCallback(async (): Promise<boolean> => {
+    const stream = streamRef.current;
+    if (!stream) return false;
+    if (stream.getAudioTracks().some((t) => t.readyState === "live")) return true;
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        audio: currentMicIdRef.current
+          ? ({ deviceId: { exact: currentMicIdRef.current }, sampleRate: 48000, channelCount: 2 } as any)
+          : ({ echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 } as any),
+      });
+      const t = fresh.getAudioTracks()[0];
+      if (!t) return false;
+      stream.getAudioTracks().forEach((old) => { try { stream.removeTrack(old); } catch {} });
+      t.enabled = true;
+      stream.addTrack(t);
+      setMicLive(true);
+      setCamError(null);
+      return true;
+    } catch {
+      // Fall back to the default device if the remembered one vanished.
+      if (currentMicIdRef.current) {
+        currentMicIdRef.current = "";
+        return reacquireMic();
+      }
+      return false;
+    }
+  }, []);
+
+  // Mic watchdog: while the camera is open, keep checking that a live audio
+  // track is attached and repair it before the user ever presses record.
+  useEffect(() => {
+    if (!videoMode) return;
+    const check = () => {
+      const stream = streamRef.current;
+      if (!stream) return;
+      const live = stream.getAudioTracks().some((t) => t.readyState === "live");
+      setMicLive(live);
+      if (!live && !recordingRef.current) void reacquireMic();
+    };
+    check();
+    const id = window.setInterval(check, 2000);
+    return () => window.clearInterval(id);
+  }, [videoMode, reacquireMic]);
+
+
+
 
   useEffect(() => {
     if (!videoMode) return;
