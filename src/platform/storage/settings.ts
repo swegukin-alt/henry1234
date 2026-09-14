@@ -16,11 +16,14 @@ type PreferencesPlugin = {
   remove: (o: { key: string }) => Promise<void>;
 };
 
+// The package only exists in the iOS build, so the specifier is kept dynamic:
+// the website bundle never tries to resolve it.
+const PREFERENCES_MODULE = "@capacitor/preferences";
+
 async function nativePrefs(): Promise<PreferencesPlugin | null> {
   if (!isNative()) return null;
   try {
-    // Only resolves inside the native app, where the package is installed.
-    const mod = (await import(/* @vite-ignore */ "@capacitor/preferences")) as {
+    const mod = (await import(/* @vite-ignore */ PREFERENCES_MODULE)) as {
       Preferences?: PreferencesPlugin;
     };
     return mod.Preferences ?? null;
