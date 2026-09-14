@@ -193,7 +193,7 @@ function Index() {
           onClose={() => setAllVideosOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setAllClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { for (const c of allClips) await deleteClip(c.id); setAllClips([]); }}
-          onExport={(clip) => startSave(clip, scripts.find((s) => s.id === clip.scriptId)?.title || "Take", setLibrarySave)}
+          onExport={(cs) => startSave(cs, scripts.find((s) => s.id === cs[0]?.scriptId)?.title || "Take", setLibrarySave)}
           onReplace={(clip) => setAllClips((cs) => (cs.some((c) => c.id === clip.id) ? cs.map((c) => c.id === clip.id ? clip : c) : [clip, ...cs]).sort((a, b) => (b.createdAt - a.createdAt) || b.id.localeCompare(a.id)))}
           onRescue={async () => { for (const s of scripts) { try { await rescueAll(s.id); } catch {} } await refreshAllClips(); }}
         />
