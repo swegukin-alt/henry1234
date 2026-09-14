@@ -172,7 +172,7 @@ export function startSave(
         patch({
           phase: "ready", file, bytes: totalBytes,
           title: "Ready to save",
-          detail: `${fmtSize(totalBytes)} · This long take will save directly to Files > Downloads.`,
+          detail: `${fmtSize(totalBytes)} · Your take is kept inside this app. Tap below to copy it into your iPhone's Files app (Downloads) so other apps can open it. It stays on the phone.`,
           actionLabel: "Save to Files",
           runPrimary: saveToFiles,
         });
