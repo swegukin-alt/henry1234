@@ -96,6 +96,38 @@ export async function customCapturePlugin<T = Record<string, unknown>>(): Promis
   const core = await capacitorCore();
   if (!core?.registerPlugin) return null;
   if (core.Capacitor?.isNativePlatform?.() !== true) return null;
-  if (core.Capacitor?.isPluginAvailable?.("TeleprompterCapture") !== true) return null;
+  // `isPluginAvailable` is NOT used as a gate here. It reads a header table
+  // that can be empty for a plugin compiled into the app target, which would
+  // wrongly report the camera as missing. The proxy is registered and then
+  // genuinely called; a plugin that is not there fails loudly at that point.
   return core.registerPlugin<T>("TeleprompterCapture");
+}
+
+/** Last error from probing the custom plugin — shown in the app and /diagnostics. */
+let lastCaptureProbeError = "";
+
+export function captureProbeError(): string {
+  return lastCaptureProbeError;
+}
+
+/**
+ * Registers the custom capture plugin and proves it is really implemented by
+ * calling one harmless method. Returns null (with a readable reason) when the
+ * Swift side is missing from the build.
+ */
+export async function probeCapturePlugin<T = Record<string, unknown>>(): Promise<T | null> {
+  const plugin = await customCapturePlugin<T & { recordingState?: () => Promise<unknown> }>();
+  if (!plugin) {
+    lastCaptureProbeError = "Capacitor core is not available in this runtime.";
+    return null;
+  }
+  try {
+    await plugin.recordingState?.();
+    lastCaptureProbeError = "";
+    return plugin as T;
+  } catch (e) {
+    lastCaptureProbeError =
+      (e as { message?: string })?.message || "TeleprompterCapture did not answer.";
+    return null;
+  }
 }

@@ -15,7 +15,7 @@ import {
   getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings,
   settingsHydrationStatus,
   isNative, startCamera, stopCamera, startRecording as startNativeCapture, cameraCapabilities,
-  cameraDeviceCapabilities, type CameraDeviceCapabilities, type StabilizationMode,
+  cameraDeviceCapabilities, cameraDiagnostics, type CameraDeviceCapabilities, type StabilizationMode,
   requestPermission, openAppSettings, haptic, onLifecycleChange, pickBestMicrophone,
   type PreviewHandle, type RecordingHandle,
 } from "@/platform";
@@ -585,6 +585,10 @@ function Prompter({
   useEffect(() => { setNativeApp(isNative()); }, []);
   const nativeAppRef = useRef(false);
   useEffect(() => { nativeAppRef.current = nativeApp; }, [nativeApp]);
+  // Retry counter + technical detail, so a native camera problem is visible
+  // and recoverable without restarting the app.
+  const [camRetry, setCamRetry] = useState(0);
+  const [camDiag, setCamDiag] = useState("");
   const previewRef = useRef<PreviewHandle | null>(null);
   const nativeRecRef = useRef<RecordingHandle | null>(null);
   const nativeTakeRef = useRef<{ id: string; startedAt: number; width: number; height: number } | null>(null);
@@ -818,9 +822,11 @@ function Prompter({
       }
       if (!res.ok) {
         setCamError(res.reason);
+        void cameraDiagnostics().then((d) => { if (!cancelled) setCamDiag(d); });
         return;
       }
       previewRef.current = res.value;
+      void cameraDiagnostics().then((d) => { if (!cancelled) setCamDiag(d); });
       setCamReady(true);
       setCamError(null);
       void cameraDeviceCapabilities().then((hw) => { if (!cancelled) setCamHw(hw); });
@@ -846,7 +852,7 @@ function Prompter({
       setMicLive(false);
       void lockOrientation("any");
     };
-  }, [videoMode, nativeApp, quality, camSettings]);
+  }, [videoMode, nativeApp, quality, camSettings, camRetry]);
 
   // The camera picture lives behind the WebView on iOS, so the whole page
   // stack has to be see-through while video mode is open — otherwise the black
@@ -1088,7 +1094,9 @@ function Prompter({
     setRecording(false);
     setPlaying(false);
     setControlsVisible(true);
-    setFinalizing({ done: 0, total: 1, phase: "assembling" });
+    // The file is already on disk — closing it is instant, so no progress
+    // panel appears unless iOS genuinely takes a moment.
+    const slow = window.setTimeout(() => setFinalizing({ done: 0, total: 1, phase: "assembling" }), 700);
     try {
       const { mimeType, filePath } = await rec.stop();
       if (!filePath) throw new Error("The recording finished but iOS did not hand back the file.");
@@ -1104,16 +1112,22 @@ function Prompter({
         },
         filePath,
       );
-      if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+      if (!clip) throw new Error("The take was filmed but could not be added to the library.");
+      setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+      window.clearTimeout(slow);
       setFinalizing(null);
       haptic("record-stop");
     } catch (e) {
-      setFinalizing({ done: 0, total: 1, phase: "error" });
+      window.clearTimeout(slow);
+      setFinalizing(null);
+      const msg = (e as { message?: string })?.message || "The take could not be stored.";
       setWriteWarn(true);
-      setWriteWarnMsg((e as { message?: string })?.message || "The take could not be stored.");
+      setWriteWarnMsg(msg);
+      setCamError(msg);
       haptic("error");
     }
   }, [script.id]);
+
   useEffect(() => { finishNativeRecordingRef.current = finishNativeRecording; }, [finishNativeRecording]);
 
   const startNativeRecording = useCallback(async () => {
@@ -1857,7 +1871,13 @@ function Prompter({
               <div>
                 <div className="mb-2 font-bold text-amber-300">Camera unavailable</div>
                 <div className="mb-3 text-neutral-300">{camError}</div>
-                <button onClick={onExit} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">Back</button>
+                {nativeApp && camDiag && (
+                  <div className="mb-3 text-[11px] text-neutral-500">{camDiag}</div>
+                )}
+                <div className="flex justify-center gap-2">
+                  <button onClick={() => { setCamError(null); setCamRetry((n) => n + 1); }} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">Try again</button>
+                  <button onClick={onExit} className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-neutral-200">Back</button>
+                </div>
               </div>
             </div>
           )}

@@ -35,3 +35,15 @@ export const cameraDeviceCapabilities = async () => {
 };
 export const startRecording = async (handle: PreviewHandle, opts: RecorderOptions) =>
   (await cameraService()).startRecording(handle, opts);
+
+/**
+ * Plain technical detail about the camera actually in use — used by the error
+ * screen inside the app and by /diagnostics, so a missing native plugin is
+ * never a mystery.
+ */
+export async function cameraDiagnostics(): Promise<string> {
+  if (!isNative()) return "web (getUserMedia)";
+  const mod = await import("./native");
+  const detail = mod.nativeCameraDetail();
+  return `back end: ${mod.nativeCameraBackEnd()}${detail ? ` — ${detail}` : ""}`;
+}

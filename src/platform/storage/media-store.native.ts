@@ -10,7 +10,7 @@
 // Capacitor native runtime is detected, and the plugin specifier stays dynamic
 // so the website bundle never resolves it.
 
-import { convertFileSrc, hasPlugin } from "../runtime";
+import { convertFileSrc } from "../runtime";
 import type { ClipMeta, ClipRecord, MediaStore, NewSession } from "./media-store";
 import type { RepairReport, RestoreReport } from "@/lib/clip-store";
 
@@ -59,7 +59,8 @@ async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 export async function createNativeMediaStore(): Promise<MediaStore | null> {
-  if (!hasPlugin("Filesystem")) return null;
+  // No registry gate: the plugin module is loaded and used directly, so a take
+  // is never silently dropped because a header table looked empty.
   const mod = await loadModule<FsModule>(PLUGIN_MODULES.filesystem);
   if (!mod) return null;
   const Filesystem = mod.Filesystem;

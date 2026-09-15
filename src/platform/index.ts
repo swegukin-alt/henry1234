@@ -8,7 +8,7 @@
 export * from "./runtime";
 export * from "./types";
 
-export { cameraService, startCamera, stopCamera, switchCamera, setZoom, startRecording, cameraCapabilities, cameraDeviceCapabilities } from "./camera";
+export { cameraService, startCamera, stopCamera, switchCamera, setZoom, startRecording, cameraCapabilities, cameraDeviceCapabilities, cameraDiagnostics } from "./camera";
 export type { CameraCapabilities, CameraDeviceCapabilities, CameraService, PreviewHandle, RecordingHandle, StabilizationMode, CameraQuality } from "./camera";
 
 export { audioService, pickBestMicrophone, applyMicrophone, requestMicrophone, hasLiveMicrophone } from "./audio";

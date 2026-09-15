@@ -44,9 +44,6 @@ export function mediaLibraryCapabilities(): MediaLibraryCapabilities {
  */
 export async function saveVideoToPhotos(path: string): Promise<ServiceResult<void>> {
   if (!isNative()) return fail("Use the browser save flow on the web.", "web-runtime");
-  if (!hasPlugin("Media")) {
-    return fail("The Photos plugin is not installed in this build.", "plugin-missing");
-  }
   try {
     const mod = await loadModule<{ Media?: MediaPlugin }>(PLUGIN_MODULES.media);
     if (!mod?.Media) return fail("The Photos plugin is not installed in this build.", "plugin-missing");
