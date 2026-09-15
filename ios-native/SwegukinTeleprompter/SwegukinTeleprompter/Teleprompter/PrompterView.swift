@@ -25,7 +25,6 @@ struct PrompterView: View {
     @State private var errorMessage: String?
     @State private var currentTakeID: String?
     @State private var saving = false
-    @State private var dragStartOffset: CGFloat?
     @State private var didRestorePosition = false
 
     @State private var document: ScriptDocument
@@ -113,12 +112,14 @@ struct PrompterView: View {
                     .gesture(
                         DragGesture(minimumDistance: 6)
                             .onChanged { value in
-                                if dragStartOffset == nil { dragStartOffset = engine.offset }
-                                let start = dragStartOffset ?? engine.offset
-                                engine.seek(to: start - value.translation.height)
+                                engine.drag(translation: value.translation.height)
                             }
-                            .onEnded { _ in
-                                dragStartOffset = nil
+                            .onEnded { value in
+                                // UIKit-style momentum: the script keeps gliding
+                                // after release, while auto-scroll resumes at the
+                                // selected reading speed.
+                                let projectedDistance = value.predictedEndTranslation.height - value.translation.height
+                                engine.endDrag(velocity: projectedDistance / 0.25)
                                 settings.setReadingPosition(Double(engine.offset), for: script.id)
                             }
                     )
