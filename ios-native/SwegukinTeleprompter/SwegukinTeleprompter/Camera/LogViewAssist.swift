@@ -135,7 +135,14 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
         self.isPaused = false
         self.preferredFramesPerSecond = 30
         if let mtlDevice {
-            ciContext = CIContext(mtlDevice: mtlDevice)
+            // Colour management OFF. Core Image would otherwise convert the
+            // Apple Log frame into its linear working space before the cube
+            // runs, which destroys the log curve the cube is built to invert.
+            ciContext = CIContext(mtlDevice: mtlDevice, options: [
+                .workingColorSpace: NSNull(),
+                .outputColorSpace: NSNull(),
+                .cacheIntermediates: false
+            ])
             commandQueue = mtlDevice.makeCommandQueue()
         }
         delegate = self
