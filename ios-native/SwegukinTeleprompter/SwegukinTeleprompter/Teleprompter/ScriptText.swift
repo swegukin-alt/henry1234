@@ -18,6 +18,9 @@ struct ScriptText: View {
             .lineSpacing(max(0, fontSize * lineHeight - nativeFontLineHeight))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Without this SwiftUI proposes the viewport height to Text and
+            // silently clips the tail of long scripts.
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var nativeFontLineHeight: CGFloat {

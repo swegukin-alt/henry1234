@@ -22,6 +22,7 @@ struct PrompterView: View {
     @State private var errorMessage: String?
     @State private var currentTakeID: String?
     @State private var saving = false
+    @State private var dragStartOffset: CGFloat?
 
     let script: Script
     let videoMode: Bool
@@ -60,6 +61,18 @@ struct PrompterView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { togglePlay() }
+                    .gesture(
+                        DragGesture(minimumDistance: 6)
+                            .onChanged { value in
+                                if dragStartOffset == nil { dragStartOffset = engine.offset }
+                                let start = dragStartOffset ?? engine.offset
+                                engine.seek(to: start - value.translation.height)
+                            }
+                            .onEnded { _ in
+                                dragStartOffset = nil
+                                settings.setReadingPosition(Double(engine.offset), for: script.id)
+                            }
+                    )
 
                 if countdownLeft > 0 {
                     Text("\(countdownLeft)")
@@ -150,7 +163,9 @@ struct PrompterView: View {
         )
         .onPreferenceChange(ContentHeightKey.self) { height in
             contentHeight = height
-            engine.contentHeight = height
+            // Web uses a 20vh lead-in and 80vh tail. Together they add one
+            // viewport, allowing every final word to pass the reading line.
+            engine.contentHeight = height + geo.size.height
         }
         // Web spacer: 20vh of clear space above the first line.
         .offset(y: geo.size.height * 0.20 - engine.offset)
@@ -313,12 +328,14 @@ struct PrompterView: View {
                     popRow("Width", "\(Int(settings.textWidth))%") {
                         Slider(value: $settings.textWidth, in: 50...100, step: 1)
                     }
+                    HStack(spacing: 8) {
+                        backgroundButton("Dark", value: "black")
+                        backgroundButton("Light", value: "white")
+                        backgroundButton("Sepia", value: "sepia")
+                    }
                 case .size:
                     popRow("Font size", "\(Int(settings.fontSize))px") {
                         Slider(value: $settings.fontSize, in: 24...140, step: 1)
-                    }
-                    popRow("Line spacing", String(format: "%.2f", settings.lineHeight)) {
-                        Slider(value: $settings.lineHeight, in: 1.1...2.2, step: 0.05)
                     }
                 case .more:
                     Button { engine.reset(); panel = nil } label: {
@@ -355,6 +372,8 @@ struct PrompterView: View {
 
                     Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
                     assistRow("Reading highlight", isOn: $settings.readingHighlight)
+                    assistRow("Chunk phrases", isOn: $settings.chunking)
+                    assistRow("Slow at punctuation", isOn: $settings.pauses)
                     assistRow("Voice-follow highlight", isOn: $settings.voiceFollow)
 
                     Text("Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.")
@@ -391,6 +410,13 @@ struct PrompterView: View {
             }
         }
         .buttonStyle(OutlineButtonStyle(active: isOn.wrappedValue))
+    }
+
+    private func backgroundButton(_ label: String, value: String) -> some View {
+        Button { settings.background = value } label: {
+            Text(label).font(.system(size: 12, weight: .semibold)).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(OutlineButtonStyle(active: settings.background == value))
     }
 
     // MARK: - Behaviour
@@ -457,6 +483,8 @@ struct PrompterView: View {
         }
         engine.speed = settings.speed
         engine.toggle()
+        controlsVisible = !engine.isPlaying
+        if engine.isPlaying { panel = nil }
     }
 
     private func startRecording() {
@@ -497,8 +525,8 @@ struct PrompterView: View {
         case .togglePlay: togglePlay()
         case .speedUp: settings.speed = min(250, settings.speed + 5); engine.speed = settings.speed
         case .speedDown: settings.speed = max(10, settings.speed - 5); engine.speed = settings.speed
-        case .nudgeUp: engine.nudge(points: -settings.fontSize)
-        case .nudgeDown: engine.nudge(points: settings.fontSize)
+        case .nudgeUp: engine.nudge(points: -max(60, engine.viewportHeight * 0.18))
+        case .nudgeDown: engine.nudge(points: max(60, engine.viewportHeight * 0.18))
         case .fontUp: settings.fontSize = min(140, settings.fontSize + 2)
         case .fontDown: settings.fontSize = max(24, settings.fontSize - 2)
         case .reset: engine.reset()
