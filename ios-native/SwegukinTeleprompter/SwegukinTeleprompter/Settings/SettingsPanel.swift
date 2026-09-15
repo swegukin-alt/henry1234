@@ -70,7 +70,6 @@ struct SettingsPanel: View {
                         .foregroundStyle(.white.opacity(0.45))
                 }
             }
-            }
         }
         .padding(16)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
