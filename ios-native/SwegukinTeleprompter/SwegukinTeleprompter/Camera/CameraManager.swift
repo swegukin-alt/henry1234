@@ -362,11 +362,13 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     /// Best effort: an unsupported device or OS simply leaves capture untouched.
+    /// Cinematic video lives on the capture *input* (AVCaptureDeviceInput), and
+    /// support is read from the device format — never from the movie output.
     func applyCinematic(enabled: Bool, aperture: Double) {
         #if compiler(>=6.2)
         guard #available(iOS 26.0, *) else { return }
-        guard !isRecording, let device else { return }
-        let output = movieOutput
+        guard !isRecording, let input = videoInput else { return }
+        let device = input.device
         let session = self.session
         sessionQueue.async {
             if enabled, !device.activeFormat.isCinematicVideoCaptureSupported {
@@ -381,23 +383,23 @@ final class CameraManager: NSObject, ObservableObject {
                     device.unlockForConfiguration()
                 }
             }
-            if output.isCinematicVideoCaptureSupported {
-                session.beginConfiguration()
-                output.isCinematicVideoCaptureEnabled = enabled
-                session.commitConfiguration()
-            }
-            if enabled, (try? device.lockForConfiguration()) != nil {
-                let format = device.activeFormat
-                let low = Double(format.minSimulatedAperture)
-                let high = Double(format.maxSimulatedAperture)
-                if low > 0, high > low {
-                    device.simulatedAperture = Float(min(max(aperture, low), high))
+            session.beginConfiguration()
+            if input.isCinematicVideoCaptureSupported {
+                input.isCinematicVideoCaptureEnabled = enabled
+                if enabled {
+                    let format = device.activeFormat
+                    let low = Double(format.minSimulatedAperture)
+                    let high = Double(format.maxSimulatedAperture)
+                    if low > 0, high > low {
+                        input.simulatedAperture = Float(min(max(aperture, low), high))
+                    }
                 }
-                device.unlockForConfiguration()
             }
+            session.commitConfiguration()
         }
         #endif
     }
+
 
     /// Switches the capture color space to Apple Log and restores the normal
     /// one when turned off. Incompatible HDR is dropped for the session.
