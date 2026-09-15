@@ -408,6 +408,14 @@ final class CameraManager: NSObject, ObservableObject {
 
 
     /// Apple Log is only offered when a capture format lists it.
+    /// True when the format delivers 10-bit samples — the '420f' (full-range) or
+    /// 'x420' (video-range) 4:2:0 YpCbCr pixel formats Apple uses for Apple Log.
+    static func isTenBitFormat(_ format: AVCaptureDevice.Format) -> Bool {
+        let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+        return subType == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+            || subType == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+    }
+
     static func appleLogSupported(front: Bool) -> Bool {
         if #available(iOS 17.2, *) {
             guard let device = pickCamera(front: front) else { return false }
@@ -508,7 +516,13 @@ final class CameraManager: NSObject, ObservableObject {
             if enabled {
                 if !device.activeFormat.supportedColorSpaces.contains(.appleLog) {
                     let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-                    let logFormats = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
+                    var logFormats = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
+                    // Apple Log is captured as 10-bit. When several formats match,
+                    // prefer a real 10-bit pixel format ('420f' full-range or 'x420'
+                    // video-range YpCbCr 4:2:0) over any 8-bit variant.
+                    logFormats.sort { lhs, rhs in
+                        Self.isTenBitFormat(lhs) && !Self.isTenBitFormat(rhs)
+                    }
                     let match = logFormats.first { format in
                         let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
                         return d.width == dims.width && d.height == dims.height
