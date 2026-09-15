@@ -262,8 +262,8 @@ function Index() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-neutral-100" style={{ fontFamily: "var(--font-sans)" }}>
-      <div className="mx-auto max-w-2xl px-4 pb-24 pt-[max(env(safe-area-inset-top),1rem)]">
+    <div className="min-h-screen bg-black text-neutral-100" style={{ fontFamily: "var(--font-sans)" }}>
+      <div className="mx-auto max-w-2xl px-5 pb-24 pt-[max(env(safe-area-inset-top),1rem)]">
         {children}
       </div>
     </div>
@@ -279,34 +279,36 @@ function Library({
 }) {
   return (
     <div>
-      <header className="pt-6 pb-5">
-        <h1 className="text-[26px] sm:text-3xl font-black tracking-tight leading-[1.15] bg-gradient-to-br from-amber-300 to-amber-500 bg-clip-text text-transparent">
+      <header className="pt-10 pb-7">
+        <h1 className="text-[32px] font-semibold tracking-tight leading-[1.1] text-white">
           Let's kick some ass
         </h1>
-        <p className="text-[13px] text-neutral-400 mt-2 leading-snug">
+        <p className="mt-2 text-[15px] leading-snug text-neutral-500">
           Never give up. Remember where you came from.
         </p>
         <button
           onClick={onCreate}
-          className="mt-5 w-full rounded-2xl bg-amber-400 px-4 py-3.5 text-base font-bold text-black active:scale-[0.98] transition shadow-lg shadow-amber-400/20"
+          className="mt-7 w-full rounded-2xl bg-primary px-4 py-3.5 text-[17px] font-medium text-primary-foreground transition active:opacity-70"
         >
           Let's go
         </button>
         <button
           onClick={onAllVideos}
-          className="mt-2.5 w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/[0.04] px-4 py-3 text-sm font-bold text-neutral-200 active:scale-[0.98] transition"
+          className="mt-2.5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white/[0.07] px-4 py-3.5 text-[15px] font-medium text-neutral-100 transition active:opacity-70"
         >
-          <Film className="h-4 w-4 text-amber-300" /> All videos
+          <Film className="h-4 w-4 text-neutral-400" /> All videos
         </button>
       </header>
 
-      <ul className="mt-2 space-y-2">
-        {scripts.map((s) => (
-          <li key={s.id} className={`rounded-2xl border ${activeId === s.id ? "border-amber-400/50" : "border-white/10"} bg-white/[0.03]`}>
+      <ul className="mt-2 overflow-hidden rounded-2xl bg-white/[0.05]">
+        {scripts.map((s, i) => (
+          <li key={s.id} className={i > 0 ? "border-t border-white/[0.07]" : ""}>
             <div className="flex items-stretch">
-              <button onClick={() => onSelect(s.id)} className="flex-1 text-left px-4 py-3">
-                <div className="font-semibold truncate">{s.title || "Untitled"}</div>
-                <div className="text-xs text-neutral-400 mt-0.5 line-clamp-1">
+              <button onClick={() => onSelect(s.id)} className="min-w-0 flex-1 px-4 py-3.5 text-left active:opacity-60">
+                <div className={`truncate text-[16px] ${activeId === s.id ? "text-primary" : "text-white"}`}>
+                  {s.title || "Untitled"}
+                </div>
+                <div className="mt-0.5 line-clamp-1 text-[13px] text-neutral-500">
                   {s.body.trim().slice(0, 80) || "Empty script"}
                 </div>
               </button>
@@ -314,7 +316,7 @@ function Library({
                 onClick={() => {
                   if (confirm(`Delete "${s.title}"?`)) onDelete(s.id);
                 }}
-                className="px-4 text-neutral-500 hover:text-red-400 text-sm"
+                className="px-4 text-sm text-neutral-600 hover:text-red-400"
                 aria-label="Delete"
               >
                 ✕
@@ -323,8 +325,8 @@ function Library({
           </li>
         ))}
         {scripts.length === 0 && (
-          <li className="rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-neutral-400">
-            No scripts yet. Tap <span className="text-amber-400 font-bold">Let's go</span> to start.
+          <li className="px-4 py-12 text-center text-[15px] text-neutral-500">
+            No scripts yet. Tap <span className="text-primary">Let's go</span> to start.
           </li>
         )}
       </ul>
@@ -346,20 +348,20 @@ function Editor({
   const disabled = !script.body.trim();
   return (
     <div>
-      <header className="flex items-center justify-between py-3 gap-2">
-        <button onClick={onBack} className="text-sm text-neutral-400 hover:text-white">‹ Scripts</button>
+      <header className="flex items-center justify-between gap-2 py-4">
+        <button onClick={onBack} className="text-[15px] text-primary active:opacity-60">‹ Scripts</button>
         <div className="flex items-center gap-2">
           <button
             onClick={onVideo}
             disabled={disabled}
-            className="rounded-full border border-amber-400/60 bg-amber-400/10 px-4 py-2 text-sm font-bold text-amber-300 disabled:opacity-40 active:scale-95 transition inline-flex items-center gap-1.5"
+            className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.07] px-4 py-2 text-[15px] text-neutral-100 transition active:opacity-60 disabled:opacity-30"
           >
             <Video className="h-4 w-4" /> Video
           </button>
           <button
             onClick={onPlay}
             disabled={disabled}
-            className="rounded-full bg-amber-400 px-5 py-2 text-sm font-bold text-black disabled:opacity-40 active:scale-95 transition"
+            className="rounded-full bg-primary px-5 py-2 text-[15px] font-medium text-primary-foreground transition active:opacity-70 disabled:opacity-30"
           >
             ▶ Play
           </button>
@@ -371,14 +373,14 @@ function Editor({
         value={script.title}
         onChange={(e) => onChange({ title: e.target.value })}
         placeholder="Script title"
-        className="w-full bg-transparent text-2xl font-bold outline-none placeholder:text-neutral-600 py-2"
+        className="w-full bg-transparent py-2 text-[28px] font-semibold tracking-tight outline-none placeholder:text-neutral-700"
       />
 
       <textarea
         value={script.body}
         onChange={(e) => onChange({ body: e.target.value })}
         placeholder="Paste or type your script here… 한글도 지원합니다."
-        className="mt-2 min-h-[40vh] w-full resize-y rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-base leading-relaxed outline-none focus:border-amber-400/50"
+        className="mt-2 min-h-[40vh] w-full resize-y rounded-2xl bg-white/[0.05] p-4 text-[16px] leading-relaxed outline-none"
       />
 
       <SettingsPanel settings={settings} onChange={onSettings} />
@@ -389,8 +391,8 @@ function Editor({
 function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
   const set = (patch: Partial<Settings>) => onChange({ ...settings, ...patch });
   return (
-    <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <h2 className="text-sm font-bold uppercase tracking-widest text-neutral-400">Settings</h2>
+    <section className="mt-8 rounded-2xl bg-white/[0.05] p-4">
+      <h2 className="text-[13px] font-medium uppercase tracking-[0.12em] text-neutral-500">Settings</h2>
       <div className="mt-4 space-y-4">
         <Slider label="Font size" value={settings.fontSize} min={24} max={140} step={1} suffix="px"
           onChange={(v) => set({ fontSize: v })} />
@@ -403,7 +405,7 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
           <Toggle on={settings.mirrorV} onClick={() => set({ mirrorV: !settings.mirrorV })}>Mirror ↕</Toggle>
         </div>
         <div className="pt-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-500">Reading assist</div>
+          <div className="mb-2 text-[13px] uppercase tracking-[0.12em] text-neutral-500">Reading assist</div>
           <div className="flex flex-wrap gap-2">
             <Toggle on={settings.chunking ?? true} onClick={() => set({ chunking: !(settings.chunking ?? true) })}>
               <AlignJustify className="mr-1 inline h-3.5 w-3.5" /> Chunk phrases
@@ -423,13 +425,13 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
           </p>
         </div>
 
-        <div className="flex gap-2 pt-1">
+        <div className="flex gap-1 rounded-xl bg-white/[0.06] p-1">
           {(["black", "white", "sepia"] as const).map((b) => (
             <button
               key={b}
               onClick={() => set({ bg: b })}
-              className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold border transition ${
-                settings.bg === b ? "border-amber-400 text-amber-300" : "border-white/10 text-neutral-300"
+              className={`flex-1 rounded-lg px-3 py-2 text-[14px] transition ${
+                settings.bg === b ? "bg-white/[0.14] text-white" : "text-neutral-400"
               }`}
             >
               {b === "black" ? "Dark" : b === "white" ? "Light" : "Sepia"}
@@ -441,7 +443,7 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
             onClick={() => {
               if (confirm("Reset all teleprompter settings to defaults?")) onChange({ ...DEFAULT_SETTINGS });
             }}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-sm font-semibold text-neutral-300 transition hover:border-amber-400/50 hover:text-amber-300"
+            className="w-full rounded-xl px-3 py-2 text-[14px] text-neutral-400 transition active:opacity-60"
           >
             Reset to defaults
           </button>
@@ -456,14 +458,14 @@ function Slider({
 }: { label: string; value: number; min: number; max: number; step: number; suffix?: string; onChange: (v: number) => void }) {
   return (
     <label className="block">
-      <div className="flex justify-between text-sm">
-        <span className="text-neutral-300">{label}</span>
-        <span className="font-mono text-amber-300">{value}{suffix}</span>
+      <div className="flex justify-between text-[14px]">
+        <span className="text-neutral-400">{label}</span>
+        <span className="tabular-nums text-white">{value}{suffix}</span>
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="slider-fluid mt-2 w-full accent-amber-400"
+        className="slider-fluid mt-1 w-full accent-white"
       />
     </label>
   );
@@ -473,8 +475,8 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
   return (
     <button
       onClick={onClick}
-      className={`rounded-full px-4 py-2 text-sm font-semibold border transition ${
-        on ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-white/10 text-neutral-300"
+      className={`rounded-full px-4 py-2 text-[14px] transition active:opacity-60 ${
+        on ? "bg-primary text-primary-foreground" : "bg-white/[0.07] text-neutral-300"
       }`}
     >
       {children}
@@ -1891,14 +1893,14 @@ function Prompter({
           {camError && (
               <div className="absolute inset-x-3 top-3 z-40 rounded-lg bg-black/85 p-4 text-center text-sm text-neutral-200">
               <div>
-                <div className="mb-2 font-bold text-amber-300">Camera unavailable</div>
+                <div className="mb-2 font-medium text-primary">Camera unavailable</div>
                 <div className="mb-3 text-neutral-300">{camError}</div>
                 {nativeApp && camDiag && (
                   <div className="mb-3 text-[11px] text-neutral-500">{camDiag}</div>
                 )}
                 <div className="flex justify-center gap-2">
-                  <button onClick={() => { setCamError(null); setCamRetry((n) => n + 1); }} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-black">Try again</button>
-                  <button onClick={onExit} className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-neutral-200">Back</button>
+                  <button onClick={() => { setCamError(null); setCamRetry((n) => n + 1); }} className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Try again</button>
+                  <button onClick={onExit} className="rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-neutral-200">Back</button>
                 </div>
               </div>
             </div>
@@ -1947,7 +1949,7 @@ function Prompter({
       {/* Portrait nudge — only hint, no rotation hack */}
       {isPortrait && (
         <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center">
-          <div className="rounded-full bg-black/70 px-3 py-1 text-xs text-amber-300 backdrop-blur-sm">
+          <div className="rounded-full bg-black/70 px-3 py-1 text-xs text-primary backdrop-blur-sm">
             Rotate your phone sideways
           </div>
         </div>
@@ -1957,15 +1959,15 @@ function Prompter({
       {panel === "settings" && (
         <Popover onClose={() => setPanel(null)}>
           <PopRow label="Speed" value={`${speed}`}>
-            <input type="range" min={10} max={250} step={1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="slider-fluid w-full accent-amber-400" />
+            <input type="range" min={10} max={250} step={1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="slider-fluid w-full accent-primary" />
           </PopRow>
           <PopRow label="Width" value={`${settings.width}%`}>
-            <input type="range" min={50} max={100} step={1} value={settings.width} onChange={(e) => onSettings({ ...settings, width: Number(e.target.value) })} className="slider-fluid w-full accent-amber-400" />
+            <input type="range" min={50} max={100} step={1} value={settings.width} onChange={(e) => onSettings({ ...settings, width: Number(e.target.value) })} className="slider-fluid w-full accent-primary" />
           </PopRow>
           <div className="flex gap-2 pt-1">
             {(["black", "white", "sepia"] as const).map((b) => (
               <button key={b} onClick={() => onSettings({ ...settings, bg: b })}
-                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold border ${settings.bg === b ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold border ${settings.bg === b ? "border-primary text-primary" : "border-white/15 text-neutral-300"}`}>
                 {b === "black" ? "Dark" : b === "white" ? "Light" : "Sepia"}
               </button>
             ))}
@@ -1975,7 +1977,7 @@ function Prompter({
       {panel === "size" && (
         <Popover onClose={() => setPanel(null)}>
           <PopRow label="Font size" value={`${fontSize}px`}>
-            <input type="range" min={24} max={140} step={1} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="slider-fluid w-full accent-amber-400" />
+            <input type="range" min={24} max={140} step={1} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} className="slider-fluid w-full accent-primary" />
           </PopRow>
         </Popover>
       )}
@@ -1984,7 +1986,7 @@ function Prompter({
           <div className={videoMode ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2"}>
             <button onClick={() => { reset(); setPanel(null); }} className="rounded-lg border border-white/15 px-3 py-2 text-sm">↺ Reset</button>
             {!videoMode && (
-              <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-amber-400 text-amber-300" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
+              <button onClick={toggleMirror} className={`rounded-lg border px-3 py-2 text-sm ${mirrorV ? "border-primary text-primary" : "border-white/15"}`}>Flip ↕ (beam-splitter rig)</button>
             )}
           </div>
           {videoMode && (
@@ -1999,7 +2001,7 @@ function Prompter({
                       return (
                         <button key={`${mode.quality}-${mode.fps}-${mode.hdr}`} disabled={recording}
                           onClick={() => { setQuality(mode.quality); setCamSettings((c) => ({ ...c, fps: mode.fps, hdr: mode.hdr })); }}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${active ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${active ? "border-primary text-primary" : "border-white/15 text-neutral-300"}`}>
                           {label}
                         </button>
                       );
@@ -2014,7 +2016,7 @@ function Prompter({
                       return (
                         <button key={m} disabled={recording || unsupported}
                           onClick={() => setCamSettings((c) => ({ ...c, stabilization: m }))}
-                          className={`flex-1 rounded-lg border px-2 py-2 text-[11px] font-semibold capitalize disabled:opacity-40 ${camSettings.stabilization === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                          className={`flex-1 rounded-lg border px-2 py-2 text-[11px] font-semibold capitalize disabled:opacity-40 ${camSettings.stabilization === m ? "border-primary text-primary" : "border-white/15 text-neutral-300"}`}>
                           {m === "cinematic" ? "Cine" : m}
                         </button>
                       );
@@ -2037,7 +2039,7 @@ function Prompter({
             <div className="grid grid-cols-1 gap-1.5">
               <button
                 onClick={() => setReadingHighlight((v) => !v)}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${readingHighlight ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${readingHighlight ? "border-primary text-primary" : "border-white/15 text-neutral-200"}`}
               >
                 <AudioLines className="h-4 w-4 shrink-0" />
                 <span className="flex-1">Reading highlight</span>
@@ -2045,7 +2047,7 @@ function Prompter({
               </button>
               <button
                 onClick={() => setChunking((v) => !v)}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${chunking ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${chunking ? "border-primary text-primary" : "border-white/15 text-neutral-200"}`}
               >
                 <AlignJustify className="h-4 w-4 shrink-0" />
                 <span className="flex-1">Chunk phrases</span>
@@ -2053,7 +2055,7 @@ function Prompter({
               </button>
               <button
                 onClick={() => setPauses((v) => !v)}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${pauses ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${pauses ? "border-primary text-primary" : "border-white/15 text-neutral-200"}`}
               >
                 <Timer className="h-4 w-4 shrink-0" />
                 <span className="flex-1">Slow at punctuation</span>
@@ -2062,7 +2064,7 @@ function Prompter({
               <button
                 onClick={() => setVoiceFollow((v) => !v)}
                 disabled={!vfSupported}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-40 ${voiceFollow ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-40 ${voiceFollow ? "border-primary text-primary" : "border-white/15 text-neutral-200"}`}
               >
                 <AudioLines className="h-4 w-4 shrink-0" />
                 <span className="flex-1">Voice-follow highlight</span>
@@ -2085,7 +2087,7 @@ function Prompter({
       {/* REC pill — top-left when recording */}
       {videoMode && recording && (
         <div
-          className="absolute z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm"
+          className="absolute z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-medium text-white backdrop-blur-sm"
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
             left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
@@ -2103,7 +2105,7 @@ function Prompter({
         <button
           type="button"
           onClick={() => { setWriteWarn(false); setWriteWarnMsg(""); }}
-          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-left text-xs font-bold leading-snug text-white"
+          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-left text-xs font-medium leading-snug text-white"
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 3.2rem)",
             left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
@@ -2125,12 +2127,12 @@ function Prompter({
             transform: mirrorV ? "scaleY(-1)" : undefined,
           }}
         >
-          <div className="text-sm font-black text-white">
+          <div className="text-sm font-semibold text-white">
             {finalizing.phase === "error" ? "Saving had trouble" : finalizing.phase === "assembling" ? "Finishing the video…" : "Saving to your phone…"}
           </div>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/15">
             <div
-              className={`h-full rounded-full transition-[width] duration-150 ${finalizing.phase === "error" ? "bg-red-400" : "bg-amber-400"}`}
+              className={`h-full rounded-full transition-[width] duration-150 ${finalizing.phase === "error" ? "bg-red-400" : "bg-primary"}`}
               style={{
                 width: `${finalizing.phase === "assembling" ? 97 : Math.min(95, Math.round((finalizing.done / finalizing.total) * 95))}%`,
               }}
@@ -2159,7 +2161,7 @@ function Prompter({
           }}
           aria-label="Clips"
         >
-          <Film className="h-4 w-4 text-amber-300" /> Clips {clips.length > 0 && <span className="text-amber-300">({clips.length})</span>}
+          <Film className="h-4 w-4 text-primary" /> Clips {clips.length > 0 && <span className="text-primary">({clips.length})</span>}
         </button>
       )}
 
@@ -2188,7 +2190,7 @@ function Prompter({
       {/* % remaining — always visible */}
       <div
         ref={remainingRef}
-        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-amber-300"
+        className="absolute z-40 rounded-full bg-black/60 px-3 py-1.5 text-base font-semibold text-primary"
         style={{
           top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
           right: "calc(env(safe-area-inset-right, 0px) + 0.6rem)",
@@ -2243,7 +2245,7 @@ function Prompter({
             className="absolute left-0 right-0 z-20 h-[2px] bg-white/10"
             style={{ bottom: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
           >
-            <div ref={progressBarRef} className="h-full bg-amber-400" style={{ width: `${progress * 100}%`, willChange: playing ? "width" : undefined }} />
+            <div ref={progressBarRef} className="h-full bg-primary" style={{ width: `${progress * 100}%`, willChange: playing ? "width" : undefined }} />
           </div>
 
           {/* Bottom toolbar */}
@@ -2262,7 +2264,7 @@ function Prompter({
               </button>
               {!videoMode && (
                 <button onClick={toggleMirror} className={iconBtn} aria-label="Mirror vertically for beam splitter">
-                  <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-amber-300" : ""}`} />
+                  <FlipVertical2 className={`h-6 w-6 ${mirrorV ? "text-primary" : ""}`} />
                 </button>
               )}
               <button onClick={togglePlay} className={iconBtn} aria-label="Play / Pause">
@@ -2317,7 +2319,7 @@ function PopRow({ label, value, children }: { label: string; value: string; chil
     <div className="mb-3 last:mb-0">
       <div className="mb-1 flex justify-between text-xs">
         <span className="text-neutral-300">{label}</span>
-        <span className="font-mono text-amber-300">{value}</span>
+        <span className="font-mono text-primary">{value}</span>
       </div>
       {children}
     </div>
@@ -2439,7 +2441,7 @@ function ClipsSheet({
       <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
         onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
-          <div className="text-base font-bold">All videos <span className="text-neutral-400 font-normal">({clips.length})</span></div>
+          <div className="text-base font-medium">All videos <span className="text-neutral-400 font-normal">({clips.length})</span></div>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
@@ -2453,23 +2455,23 @@ function ClipsSheet({
                 <li key={c.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-2">
                   <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
-                      <Play className="h-3.5 w-3.5 text-amber-300" fill="currentColor" /> {scriptTitles[c.scriptId] || "Deleted script"}
-                      {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
+                      <Play className="h-3.5 w-3.5 text-primary" fill="currentColor" /> {scriptTitles[c.scriptId] || "Deleted script"}
+                      {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-300">Needs repair</span>}
                     </div>
                     <div className="text-[11px] text-neutral-400">
                       {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
                   {!native && (broken.has(c.id) ? (
-                    <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
+                    <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-primary/60 px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">
                       {busy === c.id ? "Repairing…" : "Repair"}
                     </button>
                   ) : (
-                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
+                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-medium text-emerald-300 disabled:opacity-50">
                       {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
                   ))}
-                   <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip">
+                   <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-primary hover:bg-white/5" aria-label="Save this clip">
                     <Download className="h-4 w-4" />
                   </button>
                   <button onClick={() => { if (confirm("Delete this clip?")) onDelete(c.id); }} className="grid h-9 w-9 place-items-center rounded-full text-red-400 hover:bg-white/5" aria-label="Delete">
@@ -2480,19 +2482,19 @@ function ClipsSheet({
             </ul>
           )}
         </div>
-        {note && <div className="px-4 pb-2 text-[11px] leading-snug text-amber-200/90">{note}</div>}
+        {note && <div className="px-4 pb-2 text-[11px] leading-snug text-primary/90">{note}</div>}
         {!native && (
         <div className="space-y-2 border-t border-white/10 px-3 py-2">
           {space && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
               <div className="flex items-baseline justify-between text-xs">
-                <span className="font-semibold text-neutral-200">Videos on this phone</span>
+                <span className="font-medium text-neutral-200">Videos on this phone</span>
                 <span className="text-neutral-400">
                   {fmtSize(space.clipBytes)} used{space.quota ? ` · ${fmtSize(Math.max(0, space.quota - space.usage))} free` : ""}
                 </span>
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-amber-400" style={{ width: `${space.quota ? Math.min(100, Math.round((space.usage / space.quota) * 100)) : 0}%` }} />
+                <div className="h-full rounded-full bg-primary" style={{ width: `${space.quota ? Math.min(100, Math.round((space.usage / space.quota) * 100)) : 0}%` }} />
               </div>
               <div className="mt-2 flex gap-2">
                 <button
@@ -2595,11 +2597,11 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-              <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+              <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-base font-semibold text-primary-foreground active:scale-95">
                 <Download className="h-5 w-5" /> {native ? "Save to camera roll" : "Save video"}
             </button>
             {!native && broken.has(playingClip.id) && (
-              <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-black/70 px-4 py-2 text-sm font-bold text-amber-300 backdrop-blur-sm disabled:opacity-50">
+              <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-primary/70 bg-black/70 px-4 py-2 text-sm font-medium text-primary backdrop-blur-sm disabled:opacity-50">
                 {busy === playingClip.id ? "Repairing…" : "Repair this take"}
               </button>
             )}

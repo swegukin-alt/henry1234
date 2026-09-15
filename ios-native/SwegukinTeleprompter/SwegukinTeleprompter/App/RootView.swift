@@ -65,7 +65,7 @@ struct LibraryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Let's kick some ass")
-                    .font(.system(size: 30, weight: .black, design: .rounded))
+                    .font(.system(size: 30, weight: .semibold, design: .default))
                     .foregroundStyle(Theme.accent)
                 Text("Never give up. Remember where you came from.")
                     .font(.footnote)
@@ -77,7 +77,7 @@ struct LibraryView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(Theme.accent, in: RoundedRectangle(cornerRadius: 18))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.white)
                 }
 
                 Button(action: onAllVideos) {

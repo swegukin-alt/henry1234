@@ -19,6 +19,7 @@ struct SwegukinTeleprompterApp: App {
 }
 
 enum Theme {
-    static let accent = Color(red: 0.98, green: 0.75, blue: 0.22)
-    static let background = Color(red: 0.039, green: 0.039, blue: 0.039)
+    /// Apple system blue on pure black — the same minimal scheme as the web app.
+    static let accent = Color(red: 0.04, green: 0.52, blue: 1.0)
+    static let background = Color.black
 }

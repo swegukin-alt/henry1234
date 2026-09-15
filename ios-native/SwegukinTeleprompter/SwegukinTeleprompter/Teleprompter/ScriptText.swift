@@ -10,7 +10,7 @@ struct ScriptText: View {
 
     var body: some View {
         Text(attributed)
-            .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+            .font(.system(size: fontSize, weight: .medium, design: .default))
             .lineSpacing(fontSize * (lineHeight - 1))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)

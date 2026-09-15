@@ -51,7 +51,7 @@ struct EditorView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(Theme.accent, in: RoundedRectangle(cornerRadius: 18))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.white)
                 }
                 Button(action: onVideo) {
                     Label("Video", systemImage: "video.fill")
