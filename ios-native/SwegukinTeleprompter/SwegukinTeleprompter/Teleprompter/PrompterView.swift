@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 import AVFoundation
 
+/// Native rebuild of the web teleprompter screen. The layout, scrim, typography
+/// and bottom toolbar mirror the web app exactly — only the plumbing is native.
 struct PrompterView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var recordings: RecordingStore
@@ -10,9 +12,13 @@ struct PrompterView: View {
     @StateObject private var camera = CameraManager()
     @StateObject private var voice = VoiceFollowEngine()
 
+    private enum Panel { case settings, size, more }
+
     @State private var contentHeight: CGFloat = 0
     @State private var countdownLeft = 0
-    @State private var showSettings = false
+    @State private var panel: Panel?
+    @State private var controlsVisible = true
+    @State private var showClips = false
     @State private var errorMessage: String?
     @State private var currentTakeID: String?
     @State private var saving = false
@@ -21,37 +27,59 @@ struct PrompterView: View {
     let videoMode: Bool
     let onExit: () -> Void
 
+    private var remaining: Int { max(0, 100 - Int((engine.progress * 100).rounded())) }
+    private var mirrorFlip: CGFloat { settings.mirrorV ? -1 : 1 }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
+                // Camera behind everything, with the same dark scrim as the web app.
                 if videoMode {
                     CameraPreviewView(session: camera.session, rotationAngle: camera.previewRotationAngle)
                         .ignoresSafeArea()
+                    Color.black.opacity(0.45).ignoresSafeArea().allowsHitTesting(false)
                 } else {
                     Color.black.ignoresSafeArea()
                 }
 
                 scriptLayer(geo: geo)
 
-                // Tap anywhere to play / pause, exactly like the web app.
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { togglePlay() }
-                    .onTapGesture(count: 2) { camera.focus(at: CGPoint(x: 0.5, y: 0.5)) }
 
                 if countdownLeft > 0 {
                     Text("\(countdownLeft)")
-                        .font(.system(size: 120, weight: .semibold, design: .default))
+                        .font(.system(size: 120, weight: .semibold))
                         .foregroundStyle(Theme.accent)
                 }
 
-                VStack {
-                    topBar
-                    Spacer()
-                    toolbar
+                overlayChips(geo: geo)
+
+                if controlsVisible {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        progressLine
+                        bottomToolbar
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                } else {
+                    VStack {
+                        Button {
+                            controlsVisible = true
+                        } label: {
+                            Text("•••")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .padding(.horizontal, 12).padding(.vertical, 4)
+                                .background(.black.opacity(0.4), in: Capsule())
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 10)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+
+                if let panel { popover(for: panel) }
 
                 RemoteKeyCatcher(onAction: handle(action:))
                     .frame(width: 1, height: 1)
@@ -77,9 +105,9 @@ struct PrompterView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             if camera.isRecording { stopRecording() } else { engine.pause() }
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsPanel(modes: camera.modes)
-                .presentationDetents([.medium, .large])
+        .sheet(isPresented: $showClips) {
+            ClipsView(scriptID: script.id)
+                .environmentObject(recordings)
         }
         .alert("Camera", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("Open Settings") { PermissionManager.openSettings() }
@@ -89,16 +117,18 @@ struct PrompterView: View {
         }
     }
 
-    // MARK: - Layers
+    // MARK: - Script
 
     private func scriptLayer(geo: GeometryProxy) -> some View {
+        // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
+        // line-height 1.5, -0.015em tracking, words never split.
         ScriptText(
             body_: script.body,
             fontSize: settings.fontSize,
             lineHeight: settings.lineHeight,
             highlightIndex: highlightIndex
         )
-        .padding(.horizontal, settings.margin)
+        .tracking(-0.015 * settings.fontSize)
         .frame(width: geo.size.width * settings.textWidth / 100, alignment: .leading)
         .background(
             GeometryReader { proxy in
@@ -109,75 +139,240 @@ struct PrompterView: View {
             contentHeight = height
             engine.contentHeight = height
         }
-        .offset(y: geo.size.height * 0.22 - engine.offset)
-        // In video mode the script stays readable: only the camera image is
-        // mirrored by the capture connection, never the words.
+        // Web spacer: 20vh of clear space above the first line.
+        .offset(y: geo.size.height * 0.20 - engine.offset)
         .scaleEffect(x: (!videoMode && settings.mirrorH) ? -1 : 1,
                      y: settings.mirrorV ? -1 : 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            Button { exit() } label: { Image(systemName: "chevron.left") }
-            Spacer()
-            if camera.isRecording {
-                Label(Format.duration(camera.elapsed), systemImage: "record.circle")
-                    .foregroundStyle(.red)
-                    .font(.footnote.monospacedDigit().bold())
+    // MARK: - Chips (top row, same positions as the web app)
+
+    private func overlayChips(geo: GeometryProxy) -> some View {
+        VStack {
+            HStack(alignment: .top) {
+                if videoMode {
+                    if camera.isRecording {
+                        HStack(spacing: 8) {
+                            Circle().fill(.white).frame(width: 10, height: 10)
+                            Text("REC \(Format.duration(camera.elapsed))")
+                                .font(.system(size: 14, weight: .medium).monospacedDigit())
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Color.red.opacity(0.9), in: Capsule())
+                    } else {
+                        Button { showClips = true } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "film").foregroundStyle(Theme.accent)
+                                Text("Clips").font(.system(size: 14, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(.black.opacity(0.6), in: Capsule())
+                        }
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if videoMode && camera.isReady && controlsVisible {
+                    HStack(spacing: 6) {
+                        Image(systemName: "mic.fill").font(.system(size: 12))
+                        Text(camera.micName.isEmpty ? "Built-in mic" : camera.micName)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.black.opacity(0.6), in: Capsule())
+
+                    Spacer(minLength: 8)
+                }
+
+                Text("\(remaining)% left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.black.opacity(0.6), in: Capsule())
             }
-            Text("\(Int(engine.progress * 100))%")
-                .font(.footnote.monospacedDigit().bold())
-                .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .scaleEffect(y: mirrorFlip)
+
+            Spacer()
         }
-        .padding(.horizontal, 6)
-        .foregroundStyle(.white)
     }
 
-    private var toolbar: some View {
-        VStack(spacing: 8) {
-            if !camera.status.isEmpty {
-                Text(camera.status).font(.caption2).foregroundStyle(.orange)
-            }
-            if videoMode && !camera.micName.isEmpty {
-                Text(camera.micName).font(.caption2).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 14) {
-                Button { engine.toggle() } label: {
-                    Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
-                }
-                Button { settings.speed = max(10, settings.speed - 5); engine.speed = settings.speed } label: {
-                    Image(systemName: "tortoise.fill")
-                }
-                Text("\(Int(settings.speed))")
-                    .font(.caption.monospacedDigit())
-                Button { settings.speed = min(250, settings.speed + 5); engine.speed = settings.speed } label: {
-                    Image(systemName: "hare.fill")
-                }
-                Button { settings.mirrorH.toggle() } label: { Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right") }
-                Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3") }
+    // MARK: - Toolbar
 
-                if videoMode {
-                    Button { camera.toggleTorch() } label: {
-                        Image(systemName: camera.torchOn ? "bolt.fill" : "bolt.slash")
-                    }
-                    Button {
-                        camera.isRecording ? stopRecording() : startRecording()
-                    } label: {
-                        Image(systemName: camera.isRecording ? "stop.circle.fill" : "record.circle")
-                            .font(.system(size: 34))
-                            .foregroundStyle(.red)
-                    }
-                    .disabled(!camera.isReady || saving)
+    private var progressLine: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Color.white.opacity(0.1)
+                Theme.accent.frame(width: proxy.size.width * engine.progress)
+            }
+        }
+        .frame(height: 2)
+    }
+
+    private var bottomToolbar: some View {
+        HStack(spacing: 4) {
+            iconButton("chevron.left", tint: Theme.accent, size: 22) { exit() }
+            if !videoMode {
+                iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75)) {
+                    settings.mirrorV.toggle()
                 }
             }
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(.black.opacity(0.45), in: Capsule())
+            Spacer(minLength: 0)
+            iconButton(engine.isPlaying ? "pause.fill" : "play.fill", tint: Theme.accent, size: 26) { togglePlay() }
+            if videoMode {
+                Button {
+                    camera.isRecording ? stopRecording() : startRecording()
+                } label: {
+                    Image(systemName: camera.isRecording ? "stop.fill" : "circle.fill")
+                        .font(.system(size: camera.isRecording ? 18 : 22))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(camera.isRecording ? Color.red : Color.red.opacity(0.9), in: Circle())
+                }
+                .disabled((!camera.isReady && !camera.isRecording) || saving)
+                .opacity((!camera.isReady && !camera.isRecording) || saving ? 0.4 : 1)
+            }
+            Spacer(minLength: 0)
+            iconButton("slider.horizontal.3") { toggle(.settings) }
+            iconButton("textformat") { toggle(.size) }
+            Button { toggle(.more) } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.accent.opacity(0.9), in: Circle())
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .padding(.bottom, safeBottom)
+        .frame(maxWidth: .infinity)
+        .background(.black.opacity(0.85))
+        .scaleEffect(y: mirrorFlip)
+    }
+
+    private var safeBottom: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }
+            .first ?? 0
+    }
+
+    private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), size: CGFloat = 20, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name)
+                .font(.system(size: size, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 42, height: 42)
+        }
+    }
+
+    private func toggle(_ p: Panel) { panel = (panel == p) ? nil : p }
+
+    // MARK: - Popovers
+
+    @ViewBuilder
+    private func popover(for p: Panel) -> some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.001)
+                .ignoresSafeArea()
+                .onTapGesture { panel = nil }
+
+            VStack(alignment: .leading, spacing: 12) {
+                switch p {
+                case .settings:
+                    popRow("Speed", "\(Int(settings.speed))") {
+                        Slider(value: $settings.speed, in: 10...250, step: 1)
+                            .onChange(of: settings.speed) { _, v in engine.speed = v }
+                    }
+                    popRow("Width", "\(Int(settings.textWidth))%") {
+                        Slider(value: $settings.textWidth, in: 50...100, step: 1)
+                    }
+                case .size:
+                    popRow("Font size", "\(Int(settings.fontSize))px") {
+                        Slider(value: $settings.fontSize, in: 24...140, step: 1)
+                    }
+                    popRow("Line spacing", String(format: "%.2f", settings.lineHeight)) {
+                        Slider(value: $settings.lineHeight, in: 1.1...2.2, step: 0.05)
+                    }
+                case .more:
+                    Button { engine.reset(); panel = nil } label: {
+                        Text("↺ Reset").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(OutlineButtonStyle(active: false))
+
+                    if !videoMode {
+                        Button { settings.mirrorV.toggle() } label: {
+                            Text("Flip ↕ (beam-splitter rig)").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(OutlineButtonStyle(active: settings.mirrorV))
+                    }
+
+                    if videoMode && !camera.modes.isEmpty {
+                        Text("Resolution").font(.caption).foregroundStyle(.white.opacity(0.7))
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                            ForEach(camera.modes) { mode in
+                                let active = settings.quality == mode.quality
+                                    && settings.frameRate == mode.fps && settings.hdr == mode.hdr
+                                Button {
+                                    settings.quality = mode.quality
+                                    settings.frameRate = mode.fps
+                                    settings.hdr = mode.hdr
+                                } label: {
+                                    Text(mode.label).font(.system(size: 12, weight: .semibold))
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(OutlineButtonStyle(active: active))
+                                .disabled(camera.isRecording)
+                            }
+                        }
+                    }
+
+                    Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
+                    assistRow("Reading highlight", isOn: $settings.readingHighlight)
+                    assistRow("Voice-follow highlight", isOn: $settings.voiceFollow)
+
+                    Text("Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.")
+                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: 420)
+            .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.1)))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 78 + safeBottom)
+            .scaleEffect(y: mirrorFlip)
+        }
+    }
+
+    private func popRow<Content: View>(_ label: String, _ value: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label).font(.caption).foregroundStyle(.white.opacity(0.75))
+                Spacer()
+                Text(value).font(.caption.monospaced()).foregroundStyle(Theme.accent)
+            }
+            content()
+        }
+    }
+
+    private func assistRow(_ label: String, isOn: Binding<Bool>) -> some View {
+        Button { isOn.wrappedValue.toggle() } label: {
+            HStack {
+                Text(label).font(.system(size: 14))
+                Spacer()
+                Text(isOn.wrappedValue ? "On" : "Off").font(.system(size: 11)).opacity(0.7)
+            }
+        }
+        .buttonStyle(OutlineButtonStyle(active: isOn.wrappedValue))
     }
 
     // MARK: - Behaviour
@@ -220,7 +415,6 @@ struct PrompterView: View {
     }
 
     private func exit() {
-        // While recording the remote and the back button must never drop a take.
         guard !camera.isRecording else { return }
         finish()
         onExit()
@@ -228,6 +422,7 @@ struct PrompterView: View {
 
     private func togglePlay() {
         Haptics.tap()
+        if panel != nil { panel = nil; return }
         if settings.countdown > 0 && !engine.isPlaying && countdownLeft == 0 {
             countdownLeft = settings.countdown
             Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
@@ -294,5 +489,21 @@ struct PrompterView: View {
             guard videoMode else { return }
             camera.isRecording ? stopRecording() : startRecording()
         }
+    }
+}
+
+/// Bordered pill button used by the prompter popovers, matching the web look.
+struct OutlineButtonStyle: ButtonStyle {
+    let active: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .foregroundStyle(active ? Theme.accent : Color.white.opacity(0.85))
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(active ? Theme.accent : Color.white.opacity(0.15))
+            )
+            .opacity(configuration.isPressed ? 0.6 : 1)
     }
 }
