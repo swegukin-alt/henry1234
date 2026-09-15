@@ -405,7 +405,7 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
           <Toggle on={settings.mirrorV} onClick={() => set({ mirrorV: !settings.mirrorV })}>Mirror ↕</Toggle>
         </div>
         <div className="pt-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-500">Reading assist</div>
+          <div className="mb-2 text-[13px] uppercase tracking-[0.12em] text-neutral-500">Reading assist</div>
           <div className="flex flex-wrap gap-2">
             <Toggle on={settings.chunking ?? true} onClick={() => set({ chunking: !(settings.chunking ?? true) })}>
               <AlignJustify className="mr-1 inline h-3.5 w-3.5" /> Chunk phrases
@@ -425,13 +425,13 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
           </p>
         </div>
 
-        <div className="flex gap-2 pt-1">
+        <div className="flex gap-1 rounded-xl bg-white/[0.06] p-1">
           {(["black", "white", "sepia"] as const).map((b) => (
             <button
               key={b}
               onClick={() => set({ bg: b })}
-              className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold border transition ${
-                settings.bg === b ? "border-primary text-primary" : "border-white/10 text-neutral-300"
+              className={`flex-1 rounded-lg px-3 py-2 text-[14px] transition ${
+                settings.bg === b ? "bg-white/[0.14] text-white" : "text-neutral-400"
               }`}
             >
               {b === "black" ? "Dark" : b === "white" ? "Light" : "Sepia"}
@@ -443,7 +443,7 @@ function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (
             onClick={() => {
               if (confirm("Reset all teleprompter settings to defaults?")) onChange({ ...DEFAULT_SETTINGS });
             }}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-sm font-semibold text-neutral-300 transition hover:border-primary/50 hover:text-primary"
+            className="w-full rounded-xl px-3 py-2 text-[14px] text-neutral-400 transition active:opacity-60"
           >
             Reset to defaults
           </button>
@@ -458,14 +458,14 @@ function Slider({
 }: { label: string; value: number; min: number; max: number; step: number; suffix?: string; onChange: (v: number) => void }) {
   return (
     <label className="block">
-      <div className="flex justify-between text-sm">
-        <span className="text-neutral-300">{label}</span>
-        <span className="font-mono text-primary">{value}{suffix}</span>
+      <div className="flex justify-between text-[14px]">
+        <span className="text-neutral-400">{label}</span>
+        <span className="tabular-nums text-white">{value}{suffix}</span>
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="slider-fluid mt-2 w-full accent-primary"
+        className="slider-fluid mt-1 w-full accent-white"
       />
     </label>
   );
@@ -475,8 +475,8 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
   return (
     <button
       onClick={onClick}
-      className={`rounded-full px-4 py-2 text-sm font-semibold border transition ${
-        on ? "border-primary bg-primary/10 text-primary" : "border-white/10 text-neutral-300"
+      className={`rounded-full px-4 py-2 text-[14px] transition active:opacity-60 ${
+        on ? "bg-primary text-primary-foreground" : "bg-white/[0.07] text-neutral-300"
       }`}
     >
       {children}
