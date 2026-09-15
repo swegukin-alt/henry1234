@@ -21,9 +21,9 @@ struct CameraPreviewView: UIViewRepresentable {
         let view = PreviewUIView()
         view.backgroundColor = .black
         view.previewLayer.session = session
-        // Never crop the front camera. Aspect-fill was cutting away a large
-        // part of the 16:9 sensor in portrait and looked like digital zoom.
-        view.previewLayer.videoGravity = .resizeAspect
+        // Fill the screen edge to edge, exactly like the web app's object-cover
+        // video layer. Aspect-fit left black pillarboxes on the sides.
+        view.previewLayer.videoGravity = .resizeAspectFill
         onAttach?(view.previewLayer)
         return view
     }
