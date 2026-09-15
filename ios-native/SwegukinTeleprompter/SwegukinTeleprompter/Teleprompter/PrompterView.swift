@@ -140,7 +140,12 @@ struct PrompterView: View {
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
             }
+            // Second guard: the screen stack itself never grows past the
+            // device screen, so controls stay anchored for any script length.
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
             .onAppear {
+
                 engine.viewportHeight = geo.size.height
                 engine.contentHeight = contentHeight + geo.size.height
                 engine.speed = settings.speed
