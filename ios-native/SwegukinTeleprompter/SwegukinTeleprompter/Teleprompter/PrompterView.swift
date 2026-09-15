@@ -183,7 +183,7 @@ struct PrompterView: View {
         .task { await begin() }
         .onDisappear { finish() }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
-        .onChange(of: settings.appleLog) { _, _ in applyAdvancedCamera() }
+        
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.chunking) { _, enabled in
             let next = ScriptDocument(script.body, chunking: enabled)
@@ -411,10 +411,6 @@ struct PrompterView: View {
                                     Task {
                                         await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
                                                                   hdr: settings.hdr, stabilization: settings.stabilization)
-                                        camera.refreshAdvancedCapabilities(front: camera.usingFront,
-                                                                           quality: settings.quality,
-                                                                           fps: settings.frameRate)
-                                        applyAdvancedCamera()
                                     }
                                     settings.useFrontCamera = !camera.usingFront
                                 } label: {
@@ -454,15 +450,6 @@ struct PrompterView: View {
                                 Text(CameraManager.cinematicUnavailableReason)
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.45))
-
-                                Toggle("Apple Log", isOn: $settings.appleLog)
-                                    .tint(Theme.accent)
-                                    .disabled(camera.isRecording || !camera.appleLogSupported)
-                                if !camera.appleLogSupported {
-                                    Text(camera.appleLogReason)
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.45))
-                                }
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -550,10 +537,6 @@ struct PrompterView: View {
             // Permission prompts and capture setup can finish after Back has
             // already removed this screen. Never leave that late session alive.
             if didFinish { camera.stop() }
-            camera.refreshAdvancedCapabilities(front: settings.useFrontCamera,
-                                               quality: settings.quality,
-                                               fps: settings.frameRate)
-            applyAdvancedCamera()
         } catch CameraManager.CameraError.permissionDenied {
             errorMessage = "Camera access is off. Enable it in Settings to record."
         } catch {
@@ -562,18 +545,8 @@ struct PrompterView: View {
         }
     }
 
-    /// Apple Log is applied on top of the existing capture setup; unsupported
-    /// hardware silently keeps the current behaviour.
-    private func applyAdvancedCamera() {
-        guard videoMode, camera.isReady else { return }
-        if camera.appleLogSupported {
-            camera.applyAppleLog(settings.appleLog,
-                                 quality: settings.quality,
-                                 fps: settings.frameRate)
-        } else if settings.appleLog {
-            settings.appleLog = false
-        }
-    }
+
+
 
 
     private func finish() {
