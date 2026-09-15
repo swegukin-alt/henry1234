@@ -92,7 +92,9 @@ struct SettingsPanel: View {
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
         .task(id: settings.useFrontCamera) {
             discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
-            cinematicSupported = CameraManager.cinematicSupported(front: settings.useFrontCamera)
+            let cinematic = CameraManager.cinematicStatus(front: settings.useFrontCamera)
+            cinematicSupported = cinematic.supported
+            cinematicReason = cinematic.reason
             appleLogSupported = CameraManager.appleLogSupported(front: settings.useFrontCamera)
             apertureRange = CameraManager.apertureRange(front: settings.useFrontCamera)
             if !cinematicSupported { settings.cinematicMode = false }
