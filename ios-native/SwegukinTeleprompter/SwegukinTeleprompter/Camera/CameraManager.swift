@@ -119,7 +119,7 @@ final class CameraManager: NSObject, ObservableObject {
         guard let device else { return }
         let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: attachedPreviewLayer)
         rotationCoordinator = coordinator
-        previewRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+        previewRotationAngle = Self.interfaceRotationAngle()
     }
 
     func refreshRotation() {
@@ -136,8 +136,8 @@ final class CameraManager: NSObject, ObservableObject {
             .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
             .first
         switch orientation {
-        case .landscapeLeft: return 0
-        case .landscapeRight: return 180
+        case .landscapeLeft: return 180
+        case .landscapeRight: return 0
         case .portraitUpsideDown: return 270
         default: return 90
         }
