@@ -19,6 +19,8 @@ struct CaptureMode: Identifiable, Hashable {
 final class AppleLogStateStore {
     var previous: AVCaptureDevice.Format?
     var previousColorSpace: AVCaptureColorSpace?
+    var previousAutomaticWideColor = true
+    var deviceUniqueID: String?
 }
 
 @MainActor
@@ -399,10 +401,17 @@ final class CameraManager: NSObject, ObservableObject {
 
             if enabled {
                 guard let logFormat else { return }
+                if state.deviceUniqueID != device.uniqueID {
+                    state.previous = nil
+                    state.previousColorSpace = nil
+                    state.deviceUniqueID = device.uniqueID
+                }
                 if state.previous == nil {
                     state.previous = device.activeFormat
                     state.previousColorSpace = device.activeColorSpace
+                    state.previousAutomaticWideColor = session.automaticallyConfiguresCaptureDeviceForWideColor
                 }
+                session.automaticallyConfiguresCaptureDeviceForWideColor = false
                 if session.canSetSessionPreset(.inputPriority) {
                     session.sessionPreset = .inputPriority
                 }
@@ -416,15 +425,18 @@ final class CameraManager: NSObject, ObservableObject {
                 }
                 device.activeColorSpace = .appleLog
             } else {
-                if let previous = state.previous {
+                if state.deviceUniqueID == device.uniqueID,
+                   let previous = state.previous {
                     device.activeFormat = previous
                     if let previousColorSpace = state.previousColorSpace,
                        previous.supportedColorSpaces.contains(previousColorSpace) {
                         device.activeColorSpace = previousColorSpace
                     }
                 }
+                session.automaticallyConfiguresCaptureDeviceForWideColor = state.previousAutomaticWideColor
                 state.previous = nil
                 state.previousColorSpace = nil
+                state.deviceUniqueID = nil
             }
         }
     }
