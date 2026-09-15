@@ -97,9 +97,17 @@ export const webMediaStore: MediaStore = {
 
 let resolved: Promise<MediaStore> | null = null;
 
+/** Why the native store could not be used, if it could not. */
+let nativeStoreError = "";
+
+export function mediaStoreError(): string {
+  return nativeStoreError;
+}
+
 /**
- * Resolve the store for this runtime. A native store that cannot initialise
- * falls back to the browser one rather than pretending a recording was stored.
+ * Resolve the store for this runtime. Inside the iPhone app there is NO silent
+ * browser fallback: video belongs in real files on disk, so a native store that
+ * refuses to start reports the reason and the failure stays visible.
  */
 export function mediaStore(): Promise<MediaStore> {
   resolved ??= (async () => {
@@ -107,11 +115,17 @@ export function mediaStore(): Promise<MediaStore> {
     try {
       const { createNativeMediaStore } = await import("./media-store.native");
       const native = await createNativeMediaStore();
-      if (native) return native;
-    } catch {
-      /* plugin missing or filesystem refused — the WebView store still works */
+      if (native) {
+        nativeStoreError = "";
+        return native;
+      }
+      nativeStoreError = "The Filesystem plugin is missing from this build.";
+    } catch (e) {
+      nativeStoreError =
+        (e as { message?: string })?.message || "The app's own storage could not be opened.";
     }
-    return webMediaStore;
+    resolved = null; // let a later attempt succeed once the plugin is there
+    throw new Error(`Native video storage is unavailable: ${nativeStoreError}`);
   })();
   return resolved;
 }
