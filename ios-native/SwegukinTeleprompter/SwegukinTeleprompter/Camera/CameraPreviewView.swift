@@ -26,6 +26,10 @@ struct CameraPreviewView: UIViewRepresentable {
         return view
     }
 
+    static func dismantleUIView(_ uiView: PreviewUIView, coordinator: Void) {
+        uiView.previewLayer.session = nil
+    }
+
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
         if uiView.previewLayer.session !== session {
             uiView.previewLayer.session = session

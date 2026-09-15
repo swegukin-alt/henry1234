@@ -3,12 +3,13 @@ import QuartzCore
 import Combine
 
 /// Frame-synchronised scrolling. CADisplayLink keeps the text moving in step
-/// with the display, so it is equally smooth at 60 Hz and 120 Hz ProMotion.
+/// with the display. The web reader advances once per rendered frame; using a
+/// fixed 60 Hz here avoids asking SwiftUI to reposition a very tall script 120
+/// times per second while the camera is encoding 4K video.
 @MainActor
 final class TeleprompterEngine: ObservableObject {
     @Published private(set) var offset: CGFloat = 0
     @Published private(set) var isPlaying = false
-    @Published private(set) var progress: Double = 0
 
     /// Points per second. Changing it never makes the text jump: the next frame
     /// simply advances by a different amount.
@@ -16,8 +17,8 @@ final class TeleprompterEngine: ObservableObject {
     /// Momentary multiplier used by punctuation pauses and voice follow.
     var speedScale: CGFloat = 1
 
-    var contentHeight: CGFloat = 0 { didSet { updateProgress() } }
-    var viewportHeight: CGFloat = 0 { didSet { updateProgress() } }
+    var contentHeight: CGFloat = 0
+    var viewportHeight: CGFloat = 0
 
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval = 0
@@ -28,6 +29,14 @@ final class TeleprompterEngine: ObservableObject {
         max(0, contentHeight - viewportHeight)
     }
 
+    /// Derived from the same frame value as the text offset. Publishing a
+    /// second progress value on every display refresh caused two SwiftUI update
+    /// passes per frame and made long scripts visibly judder.
+    var progress: Double {
+        guard maxOffset > 0 else { return 0 }
+        return Double(min(1, max(0, offset / maxOffset)))
+    }
+
     func play() {
         guard !isPlaying else { return }
         isPlaying = true
@@ -35,7 +44,7 @@ final class TeleprompterEngine: ObservableObject {
         let link = CADisplayLink(target: DisplayLinkProxy { [weak self] link in
             self?.tick(link)
         }, selector: #selector(DisplayLinkProxy.handle(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
         link.add(to: .main, forMode: .common)
         self.link = link
     }
@@ -52,17 +61,14 @@ final class TeleprompterEngine: ObservableObject {
 
     func reset() {
         offset = 0
-        updateProgress()
     }
 
     func nudge(points: CGFloat) {
         offset = min(max(0, offset + points), maxOffset)
-        updateProgress()
     }
 
     func seek(to value: CGFloat) {
         offset = min(max(0, value), maxOffset)
-        updateProgress()
     }
 
     private func tick(_ link: CADisplayLink) {
@@ -77,17 +83,10 @@ final class TeleprompterEngine: ObservableObject {
         let next = offset + step
         if next >= maxOffset {
             offset = maxOffset
-            updateProgress()
             pause()
             return
         }
         offset = next
-        updateProgress()
-    }
-
-    private func updateProgress() {
-        guard maxOffset > 0 else { progress = 0; return }
-        progress = Double(min(1, max(0, offset / maxOffset)))
     }
 }
 

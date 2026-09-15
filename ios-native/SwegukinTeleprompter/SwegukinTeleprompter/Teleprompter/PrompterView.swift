@@ -161,6 +161,11 @@ struct PrompterView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             camera.refreshRotation()
+            // The scene orientation settles just after the device notification.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(180))
+                camera.refreshRotation()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             if camera.isRecording { stopRecording() } else { pause() }
@@ -596,6 +601,7 @@ private struct ScriptScrollLayer: View {
             highlightIndex: highlightIndex,
             foreground: foreground
         )
+        .equatable()
         .tracking(-0.015 * fontSize)
         .frame(width: viewportWidth * textWidth / 100, alignment: .leading)
         .background(

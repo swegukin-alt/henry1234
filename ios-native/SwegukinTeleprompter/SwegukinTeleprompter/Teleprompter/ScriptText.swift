@@ -64,12 +64,23 @@ struct ScriptDocument {
 
 /// Long scripts are split into stable native text layers; only the block that
 /// owns the current highlight needs an attributed-string update.
-struct ScriptText: View {
+struct ScriptText: View, Equatable {
     let document: ScriptDocument
     let fontSize: Double
     let lineHeight: Double
     let highlightIndex: Int?
     var foreground: Color = .white
+
+    static func == (lhs: ScriptText, rhs: ScriptText) -> Bool {
+        lhs.document.blocks.count == rhs.document.blocks.count
+            && lhs.document.words.count == rhs.document.words.count
+            && lhs.document.blocks.first?.text == rhs.document.blocks.first?.text
+            && lhs.document.blocks.last?.text == rhs.document.blocks.last?.text
+            && lhs.fontSize == rhs.fontSize
+            && lhs.lineHeight == rhs.lineHeight
+            && lhs.highlightIndex == rhs.highlightIndex
+            && lhs.foreground == rhs.foreground
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
