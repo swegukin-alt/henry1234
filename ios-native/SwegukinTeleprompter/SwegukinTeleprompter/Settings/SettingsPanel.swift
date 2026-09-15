@@ -4,6 +4,7 @@ struct SettingsPanel: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var discoveredModes: [CaptureMode] = []
     @State private var cinematicSupported = false
+    @State private var cinematicReason = "Requires Apple's Cinematic capture pipeline."
     @State private var appleLogSupported = false
     @State private var apertureRange: ClosedRange<Double> = 1.4...16
 
