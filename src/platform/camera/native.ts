@@ -19,7 +19,14 @@
 import { hasPlugin, noteImpl } from "../runtime";
 import { customCapturePlugin, loadModule, PLUGIN_MODULES } from "../native-plugins";
 import { fail, ok } from "../types";
-import type { CameraCapabilities, CameraService, PreviewHandle, RecordingHandle } from "./types";
+import type {
+  CameraCapabilities,
+  CameraQuality,
+  CameraService,
+  PreviewHandle,
+  RecordingHandle,
+  StabilizationMode,
+} from "./types";
 
 type PreviewPlugin = {
   start: (o: Record<string, unknown>) => Promise<void>;
@@ -44,6 +51,13 @@ type CapturePlugin = {
   flip: (o?: Record<string, unknown>) => Promise<void>;
   setZoom: (o: { zoom: number }) => Promise<void>;
   startRecording: (o: Record<string, unknown>) => Promise<void>;
+  deviceCapabilities?: (o?: Record<string, unknown>) => Promise<{
+    resolutions?: string[];
+    frameRates?: number[];
+    hdr?: boolean;
+    stabilization?: string[];
+    maxZoom?: number;
+  }>;
   stopRecording: () => Promise<CaptureResult>;
   recordingState: () => Promise<{ state: "inactive" | "recording"; durationMs: number }>;
 };
@@ -105,7 +119,24 @@ export const nativeCamera: CameraService = {
     };
   },
 
-  async startPreview({ quality, facing }) {
+  async deviceCapabilities() {
+    const be = await resolveBackEnd();
+    if (be !== "custom" || !custom?.deviceCapabilities) return null;
+    try {
+      const r = await custom.deviceCapabilities();
+      return {
+        resolutions: (r.resolutions ?? ["1080p"]) as CameraQuality[],
+        frameRates: r.frameRates ?? [30],
+        hdr: !!r.hdr,
+        stabilization: (r.stabilization ?? ["off"]) as StabilizationMode[],
+        maxZoom: r.maxZoom ?? 1,
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  async startPreview({ quality, facing, fps, hdr, stabilization }) {
     const be = await resolveBackEnd();
     if (be === "none") return fail(missing, "plugin-missing");
     const dims = DIMS[quality] ?? DIMS["1080p"];
@@ -116,6 +147,9 @@ export const nativeCamera: CameraService = {
           quality,
           width: dims.width,
           height: dims.height,
+          fps: fps ?? 30,
+          hdr: !!hdr,
+          stabilization: stabilization ?? "auto",
         });
         return ok({ stream: null, width: res.width ?? dims.width, height: res.height ?? dims.height });
       }

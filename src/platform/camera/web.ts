@@ -16,7 +16,7 @@ const DIMS: Record<CameraQuality, { width: number; height: number }> = {
   "720p": { width: 1280, height: 720 },
 };
 
-function constraintsFor(q: CameraQuality, facing: "front" | "back"): MediaStreamConstraints {
+function constraintsFor(q: CameraQuality, facing: "front" | "back", fps = 60): MediaStreamConstraints {
   const dims = DIMS[q];
   return {
     // Every value is a preference, never a requirement: one unsatisfiable
@@ -25,7 +25,7 @@ function constraintsFor(q: CameraQuality, facing: "front" | "back"): MediaStream
       facingMode: { ideal: facing === "front" ? "user" : "environment" },
       width: { ideal: dims.width },
       height: { ideal: dims.height },
-      frameRate: { ideal: 60 },
+      frameRate: { ideal: fps },
     } as MediaTrackConstraints,
     audio: {
       echoCancellation: true,
@@ -84,12 +84,12 @@ export const webCamera: CameraService = {
     };
   },
 
-  async startPreview({ quality, facing }) {
+  async startPreview({ quality, facing, fps }) {
     if (!navigator.mediaDevices?.getUserMedia) return fail("This browser has no camera access.");
     const tiers: CameraQuality[] =
       quality === "4k" ? ["4k", "1080p", "720p"] : quality === "1080p" ? ["1080p", "720p"] : ["720p"];
     const attempts: MediaStreamConstraints[] = [
-      ...tiers.map((t) => constraintsFor(t, facing)),
+      ...tiers.map((t) => constraintsFor(t, facing, fps ?? 60)),
       { video: { facingMode: { ideal: facing === "front" ? "user" : "environment" } }, audio: true },
       { video: true, audio: true },
     ];

@@ -1,6 +1,7 @@
 import AVFoundation
 import Capacitor
 import Foundation
+import UIKit
 
 /// Capacitor bridge for `TeleprompterCapture`. The JavaScript side reaches this
 /// with `registerPlugin("TeleprompterCapture")` — see
@@ -18,6 +19,7 @@ public class TeleprompterCapturePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "startRecording", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopRecording", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "recordingState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deviceCapabilities", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "audioStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listAudioInputs", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setAudioInput", returnType: CAPPluginReturnPromise),
@@ -40,13 +42,18 @@ public class TeleprompterCapturePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func startPreview(_ call: CAPPluginCall) {
         let position: AVCaptureDevice.Position = call.getString("position") == "rear" ? .back : .front
+        let quality = call.getString("quality") ?? "1080p"
         let preset: AVCaptureSession.Preset = {
-            switch call.getString("quality") {
+            switch quality {
             case "4k": return .hd4K3840x2160
             case "720p": return .hd1280x720
             default: return .hd1920x1080
             }
         }()
+        let targetHeight = quality == "4k" ? 2160 : quality == "720p" ? 720 : 1080
+        let fps = call.getInt("fps") ?? 30
+        let hdr = call.getBool("hdr") ?? false
+        let stabilization = call.getString("stabilization") ?? "auto"
         DispatchQueue.main.async {
             guard let webView = self.webView else {
                 call.reject("No web view")
@@ -62,7 +69,19 @@ public class TeleprompterCapturePlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             do {
-                let size = try self.capture.startPreview(in: container, position: position, preset: preset)
+                let size = try self.capture.startPreview(in: container,
+                                                         position: position,
+                                                         preset: preset,
+                                                         targetHeight: targetHeight,
+                                                         fps: fps,
+                                                         hdr: hdr,
+                                                         stabilization: stabilization)
+                // Follow rotations so the picture always fills the screen.
+                NotificationCenter.default.addObserver(forName: UIDevice.orientationDidChangeNotification,
+                                                       object: nil, queue: .main) { [weak self] _ in
+                    guard let self = self, let container = self.webView?.superview else { return }
+                    self.capture.layoutPreview(in: container)
+                }
                 call.resolve(["width": size.width, "height": size.height])
             } catch {
                 call.reject(error.localizedDescription)
@@ -127,6 +146,10 @@ public class TeleprompterCapturePlugin: CAPPlugin, CAPBridgedPlugin {
                 "sizeBytes": size ?? 0
             ])
         }
+    }
+
+    @objc func deviceCapabilities(_ call: CAPPluginCall) {
+        call.resolve(capture.deviceCapabilities())
     }
 
     @objc func recordingState(_ call: CAPPluginCall) {

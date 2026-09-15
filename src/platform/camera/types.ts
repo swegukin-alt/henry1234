@@ -26,9 +26,30 @@ export type CameraCapabilities = {
   recordingOutput: "media-recorder" | "native-file";
 };
 
+export type StabilizationMode = "off" | "standard" | "cinematic" | "auto";
+
 export type PreviewOptions = {
   quality: CameraQuality;
   facing: CameraFacing;
+  /** Capture frame rate. 30 or 60 on iPhone; a preference on the web. */
+  fps?: number;
+  /** 10-bit HDR (Dolby Vision) capture where the device format supports it. */
+  hdr?: boolean;
+  stabilization?: StabilizationMode;
+};
+
+/**
+ * What THIS device's camera can actually do, read from the hardware formats.
+ * Only the native plugin can answer honestly; the web reports what the track
+ * capabilities expose.
+ */
+export type CameraDeviceCapabilities = {
+  resolutions: CameraQuality[];
+  /** Frame rates available at the currently chosen resolution. */
+  frameRates: number[];
+  hdr: boolean;
+  stabilization: StabilizationMode[];
+  maxZoom: number;
 };
 
 export type PreviewHandle = {
@@ -67,4 +88,6 @@ export type CameraService = PlatformService & {
     handle: PreviewHandle,
     opts: RecorderOptions,
   ) => Promise<ServiceResult<RecordingHandle>>;
+  /** Hardware format report. null when the runtime cannot answer truthfully. */
+  deviceCapabilities?: () => Promise<CameraDeviceCapabilities | null>;
 };

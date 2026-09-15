@@ -140,6 +140,16 @@
     border-color: var(--color-border);
   }
 
+  /* iPhone app, video mode: the camera is a native layer BEHIND the WebView,
+     so every layer above it — html, body, the React root — must be see-through
+     or the picture is hidden by an opaque black page. */
+  html.native-camera,
+  html.native-camera body,
+  html.native-camera #root,
+  html.native-camera body > div {
+    background-color: transparent !important;
+  }
+
   html, body {
     background-color: #0a0a0a;
     color: var(--color-foreground);
