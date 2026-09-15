@@ -6,6 +6,7 @@ struct EditorView: View {
 
     @State private var draft: Script
     @State private var saveTask: Task<Void, Never>?
+    @State private var editorHeight: CGFloat = 360
 
     let onBack: () -> Void
     let onPlay: () -> Void
@@ -59,7 +60,7 @@ struct EditorView: View {
                 // Match the web editor's 40vh box. The editor scrolls its own
                 // contents instead of growing to the full height of a pasted
                 // script and pushing settings thousands of points down-screen.
-                .frame(height: max(260, geometry.size.height * 0.40))
+                .frame(height: editorHeight)
                 .padding(10)
                 .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
 
@@ -69,6 +70,12 @@ struct EditorView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
             }
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onAppear {
+            // Capture the viewport once. Keyboard animations must not resize
+            // the script box while someone is typing or pasting a long script.
+            editorHeight = max(260, geometry.size.height * 0.40)
         }
         .onChange(of: draft) { _, next in
             saveTask?.cancel()
