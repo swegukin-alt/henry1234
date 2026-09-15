@@ -140,7 +140,12 @@ struct PrompterView: View {
                     .frame(width: 1, height: 1)
                     .allowsHitTesting(false)
             }
+            // Second guard: the screen stack itself never grows past the
+            // device screen, so controls stay anchored for any script length.
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
             .onAppear {
+
                 engine.viewportHeight = geo.size.height
                 engine.contentHeight = contentHeight + geo.size.height
                 engine.speed = settings.speed
@@ -624,8 +629,16 @@ private struct ScriptScrollLayer: View {
             y: viewportHeight * 0.20 - engine.offset
         ))
         .scaleEffect(x: mirrorH ? -1 : 1, y: flip)
-        .frame(maxWidth: .infinity, alignment: .top)
+        // A 3000–4000 word script is taller than the screen by a large factor.
+        // Without this clamp the scrolling layer reports its full height to the
+        // surrounding ZStack, which then pushes the toolbar, chips and progress
+        // line far below the visible screen. Fixing the layer to the viewport
+        // (and clipping the overflow) keeps every control on screen no matter
+        // how long the script is.
+        .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
+        .clipped()
         .allowsHitTesting(false)
+
         .onChange(of: highlightIndex) { _, index in
             guard pausesEnabled, let index, let strong = punctuation[index] else {
                 engine.speedScale = 1
