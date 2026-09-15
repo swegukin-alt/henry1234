@@ -41,7 +41,7 @@ struct PrompterView: View {
 
                 if countdownLeft > 0 {
                     Text("\(countdownLeft)")
-                        .font(.system(size: 120, weight: .black, design: .rounded))
+                        .font(.system(size: 120, weight: .semibold, design: .default))
                         .foregroundStyle(Theme.accent)
                 }
 
