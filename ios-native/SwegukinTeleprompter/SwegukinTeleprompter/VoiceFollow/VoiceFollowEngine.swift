@@ -24,7 +24,7 @@ final class VoiceFollowEngine: ObservableObject {
             status = "Voice follow needs microphone and speech access."
             return
         }
-        scriptWords = ScriptText.words(in: script).map(Self.normalise)
+        scriptWords = ScriptDocument(script).words.map(Self.normalise)
         cursor = 0
 
         let koreanish = script.unicodeScalars.contains { $0.value >= 0xAC00 && $0.value <= 0xD7A3 }

@@ -22,10 +22,33 @@ struct PrompterView: View {
     @State private var errorMessage: String?
     @State private var currentTakeID: String?
     @State private var saving = false
+    @State private var dragStartOffset: CGFloat?
+    @State private var didRestorePosition = false
+
+    @State private var document: ScriptDocument
+    @State private var punctuationWordIndices: [Int: Bool]
 
     let script: Script
     let videoMode: Bool
     let onExit: () -> Void
+
+    init(script: Script, videoMode: Bool, onExit: @escaping () -> Void) {
+        self.script = script
+        self.videoMode = videoMode
+        self.onExit = onExit
+        let chunking = UserDefaults.standard.object(forKey: "chunking") as? Bool ?? true
+        let document = ScriptDocument(script.body, chunking: chunking)
+        _document = State(initialValue: document)
+        _punctuationWordIndices = State(initialValue: Self.punctuationIndices(in: document))
+    }
+
+    private static func punctuationIndices(in document: ScriptDocument) -> [Int: Bool] {
+        Dictionary(uniqueKeysWithValues: document.words.enumerated().compactMap { index, word in
+            if word.range(of: #"[.!?…。！？]$"#, options: .regularExpression) != nil { return (index, true) }
+            if word.range(of: #"[,;:—、，]$"#, options: .regularExpression) != nil { return (index, false) }
+            return nil
+        })
+    }
 
     private var remaining: Int { max(0, 100 - Int((engine.progress * 100).rounded())) }
     /// Video mode must never flip the words or interface. Beam-splitter
@@ -52,7 +75,7 @@ struct PrompterView: View {
                                 .allowsHitTesting(false)
                         }
                 } else {
-                    Color.black.ignoresSafeArea()
+                    readerBackground.ignoresSafeArea()
                 }
 
                 scriptLayer(geo: geo)
@@ -60,6 +83,18 @@ struct PrompterView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { togglePlay() }
+                    .gesture(
+                        DragGesture(minimumDistance: 6)
+                            .onChanged { value in
+                                if dragStartOffset == nil { dragStartOffset = engine.offset }
+                                let start = dragStartOffset ?? engine.offset
+                                engine.seek(to: start - value.translation.height)
+                            }
+                            .onEnded { _ in
+                                dragStartOffset = nil
+                                settings.setReadingPosition(Double(engine.offset), for: script.id)
+                            }
+                    )
 
                 if countdownLeft > 0 {
                     Text("\(countdownLeft)")
@@ -101,10 +136,10 @@ struct PrompterView: View {
             .onAppear {
                 engine.viewportHeight = geo.size.height
                 engine.speed = settings.speed
-                engine.seek(to: settings.readingPosition(for: script.id))
             }
             .onChange(of: geo.size) { _, size in
                 engine.viewportHeight = size.height
+            engine.contentHeight = contentHeight + size.height
             }
         }
         .background(Color.black)
@@ -112,6 +147,23 @@ struct PrompterView: View {
         .persistentSystemOverlays(.hidden)
         .task { await begin() }
         .onDisappear { finish() }
+        .onChange(of: highlightIndex) { _, index in
+            guard settings.pauses, let index, let strong = punctuationWordIndices[index] else {
+                engine.speedScale = 1
+                return
+            }
+            engine.speedScale = strong ? 0.68 : 0.82
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(strong ? 360 : 220))
+                engine.speedScale = 1
+            }
+        }
+        .onChange(of: settings.chunking) { _, enabled in
+            let next = ScriptDocument(script.body, chunking: enabled)
+            document = next
+            punctuationWordIndices = Self.punctuationIndices(in: next)
+            didRestorePosition = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             camera.refreshRotation()
         }
@@ -119,7 +171,7 @@ struct PrompterView: View {
             if camera.isRecording { stopRecording() } else { engine.pause() }
         }
         .sheet(isPresented: $showClips) {
-            ClipsView(scriptID: script.id)
+            ClipsView(scriptID: script.id, onBack: { showClips = false })
                 .environmentObject(recordings)
         }
         .alert("Camera", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -136,10 +188,11 @@ struct PrompterView: View {
         // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
         // line-height 1.5, -0.015em tracking, words never split.
         ScriptText(
-            body_: script.body,
+            document: document,
             fontSize: settings.fontSize,
             lineHeight: settings.lineHeight,
-            highlightIndex: highlightIndex
+            highlightIndex: highlightIndex,
+            foreground: videoMode || settings.background == "black" ? .white : .black
         )
         .tracking(-0.015 * settings.fontSize)
         .frame(width: geo.size.width * settings.textWidth / 100, alignment: .leading)
@@ -150,13 +203,21 @@ struct PrompterView: View {
         )
         .onPreferenceChange(ContentHeightKey.self) { height in
             contentHeight = height
-            engine.contentHeight = height
+            // Web uses a 20vh lead-in and 80vh tail. Together they add one
+            // viewport, allowing every final word to pass the reading line.
+            engine.contentHeight = height + geo.size.height
+            if !didRestorePosition, height > 0 {
+                didRestorePosition = true
+                engine.seek(to: settings.readingPosition(for: script.id))
+            }
         }
         // Web spacer: 20vh of clear space above the first line.
         .offset(y: geo.size.height * 0.20 - engine.offset)
         .scaleEffect(x: (!videoMode && settings.mirrorH) ? -1 : 1,
                      y: interfaceFlip)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Keep the full intrinsic document height. Constraining this frame to
+        // the viewport is what previously made long scripts appear truncated.
+        .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
 
@@ -233,39 +294,39 @@ struct PrompterView: View {
 
     private var bottomToolbar: some View {
         HStack(spacing: 0) {
-            iconButton("chevron.left", tint: Theme.accent, size: 22) { exit() }
+            iconButton("chevron.left", tint: Color(red: 0.22, green: 0.74, blue: 0.97), size: 24) { exit() }
             Spacer(minLength: 0)
             if !videoMode {
-                iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75)) {
+                iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75), size: 24) {
                     settings.mirrorV.toggle()
                 }
                 Spacer(minLength: 0)
             }
-            iconButton(engine.isPlaying ? "pause.fill" : "play.fill", tint: Theme.accent, size: 26) { togglePlay() }
+            iconButton(engine.isPlaying ? "pause.fill" : "play.fill", tint: Color(red: 0.22, green: 0.74, blue: 0.97), size: 28) { togglePlay() }
             Spacer(minLength: 0)
             if videoMode {
                 Button {
                     camera.isRecording ? stopRecording() : startRecording()
                 } label: {
                     Image(systemName: camera.isRecording ? "stop.fill" : "circle.fill")
-                        .font(.system(size: camera.isRecording ? 18 : 22))
+                        .font(.system(size: camera.isRecording ? 20 : 24))
                         .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
+                        .frame(width: toolbarButtonSize, height: toolbarButtonSize)
                         .background(camera.isRecording ? Color.red : Color.red.opacity(0.9), in: Circle())
                 }
                 .disabled((!camera.isReady && !camera.isRecording) || saving)
                 .opacity((!camera.isReady && !camera.isRecording) || saving ? 0.4 : 1)
                 Spacer(minLength: 0)
             }
-            iconButton("slider.horizontal.3") { toggle(.settings) }
+            iconButton("slider.horizontal.3", size: 24) { toggle(.settings) }
             Spacer(minLength: 0)
-            iconButton("textformat") { toggle(.size) }
+            iconButton("textformat", size: 24) { toggle(.size) }
             Spacer(minLength: 0)
             Button { toggle(.more) } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
+                    .frame(width: toolbarButtonSize, height: toolbarButtonSize)
                     .background(Theme.accent.opacity(0.9), in: Circle())
             }
         }
@@ -283,12 +344,17 @@ struct PrompterView: View {
             .first ?? 0
     }
 
+    /// The web toolbar uses 40px on compact phones and 44px when space permits.
+    private var toolbarButtonSize: CGFloat {
+        UIScreen.main.bounds.width >= 430 ? 44 : 40
+    }
+
     private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), size: CGFloat = 20, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: 42, height: 42)
+                .frame(width: toolbarButtonSize, height: toolbarButtonSize)
         }
     }
 
@@ -313,12 +379,14 @@ struct PrompterView: View {
                     popRow("Width", "\(Int(settings.textWidth))%") {
                         Slider(value: $settings.textWidth, in: 50...100, step: 1)
                     }
+                    HStack(spacing: 8) {
+                        backgroundButton("Dark", value: "black")
+                        backgroundButton("Light", value: "white")
+                        backgroundButton("Sepia", value: "sepia")
+                    }
                 case .size:
                     popRow("Font size", "\(Int(settings.fontSize))px") {
                         Slider(value: $settings.fontSize, in: 24...140, step: 1)
-                    }
-                    popRow("Line spacing", String(format: "%.2f", settings.lineHeight)) {
-                        Slider(value: $settings.lineHeight, in: 1.1...2.2, step: 0.05)
                     }
                 case .more:
                     Button { engine.reset(); panel = nil } label: {
@@ -355,6 +423,8 @@ struct PrompterView: View {
 
                     Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
                     assistRow("Reading highlight", isOn: $settings.readingHighlight)
+                    assistRow("Chunk phrases", isOn: $settings.chunking)
+                    assistRow("Slow at punctuation", isOn: $settings.pauses)
                     assistRow("Voice-follow highlight", isOn: $settings.voiceFollow)
 
                     Text("Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.")
@@ -393,14 +463,29 @@ struct PrompterView: View {
         .buttonStyle(OutlineButtonStyle(active: isOn.wrappedValue))
     }
 
+    private func backgroundButton(_ label: String, value: String) -> some View {
+        Button { settings.background = value } label: {
+            Text(label).font(.system(size: 12, weight: .semibold)).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(OutlineButtonStyle(active: settings.background == value))
+    }
+
     // MARK: - Behaviour
 
     private var highlightIndex: Int? {
         if settings.voiceFollow, let matched = voice.matchedIndex { return matched }
         guard settings.readingHighlight else { return nil }
-        let words = ScriptText.wordRanges(in: script.body).count
+        let words = document.words.count
         guard words > 0 else { return nil }
         return min(words - 1, Int(engine.progress * Double(words)))
+    }
+
+    private var readerBackground: Color {
+        switch settings.background {
+        case "white": return .white
+        case "sepia": return Color(red: 0.96, green: 0.91, blue: 0.80)
+        default: return .black
+        }
     }
 
     private func begin() async {
@@ -457,6 +542,8 @@ struct PrompterView: View {
         }
         engine.speed = settings.speed
         engine.toggle()
+        controlsVisible = !engine.isPlaying
+        if engine.isPlaying { panel = nil }
     }
 
     private func startRecording() {
@@ -467,6 +554,7 @@ struct PrompterView: View {
             currentTakeID = id
             engine.speed = settings.speed
             engine.play()
+            controlsVisible = false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -476,6 +564,7 @@ struct PrompterView: View {
         guard camera.isRecording else { return }
         saving = true
         engine.pause()
+        controlsVisible = true
         let id = currentTakeID ?? UUID().uuidString
         camera.stopRecording { result in
             Task { @MainActor in
@@ -497,8 +586,8 @@ struct PrompterView: View {
         case .togglePlay: togglePlay()
         case .speedUp: settings.speed = min(250, settings.speed + 5); engine.speed = settings.speed
         case .speedDown: settings.speed = max(10, settings.speed - 5); engine.speed = settings.speed
-        case .nudgeUp: engine.nudge(points: -settings.fontSize)
-        case .nudgeDown: engine.nudge(points: settings.fontSize)
+        case .nudgeUp: engine.nudge(points: -max(60, engine.viewportHeight * 0.18))
+        case .nudgeDown: engine.nudge(points: max(60, engine.viewportHeight * 0.18))
         case .fontUp: settings.fontSize = min(140, settings.fontSize + 2)
         case .fontDown: settings.fontSize = max(24, settings.fontSize - 2)
         case .reset: engine.reset()

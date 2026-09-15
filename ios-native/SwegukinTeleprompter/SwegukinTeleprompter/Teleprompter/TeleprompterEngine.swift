@@ -23,7 +23,7 @@ final class TeleprompterEngine: ObservableObject {
     private var lastTimestamp: CFTimeInterval = 0
 
     var maxOffset: CGFloat {
-        max(0, contentHeight - viewportHeight * 0.35)
+        max(0, contentHeight - viewportHeight)
     }
 
     func play() {
@@ -68,7 +68,8 @@ final class TeleprompterEngine: ObservableObject {
             lastTimestamp = link.timestamp
             return
         }
-        let delta = link.timestamp - lastTimestamp
+        // Returning from a permission sheet or interruption must never jump.
+        let delta = min(link.timestamp - lastTimestamp, 0.05)
         lastTimestamp = link.timestamp
         let step = speed * speedScale * CGFloat(delta)
         let next = offset + step

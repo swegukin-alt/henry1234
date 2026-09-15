@@ -5,7 +5,7 @@ struct EditorView: View {
     @EnvironmentObject private var scriptStore: ScriptStore
 
     @State private var draft: Script
-    @State private var showSettings = false
+    @State private var saveTask: Task<Void, Never>?
 
     let onBack: () -> Void
     let onPlay: () -> Void
@@ -22,52 +22,70 @@ struct EditorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        ScrollView {
+        VStack(spacing: 0) {
             HStack {
-                Button(action: onBack) { Label("Scripts", systemImage: "chevron.left") }
+                Button(action: saveAndGoBack) { Text("‹ Scripts") }
                 Spacer()
-                Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3") }
-                Button(action: onClips) { Image(systemName: "film") }
+                HStack(spacing: 8) {
+                    Button(action: { saveAndOpen(onVideo) }) {
+                        Label("Video", systemImage: "video.fill")
+                            .frame(height: 40).padding(.horizontal, 14)
+                            .background(.white.opacity(0.07), in: Capsule())
+                    }
+                    Button(action: { saveAndOpen(onPlay) }) {
+                        Label("Play", systemImage: "play.fill")
+                            .frame(height: 40).padding(.horizontal, 16)
+                            .background(Theme.accent, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                }
+                .disabled(draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .font(.subheadline.bold())
+            .font(.system(size: 15, weight: .medium))
             .foregroundStyle(Theme.accent)
+            .padding(.vertical, 8)
 
-            TextField("Title", text: $draft.title)
-                .font(.title3.bold())
+            TextField("Script title", text: $draft.title)
+                .font(.system(size: 28, weight: .semibold))
                 .textFieldStyle(.plain)
-                .padding(12)
-                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+                .padding(.vertical, 8)
 
             TextEditor(text: $draft.body)
-                .font(.system(size: 17))
+                .font(.system(size: 16))
+                .lineSpacing(5)
                 .scrollContentBackground(.hidden)
+                .frame(minHeight: 360)
                 .padding(10)
-                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
 
-            HStack(spacing: 10) {
-                Button(action: onPlay) {
-                    Label("Play", systemImage: "play.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 18))
-                        .foregroundStyle(.white)
-                }
-                Button(action: onVideo) {
-                    Label("Video", systemImage: "video.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
-                        .foregroundStyle(.white)
-                }
+            SettingsPanel()
+                .padding(.top, 32)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 40)
+        }
+        .onChange(of: draft) { _, next in
+            saveTask?.cancel()
+            saveTask = Task {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                await MainActor.run { scriptStore.update(next) }
             }
         }
-        .padding(16)
-        .onChange(of: draft) { _, next in scriptStore.update(next) }
+        .onDisappear { saveTask?.cancel(); scriptStore.update(draft) }
         .onAppear { settings.lastActiveScriptID = draft.id }
-        .sheet(isPresented: $showSettings) {
-            SettingsPanel().presentationDetents([.medium, .large])
-        }
+    }
+
+    private func saveAndGoBack() {
+        saveTask?.cancel()
+        scriptStore.update(draft)
+        onBack()
+    }
+
+    private func saveAndOpen(_ action: () -> Void) {
+        saveTask?.cancel()
+        scriptStore.update(draft)
+        action()
     }
 }

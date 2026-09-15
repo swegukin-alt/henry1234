@@ -17,59 +17,57 @@ struct ClipsView: View {
     }
 
     var body: some View {
+        ZStack(alignment: .bottom) {
+        Color.black.opacity(0.70).ignoresSafeArea().onTapGesture { onBack() }
         VStack(spacing: 0) {
             HStack {
-                Button(action: onBack) { Label("Back", systemImage: "chevron.left") }
+                Text("All videos").font(.system(size: 16, weight: .medium))
+                Text("(\(items.count))").foregroundStyle(.white.opacity(0.45))
                 Spacer()
-                Text(scriptID == nil ? "All videos" : "Takes").font(.headline)
-                Spacer()
-                Button { recordings.reconcile() } label: { Image(systemName: "arrow.clockwise") }
+                Button(action: onBack) {
+                    Image(systemName: "xmark").frame(width: 36, height: 36)
+                }
+                .foregroundStyle(.white.opacity(0.55))
             }
-            .font(.subheadline.bold())
-            .foregroundStyle(Theme.accent)
-            .padding(16)
+            .padding(.horizontal, 16).padding(.top, 12)
 
             if items.isEmpty {
                 Spacer()
                 Text("No recordings yet.").foregroundStyle(.secondary)
                 Spacer()
             } else {
-                List {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
                     ForEach(items) { item in
-                        VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
                             Button { playing = item } label: {
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(item.title).font(.headline).foregroundStyle(.white)
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "play.fill").font(.system(size: 12)).foregroundStyle(Theme.accent)
+                                        Text(item.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                                    }
                                     Text("\(Format.date(item.createdAt)) · \(Format.duration(item.duration)) · \(Format.size(item.fileSize))")
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            HStack(spacing: 10) {
-                                Button {
-                                    save(item)
-                                } label: {
-                                    Label("Save to camera roll", systemImage: "square.and.arrow.down")
-                                        .font(.caption.bold())
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(busy)
-
-                                Button { sharing = item } label: {
-                                    Label("Share", systemImage: "square.and.arrow.up").font(.caption.bold())
-                                }
-                                .buttonStyle(.bordered)
+                            Menu {
+                                Button { save(item) } label: { Label("Save to camera roll", systemImage: "square.and.arrow.down") }
+                                Button { sharing = item } label: { Label("Share", systemImage: "square.and.arrow.up") }
+                                Button("Delete", role: .destructive) { recordings.delete(item) }
+                            } label: {
+                                Image(systemName: "ellipsis").frame(width: 36, height: 36).foregroundStyle(Theme.accent)
                             }
                         }
-                        .padding(.vertical, 6)
-                        .listRowBackground(Color.white.opacity(0.04))
-                        .swipeActions {
-                            Button("Delete", role: .destructive) { recordings.delete(item) }
-                        }
+                        .padding(10)
+                        .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
                     }
+                    }.padding(.horizontal, 12).padding(.vertical, 8)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
             }
+        }
+        .frame(maxHeight: UIScreen.main.bounds.height * 0.85)
+        .background(Color(red: 0.04, green: 0.04, blue: 0.045), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
         }
         .fullScreenCover(item: $playing) { item in
             ZStack(alignment: .topLeading) {
