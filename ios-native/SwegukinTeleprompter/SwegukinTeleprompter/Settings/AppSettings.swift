@@ -74,6 +74,7 @@ final class AppSettings: ObservableObject {
         cinematicMode = b("cinematicMode", false)
         simulatedAperture = d("simulatedAperture", 2.8)
         appleLog = b("appleLog", false)
+        logViewAssist = b("logViewAssist", false)
         lastActiveScriptID = defaults.string(forKey: "lastActiveScriptID")
     }
 
