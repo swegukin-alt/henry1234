@@ -200,7 +200,11 @@ struct PrompterView: View {
         .onChange(of: settings.speed) { _, value in engine.speed = value }
         .onChange(of: settings.cinematicMode) { _, _ in applyAdvancedCamera() }
         .onChange(of: settings.simulatedAperture) { _, _ in applyAdvancedCamera() }
-        .onChange(of: settings.appleLog) { _, _ in applyAdvancedCamera() }
+        .onChange(of: settings.appleLog) { _, _ in
+            applyAdvancedCamera()
+            camera.setViewAssist(viewAssistActive)
+        }
+        .onChange(of: settings.logViewAssist) { _, _ in camera.setViewAssist(viewAssistActive) }
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.chunking) { _, enabled in
             let next = ScriptDocument(script.body, chunking: enabled)
