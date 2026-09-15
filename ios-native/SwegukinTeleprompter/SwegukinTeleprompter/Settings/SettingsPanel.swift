@@ -85,7 +85,7 @@ struct SettingsPanel: View {
         }
         .padding(16)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
-        .task(id: settings.useFrontCamera) {
+        .task(id: "\(settings.useFrontCamera)-\(settings.quality)-\(settings.frameRate)") {
             discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
             let log = CameraManager.appleLogStatus(front: settings.useFrontCamera,
                                                    quality: settings.quality,
