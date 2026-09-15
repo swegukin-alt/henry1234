@@ -130,26 +130,39 @@ export function mediaStore(): Promise<MediaStore> {
   return resolved;
 }
 
+/**
+ * For read-only calls: never throws, so a broken native store shows an empty
+ * library plus a visible error instead of crashing the screen. Writes keep
+ * using `mediaStore()` so a failed save is always reported.
+ */
+async function readStore(): Promise<MediaStore> {
+  try {
+    return await mediaStore();
+  } catch {
+    return webMediaStore;
+  }
+}
+
 // ---- the flat API the app uses ------------------------------------------
 
 export const createSession = async (s: NewSession) => (await mediaStore()).createSession(s);
 export const appendChunk = async (id: string, blob: Blob) => (await mediaStore()).appendChunk(id, blob);
 export const finalizeSession = async (id: string, extra?: { durationMs?: number }) =>
   (await mediaStore()).finalizeSession(id, extra);
-export const recoverOrphanSessions = async () => (await mediaStore()).recoverOrphanSessions();
+export const recoverOrphanSessions = async () => (await readStore()).recoverOrphanSessions();
 
-export const listClipMeta = async (scriptId: string) => (await mediaStore()).listClipMeta(scriptId);
-export const listAllClips = async () => (await mediaStore()).listAllClips();
-export const getClip = async (id: string) => (await mediaStore()).getClip(id);
-export const clipSource = async (meta: ClipMeta) => (await mediaStore()).clipSource(meta);
+export const listClipMeta = async (scriptId: string) => (await readStore()).listClipMeta(scriptId);
+export const listAllClips = async () => (await readStore()).listAllClips();
+export const getClip = async (id: string) => (await readStore()).getClip(id);
+export const clipSource = async (meta: ClipMeta) => (await readStore()).clipSource(meta);
 export const deleteClip = async (id: string) => (await mediaStore()).deleteClip(id);
 export const deleteAllForScript = async (scriptId: string) =>
   (await mediaStore()).deleteAllForScript(scriptId);
 
 export const requestPersistentStorage = async () => (await mediaStore()).requestPersistentStorage();
-export const storageUsage = async () => (await mediaStore()).storageUsage();
+export const storageUsage = async () => (await readStore()).storageUsage();
 export const clearAllStorage = async () => (await mediaStore()).clearAllStorage();
-export const purgeOrphanChunks = async () => (await mediaStore()).purgeOrphanChunks();
+export const purgeOrphanChunks = async () => (await readStore()).purgeOrphanChunks();
 
 export const repairClip = async (id: string) => (await mediaStore()).repairClip(id);
 export const deepRestore = async (id: string) => (await mediaStore()).deepRestore(id);
@@ -157,7 +170,7 @@ export const rescueAll = async (scriptId: string) => (await mediaStore()).rescue
 
 /** Native file URI for a take, or null on the web (there is no file there). */
 export const clipFilePath = async (id: string) => {
-  const store = await mediaStore();
+  const store = await readStore();
   return store.filePath ? store.filePath(id) : null;
 };
 
