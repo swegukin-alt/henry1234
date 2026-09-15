@@ -29,5 +29,9 @@ export const switchCamera = async (handle: PreviewHandle, facing: CameraFacing) 
   (await cameraService()).switchCamera(handle, facing);
 export const setZoom = async (handle: PreviewHandle, zoom: number) =>
   (await cameraService()).setZoom(handle, zoom);
+export const cameraDeviceCapabilities = async () => {
+  const svc = await cameraService();
+  return svc.deviceCapabilities ? svc.deviceCapabilities() : null;
+};
 export const startRecording = async (handle: PreviewHandle, opts: RecorderOptions) =>
   (await cameraService()).startRecording(handle, opts);

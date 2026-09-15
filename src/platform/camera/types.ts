@@ -88,4 +88,6 @@ export type CameraService = PlatformService & {
     handle: PreviewHandle,
     opts: RecorderOptions,
   ) => Promise<ServiceResult<RecordingHandle>>;
+  /** Hardware format report. null when the runtime cannot answer truthfully. */
+  deviceCapabilities?: () => Promise<CameraDeviceCapabilities | null>;
 };
