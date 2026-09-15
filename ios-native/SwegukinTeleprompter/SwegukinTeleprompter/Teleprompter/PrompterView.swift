@@ -215,7 +215,9 @@ struct PrompterView: View {
         .offset(y: geo.size.height * 0.20 - engine.offset)
         .scaleEffect(x: (!videoMode && settings.mirrorH) ? -1 : 1,
                      y: interfaceFlip)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Keep the full intrinsic document height. Constraining this frame to
+        // the viewport is what previously made long scripts appear truncated.
+        .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
 
@@ -552,6 +554,7 @@ struct PrompterView: View {
             currentTakeID = id
             engine.speed = settings.speed
             engine.play()
+            controlsVisible = false
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -561,6 +564,7 @@ struct PrompterView: View {
         guard camera.isRecording else { return }
         saving = true
         engine.pause()
+        controlsVisible = true
         let id = currentTakeID ?? UUID().uuidString
         camera.stopRecording { result in
             Task { @MainActor in
