@@ -158,7 +158,9 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
               let buffer = source?.takeLatest(),
               let commandBuffer = commandQueue.makeCommandBuffer() else { return }
 
-        var image = CIImage(cvPixelBuffer: buffer)
+        // No colour space on the input either: the cube expects the raw Apple
+        // Log code values exactly as the sensor wrote them.
+        var image = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])
         image = LogToRec709.apply(to: image)
         if mirrored {
             image = image.transformed(by: CGAffineTransform(scaleX: -1, y: 1)
