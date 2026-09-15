@@ -58,6 +58,11 @@ struct PrompterView: View {
     /// mirroring is intentionally limited to normal teleprompter mode.
     private var interfaceFlip: CGFloat { !videoMode && settings.mirrorV ? -1 : 1 }
 
+    /// Rec. 709 monitoring preview: only while Apple Log is genuinely active.
+    private var viewAssistActive: Bool {
+        videoMode && settings.appleLog && settings.logViewAssist && camera.appleLogSupported
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
