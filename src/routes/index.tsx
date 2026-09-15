@@ -15,6 +15,7 @@ import {
   getSetting, setSetting, enterImmersive, lockOrientation, keepScreenAwake, hydrateSettings,
   settingsHydrationStatus,
   isNative, startCamera, stopCamera, startRecording as startNativeCapture, cameraCapabilities,
+  cameraDeviceCapabilities, type CameraDeviceCapabilities, type StabilizationMode,
   requestPermission, openAppSettings, haptic, onLifecycleChange, pickBestMicrophone,
   type PreviewHandle, type RecordingHandle,
 } from "@/platform";
@@ -617,6 +618,24 @@ function Prompter({
   });
   useEffect(() => { try { localStorage.setItem("prompter.quality", quality); } catch {} }, [quality]);
 
+  // Native capture settings (iPhone app only): frame rate, HDR and
+  // stabilisation, exactly as the iOS Camera app offers them. The web camera
+  // has no equivalent controls, so these are hidden there.
+  type CamSettings = { fps: number; hdr: boolean; stabilization: StabilizationMode };
+  const CAM_KEY = "prompter.camera.v1";
+  const [camSettings, setCamSettings] = useState<CamSettings>(() => {
+    const fallback: CamSettings = { fps: 30, hdr: false, stabilization: "auto" };
+    if (typeof window === "undefined") return fallback;
+    try {
+      const raw = localStorage.getItem(CAM_KEY);
+      return raw ? { ...fallback, ...(JSON.parse(raw) as Partial<CamSettings>) } : fallback;
+    } catch { return fallback; }
+  });
+  useEffect(() => { try { localStorage.setItem(CAM_KEY, JSON.stringify(camSettings)); } catch {} }, [camSettings]);
+  // What this iPhone's camera genuinely supports — never offer a mode the
+  // hardware cannot deliver.
+  const [camHw, setCamHw] = useState<CameraDeviceCapabilities | null>(null);
+
   // Update scroll direction when mirrorV changes
   useEffect(() => {
     scrollDirectionRef.current = mirrorV ? -1 : 1;
@@ -786,7 +805,13 @@ function Prompter({
       }
       await requestPermission("microphone");
       if (cancelled) return;
-      const res = await startCamera({ quality, facing: "front" });
+      const res = await startCamera({
+        quality,
+        facing: "front",
+        fps: camSettings.fps,
+        hdr: camSettings.hdr,
+        stabilization: camSettings.stabilization,
+      });
       if (cancelled) {
         if (res.ok) await stopCamera(res.value);
         return;
@@ -798,6 +823,7 @@ function Prompter({
       previewRef.current = res.value;
       setCamReady(true);
       setCamError(null);
+      void cameraDeviceCapabilities().then((hw) => { if (!cancelled) setCamHw(hw); });
       const mic = await pickBestMicrophone();
       if (cancelled) return;
       setMicLive(true);
@@ -820,7 +846,17 @@ function Prompter({
       setMicLive(false);
       void lockOrientation("any");
     };
-  }, [videoMode, nativeApp, quality]);
+  }, [videoMode, nativeApp, quality, camSettings]);
+
+  // The camera picture lives behind the WebView on iOS, so the whole page
+  // stack has to be see-through while video mode is open — otherwise the black
+  // page paints over the camera and nothing but the words is visible.
+  useEffect(() => {
+    if (!videoMode || !nativeApp) return;
+    const root = document.documentElement;
+    root.classList.add("native-camera");
+    return () => { root.classList.remove("native-camera"); };
+  }, [videoMode, nativeApp]);
 
   // Native lifecycle: if iOS suspends the app mid-take, the recording has
   // genuinely stopped. Close the file, keep it, and show the true state.
