@@ -70,6 +70,16 @@ struct PrompterView: View {
                     )
                     .ignoresSafeArea()
                     .overlay {
+                        // Monitoring-only Rec. 709 view of the Apple Log image.
+                        // Never affects the file being recorded.
+                        if viewAssistActive {
+                            LogAssistPreview(source: camera.assistFrames,
+                                             mirrored: camera.usingFront)
+                                .ignoresSafeArea()
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .overlay {
                         // Attached to the preview so UIKit can never composite
                         // its camera layer above the scrim.
                         Rectangle()
@@ -77,6 +87,7 @@ struct PrompterView: View {
                             .ignoresSafeArea()
                             .allowsHitTesting(false)
                     }
+
                 } else {
                     readerBackground.ignoresSafeArea()
                 }
