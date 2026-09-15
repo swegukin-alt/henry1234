@@ -26,6 +26,7 @@ struct PrompterView: View {
     @State private var didRestorePosition = false
 
     private let document: ScriptDocument
+    private let punctuationWordIndices: [Int: Bool]
 
     let script: Script
     let videoMode: Bool
@@ -35,7 +36,13 @@ struct PrompterView: View {
         self.script = script
         self.videoMode = videoMode
         self.onExit = onExit
-        self.document = ScriptDocument(script.body)
+        let document = ScriptDocument(script.body)
+        self.document = document
+        self.punctuationWordIndices = Dictionary(uniqueKeysWithValues: document.words.enumerated().compactMap { index, word in
+            if word.range(of: #"[.!?…。！？]$"#, options: .regularExpression) != nil { return (index, true) }
+            if word.range(of: #"[,;:—、，]$"#, options: .regularExpression) != nil { return (index, false) }
+            return nil
+        })
     }
 
     private var remaining: Int { max(0, 100 - Int((engine.progress * 100).rounded())) }
@@ -127,6 +134,7 @@ struct PrompterView: View {
             }
             .onChange(of: geo.size) { _, size in
                 engine.viewportHeight = size.height
+            engine.contentHeight = contentHeight + size.height
             }
         }
         .background(Color.black)
@@ -134,6 +142,17 @@ struct PrompterView: View {
         .persistentSystemOverlays(.hidden)
         .task { await begin() }
         .onDisappear { finish() }
+        .onChange(of: highlightIndex) { _, index in
+            guard settings.pauses, let index, let strong = punctuationWordIndices[index] else {
+                engine.speedScale = 1
+                return
+            }
+            engine.speedScale = strong ? 0.68 : 0.82
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(strong ? 360 : 220))
+                engine.speedScale = 1
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             camera.refreshRotation()
         }
