@@ -35,7 +35,7 @@ final class RecordingStore: ObservableObject {
     func register(id: String, url: URL, title: String, scriptID: String?) {
         let asset = AVURLAsset(url: url)
         let duration = CMTimeGetSeconds(asset.duration)
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         let item = RecordingItem(
             id: id,
             fileName: url.lastPathComponent,
