@@ -633,34 +633,22 @@ private struct ScriptScrollLayer: View {
         // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
         // line-height 1.5, -0.015em tracking, words never split.
         ZStack(alignment: .top) {
-            ScriptText(
+            NativeScriptTextView(
                 document: document,
                 fontSize: fontSize,
                 lineHeight: lineHeight,
                 highlightIndex: highlightIndex,
-                foreground: foreground
+                foreground: foreground,
+                scrollOffset: engine.offset,
+                viewportHeight: viewportHeight,
+                onContentHeight: onContentHeight
             )
-            .equatable()
-            .tracking(-0.015 * fontSize)
             .frame(width: viewportWidth * textWidth / 100, alignment: .leading)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
-                }
-            )
-            // Keep the long text at its intrinsic height. SwiftUI can discard
-            // the glyphs of an oversized hierarchy when the entire hierarchy
-            // is moved with transformEffect; a layout offset preserves its
-            // segmented text layers while the fixed viewport below keeps the
-            // toolbar and indicators pinned to the screen.
-            .offset(y: viewportHeight * 0.20 - engine.offset)
             .scaleEffect(x: mirrorH ? -1 : 1, y: flip, anchor: .top)
         }
         .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
         .clipped()
         .allowsHitTesting(false)
-        .onPreferenceChange(ContentHeightKey.self) { height in onContentHeight(height) }
-
         .onChange(of: highlightIndex) { _, index in
             guard pausesEnabled, let index, let strong = punctuation[index] else {
                 engine.speedScale = 1
