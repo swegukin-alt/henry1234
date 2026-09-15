@@ -166,6 +166,10 @@ final class CameraManager: NSObject, ObservableObject {
     private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) -> Bool {
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
+        session.automaticallyConfiguresCaptureDeviceForWideColor = true
+        appleLogState.previous = nil
+        appleLogState.previousColorSpace = nil
+        appleLogState.deviceUniqueID = nil
 
         for input in session.inputs { session.removeInput(input) }
         videoInput = nil
