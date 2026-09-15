@@ -33,6 +33,8 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var cinematicSupported = false
     @Published private(set) var appleLogSupported = false
     @Published private(set) var apertureRange: ClosedRange<Double> = 1.4...16
+    /// Plain-language reason shown under a disabled Cinematic row.
+    @Published private(set) var cinematicReason = "Requires Apple's Cinematic capture pipeline."
 
     let session = AVCaptureSession()
 
@@ -327,14 +329,33 @@ final class CameraManager: NSObject, ObservableObject {
     /// True only when this iPhone and this iOS version genuinely report Apple's
     /// Cinematic video capture for the selected camera.
     static func cinematicSupported(front: Bool) -> Bool {
+        cinematicStatus(front: front).supported
+    }
+
+    /// Support plus a plain-language reason when it is unavailable, so the UI
+    /// can say *why* the row is disabled instead of a generic message.
+    static func cinematicStatus(front: Bool) -> (supported: Bool, reason: String) {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            guard let device = pickCamera(front: front) else { return false }
-            return device.formats.contains { $0.isCinematicVideoCaptureSupported }
+            guard let device = pickCamera(front: front) else {
+                return (false, "No camera available.")
+            }
+            if device.formats.contains(where: { $0.isCinematicVideoCaptureSupported }) {
+                return (true, "")
+            }
+            if let other = pickCamera(front: !front),
+               other.formats.contains(where: { $0.isCinematicVideoCaptureSupported }) {
+                return (false, front ? "Only available on the back camera."
+                                     : "Only available on the front camera.")
+            }
+            return (false, "This camera doesn't offer Cinematic capture.")
         }
+        return (false, "Cinematic capture needs iOS 26 or later.")
+        #else
+        return (false, "Build with the iOS 26 SDK to enable Cinematic capture.")
         #endif
-        return false
     }
+
 
     /// Apple Log is only offered when a capture format lists it.
     static func appleLogSupported(front: Bool) -> Bool {
@@ -359,9 +380,22 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     func refreshAdvancedCapabilities(front: Bool) {
-        cinematicSupported = Self.cinematicSupported(front: front)
+        let status = Self.cinematicStatus(front: front)
+        cinematicSupported = status.supported
+        cinematicReason = status.reason
         appleLogSupported = Self.appleLogSupported(front: front)
         apertureRange = Self.apertureRange(front: front)
+    }
+
+    /// Stabilization can be toggled while the camera is live; applying it to the
+    /// existing connection avoids restarting capture.
+    func setStabilization(_ on: Bool) {
+        let output = movieOutput
+        sessionQueue.async {
+            guard let connection = output.connection(with: .video),
+                  connection.isVideoStabilizationSupported else { return }
+            connection.preferredVideoStabilizationMode = on ? .auto : .off
+        }
     }
 
     /// Best effort: an unsupported device or OS simply leaves capture untouched.
@@ -374,6 +408,7 @@ final class CameraManager: NSObject, ObservableObject {
         let device = input.device
         let session = self.session
         sessionQueue.async {
+            session.beginConfiguration()
             if enabled, !device.activeFormat.isCinematicVideoCaptureSupported {
                 let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
                 let match = device.formats.first { format in
@@ -382,11 +417,14 @@ final class CameraManager: NSObject, ObservableObject {
                     return d.width == dims.width && d.height == dims.height
                 } ?? device.formats.first { $0.isCinematicVideoCaptureSupported }
                 if let match, (try? device.lockForConfiguration()) != nil {
+                    // A session preset would override a hand-picked format.
+                    if session.canSetSessionPreset(.inputPriority) {
+                        session.sessionPreset = .inputPriority
+                    }
                     device.activeFormat = match
                     device.unlockForConfiguration()
                 }
             }
-            session.beginConfiguration()
             if input.isCinematicVideoCaptureSupported {
                 input.isCinematicVideoCaptureEnabled = enabled
                 if enabled {
@@ -400,6 +438,8 @@ final class CameraManager: NSObject, ObservableObject {
             }
             session.commitConfiguration()
         }
+        #endif
+    }
         #endif
     }
 

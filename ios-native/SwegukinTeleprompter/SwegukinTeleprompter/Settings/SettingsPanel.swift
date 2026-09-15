@@ -4,6 +4,7 @@ struct SettingsPanel: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var discoveredModes: [CaptureMode] = []
     @State private var cinematicSupported = false
+    @State private var cinematicReason = "Requires Apple's Cinematic capture pipeline."
     @State private var appleLogSupported = false
     @State private var apertureRange: ClosedRange<Double> = 1.4...16
 
@@ -70,7 +71,7 @@ struct SettingsPanel: View {
                     Toggle("Cinematic mode", isOn: $settings.cinematicMode)
                         .disabled(isRecording || !cinematicSupported)
                     if !cinematicSupported {
-                        Text("Requires Apple's Cinematic capture pipeline.")
+                        Text(cinematicReason)
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.45))
                     } else if settings.cinematicMode {
@@ -92,7 +93,9 @@ struct SettingsPanel: View {
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
         .task(id: settings.useFrontCamera) {
             discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
-            cinematicSupported = CameraManager.cinematicSupported(front: settings.useFrontCamera)
+            let cinematic = CameraManager.cinematicStatus(front: settings.useFrontCamera)
+            cinematicSupported = cinematic.supported
+            cinematicReason = cinematic.reason
             appleLogSupported = CameraManager.appleLogSupported(front: settings.useFrontCamera)
             apertureRange = CameraManager.apertureRange(front: settings.useFrontCamera)
             if !cinematicSupported { settings.cinematicMode = false }

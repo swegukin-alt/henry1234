@@ -185,6 +185,7 @@ struct PrompterView: View {
         .onChange(of: settings.cinematicMode) { _, _ in applyAdvancedCamera() }
         .onChange(of: settings.simulatedAperture) { _, _ in applyAdvancedCamera() }
         .onChange(of: settings.appleLog) { _, _ in applyAdvancedCamera() }
+        .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.chunking) { _, enabled in
             let next = ScriptDocument(script.body, chunking: enabled)
             document = next
@@ -408,8 +409,12 @@ struct PrompterView: View {
 
                             if videoMode {
                                 Button {
-                                    Task { await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
-                                                                     hdr: settings.hdr, stabilization: settings.stabilization) }
+                                    Task {
+                                        await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
+                                                                  hdr: settings.hdr, stabilization: settings.stabilization)
+                                        camera.refreshAdvancedCapabilities(front: camera.usingFront)
+                                        applyAdvancedCamera()
+                                    }
                                     settings.useFrontCamera = !camera.usingFront
                                 } label: {
                                     Text(camera.usingFront ? "Front camera" : "Back camera").frame(maxWidth: .infinity)
@@ -446,7 +451,7 @@ struct PrompterView: View {
                                     .tint(Theme.accent)
                                     .disabled(camera.isRecording || !camera.cinematicSupported)
                                 if !camera.cinematicSupported {
-                                    Text("Requires Apple's Cinematic capture pipeline.")
+                                    Text(camera.cinematicReason)
                                         .font(.caption2)
                                         .foregroundStyle(.white.opacity(0.45))
                                 } else if settings.cinematicMode {
