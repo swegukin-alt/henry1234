@@ -16,8 +16,8 @@
 // There is no browser fallback here on purpose. Inside the app the camera is
 // native or it fails visibly — it never quietly reverts to getUserMedia.
 
-import { hasPlugin, noteImpl } from "../runtime";
-import { customCapturePlugin, loadModule, PLUGIN_MODULES } from "../native-plugins";
+import { noteImpl } from "../runtime";
+import { captureProbeError, loadModule, PLUGIN_MODULES, probeCapturePlugin } from "../native-plugins";
 import { fail, ok } from "../types";
 import type {
   CameraCapabilities,
@@ -72,16 +72,32 @@ let custom: CapturePlugin | null = null;
 let preview: PreviewPlugin | null = null;
 let backEnd: "custom" | "camera-preview" | "none" = "none";
 
+let lastResolveError = "";
+
+/** Plain-language detail about why the native camera is (not) there. */
+export function nativeCameraDetail(): string {
+  return lastResolveError;
+}
+
 async function resolveBackEnd(): Promise<typeof backEnd> {
   if (backEnd !== "none") return backEnd;
-  custom = await customCapturePlugin<CapturePlugin>();
+  // The custom Swift plugin is always tried for real rather than trusted to a
+  // registry flag, which can be empty for a plugin built into the app target.
+  custom = await probeCapturePlugin<CapturePlugin>();
   if (custom) {
     backEnd = "custom";
-  } else if (hasPlugin("CameraPreview")) {
+    lastResolveError = "";
+  } else {
+    lastResolveError = captureProbeError();
     const mod = await loadModule<{ CameraPreview?: PreviewPlugin }>(PLUGIN_MODULES.cameraPreview);
     if (mod?.CameraPreview) {
-      preview = mod.CameraPreview;
-      backEnd = "camera-preview";
+      try {
+        await mod.CameraPreview.isCameraStarted();
+        preview = mod.CameraPreview;
+        backEnd = "camera-preview";
+      } catch (e) {
+        lastResolveError += ` CameraPreview: ${(e as { message?: string })?.message || "not installed"}.`;
+      }
     }
   }
   noteImpl("camera", backEnd === "none" ? "native (no plugin)" : `native (${backEnd})`);
@@ -94,11 +110,13 @@ export function nativeCameraBackEnd(): typeof backEnd {
 }
 
 const missing =
-  "The native camera is not available in this build. Add the camera plugin in Xcode and rebuild.";
+  "The native camera plugin (TeleprompterCapture) did not answer. Check that both Swift files are in the Xcode App target, then rebuild.";
 
 export const nativeCamera: CameraService = {
   name: "camera.ios",
-  available: () => hasPlugin("CameraPreview") || hasPlugin("TeleprompterCapture"),
+  // Inside the app the camera is always the native one; a missing plugin
+  // surfaces as a visible error from startPreview, never as a browser fallback.
+  available: () => true,
 
   capabilities(): CameraCapabilities {
     const full = backEnd === "custom";
@@ -138,7 +156,7 @@ export const nativeCamera: CameraService = {
 
   async startPreview({ quality, facing, fps, hdr, stabilization }) {
     const be = await resolveBackEnd();
-    if (be === "none") return fail(missing, "plugin-missing");
+    if (be === "none") return fail(`${missing}${lastResolveError ? ` (${lastResolveError})` : ""}`, "plugin-missing");
     const dims = DIMS[quality] ?? DIMS["1080p"];
     try {
       if (be === "custom") {

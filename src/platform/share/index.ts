@@ -30,7 +30,6 @@ export function shareCapabilities(): ShareCapabilities {
  */
 export async function shareFilePath(path: string, title: string): Promise<ServiceResult<void>> {
   if (!isNative()) return fail("Use the browser share flow on the web.", "web-runtime");
-  if (!hasPlugin("Share")) return fail("The share plugin is not installed in this build.", "plugin-missing");
   try {
     const mod = await loadModule<{ Share?: SharePlugin }>(PLUGIN_MODULES.share);
     if (!mod?.Share) return fail("The share plugin is not installed in this build.", "plugin-missing");
