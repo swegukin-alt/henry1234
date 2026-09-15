@@ -465,26 +465,18 @@ struct PrompterView: View {
                                     .tint(Theme.accent)
                                     .disabled(camera.isRecording)
 
-                                Toggle("Cinematic mode", isOn: $settings.cinematicMode)
+                                Toggle("Cinematic mode", isOn: .constant(false))
                                     .tint(Theme.accent)
-                                    .disabled(camera.isRecording || !camera.cinematicSupported)
-                                if !camera.cinematicSupported {
-                                    Text(camera.cinematicReason)
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.45))
-                                } else if settings.cinematicMode {
-                                    popRow("Aperture", Format.aperture(settings.simulatedAperture)) {
-                                        Slider(value: $settings.simulatedAperture,
-                                               in: camera.apertureRange, step: 0.1)
-                                            .disabled(camera.isRecording)
-                                    }
-                                }
+                                    .disabled(true)
+                                Text(CameraManager.cinematicUnavailableReason)
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.45))
 
                                 Toggle("Apple Log", isOn: $settings.appleLog)
                                     .tint(Theme.accent)
                                     .disabled(camera.isRecording || !camera.appleLogSupported)
                                 if !camera.appleLogSupported {
-                                    Text("Apple Log not supported on this camera.")
+                                    Text(camera.appleLogReason)
                                         .font(.caption2)
                                         .foregroundStyle(.white.opacity(0.45))
                                 }
