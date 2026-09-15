@@ -23,10 +23,20 @@ struct PrompterView: View {
     @State private var currentTakeID: String?
     @State private var saving = false
     @State private var dragStartOffset: CGFloat?
+    @State private var didRestorePosition = false
+
+    private let document: ScriptDocument
 
     let script: Script
     let videoMode: Bool
     let onExit: () -> Void
+
+    init(script: Script, videoMode: Bool, onExit: @escaping () -> Void) {
+        self.script = script
+        self.videoMode = videoMode
+        self.onExit = onExit
+        self.document = ScriptDocument(script.body)
+    }
 
     private var remaining: Int { max(0, 100 - Int((engine.progress * 100).rounded())) }
     /// Video mode must never flip the words or interface. Beam-splitter
@@ -53,7 +63,7 @@ struct PrompterView: View {
                                 .allowsHitTesting(false)
                         }
                 } else {
-                    Color.black.ignoresSafeArea()
+                    readerBackground.ignoresSafeArea()
                 }
 
                 scriptLayer(geo: geo)
@@ -114,7 +124,6 @@ struct PrompterView: View {
             .onAppear {
                 engine.viewportHeight = geo.size.height
                 engine.speed = settings.speed
-                engine.seek(to: settings.readingPosition(for: script.id))
             }
             .onChange(of: geo.size) { _, size in
                 engine.viewportHeight = size.height
@@ -149,10 +158,11 @@ struct PrompterView: View {
         // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
         // line-height 1.5, -0.015em tracking, words never split.
         ScriptText(
-            body_: script.body,
+            document: document,
             fontSize: settings.fontSize,
             lineHeight: settings.lineHeight,
-            highlightIndex: highlightIndex
+            highlightIndex: highlightIndex,
+            foreground: videoMode || settings.background == "black" ? .white : .black
         )
         .tracking(-0.015 * settings.fontSize)
         .frame(width: geo.size.width * settings.textWidth / 100, alignment: .leading)
@@ -166,6 +176,10 @@ struct PrompterView: View {
             // Web uses a 20vh lead-in and 80vh tail. Together they add one
             // viewport, allowing every final word to pass the reading line.
             engine.contentHeight = height + geo.size.height
+            if !didRestorePosition, height > 0 {
+                didRestorePosition = true
+                engine.seek(to: settings.readingPosition(for: script.id))
+            }
         }
         // Web spacer: 20vh of clear space above the first line.
         .offset(y: geo.size.height * 0.20 - engine.offset)
@@ -424,9 +438,17 @@ struct PrompterView: View {
     private var highlightIndex: Int? {
         if settings.voiceFollow, let matched = voice.matchedIndex { return matched }
         guard settings.readingHighlight else { return nil }
-        let words = ScriptText.wordRanges(in: script.body).count
+        let words = document.words.count
         guard words > 0 else { return nil }
         return min(words - 1, Int(engine.progress * Double(words)))
+    }
+
+    private var readerBackground: Color {
+        switch settings.background {
+        case "white": return .white
+        case "sepia": return Color(red: 0.96, green: 0.91, blue: 0.80)
+        default: return .black
+        }
     }
 
     private func begin() async {

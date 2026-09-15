@@ -28,12 +28,12 @@ struct EditorView: View {
                 Button(action: saveAndGoBack) { Text("‹ Scripts") }
                 Spacer()
                 HStack(spacing: 8) {
-                    Button(action: onVideo) {
+                    Button(action: { saveAndOpen(onVideo) }) {
                         Label("Video", systemImage: "video.fill")
                             .frame(height: 40).padding(.horizontal, 14)
                             .background(.white.opacity(0.07), in: Capsule())
                     }
-                    Button(action: onPlay) {
+                    Button(action: { saveAndOpen(onPlay) }) {
                         Label("Play", systemImage: "play.fill")
                             .frame(height: 40).padding(.horizontal, 16)
                             .background(Theme.accent, in: Capsule())
@@ -81,5 +81,11 @@ struct EditorView: View {
         saveTask?.cancel()
         scriptStore.update(draft)
         onBack()
+    }
+
+    private func saveAndOpen(_ action: () -> Void) {
+        saveTask?.cancel()
+        scriptStore.update(draft)
+        action()
     }
 }

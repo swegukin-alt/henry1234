@@ -13,9 +13,11 @@ final class ScriptStore: ObservableObject {
     @Published private(set) var scripts: [Script] = []
 
     private let fileURL: URL
+    private let backupURL: URL
 
     init() {
         fileURL = AppPaths.applicationSupport.appendingPathComponent("scripts.json")
+        backupURL = AppPaths.applicationSupport.appendingPathComponent("scripts.backup.json")
         load()
     }
 
@@ -49,13 +51,29 @@ final class ScriptStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let decoded = try? JSONDecoder().decode([Script].self, from: data) else { return }
-        scripts = decoded
+        for url in [fileURL, backupURL] {
+            do {
+                let data = try Data(contentsOf: url)
+                scripts = try JSONDecoder().decode([Script].self, from: data)
+                return
+            } catch {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    print("ScriptStore load failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(scripts) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        do {
+            let data = try JSONEncoder().encode(scripts)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try? FileManager.default.removeItem(at: backupURL)
+                try FileManager.default.copyItem(at: fileURL, to: backupURL)
+            }
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            print("ScriptStore save failed: \(error.localizedDescription)")
+        }
     }
 }
