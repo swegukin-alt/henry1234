@@ -2264,7 +2264,7 @@ function ClipsSheet({
   const refreshSpace = useCallback(async () => {
     try { setSpace(await storageUsage()); } catch { setSpace(null); }
   }, []);
-  useEffect(() => { refreshSpace(); }, [refreshSpace, clips.length]);
+  useEffect(() => { if (!native) refreshSpace(); }, [native, refreshSpace, clips.length]);
 
   // Rebuild an unplayable recording from the raw data still in storage.
   const doRepair = useCallback(async (c: ClipMeta) => {
