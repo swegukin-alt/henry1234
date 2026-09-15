@@ -348,20 +348,20 @@ function Editor({
   const disabled = !script.body.trim();
   return (
     <div>
-      <header className="flex items-center justify-between py-3 gap-2">
-        <button onClick={onBack} className="text-sm text-neutral-400 hover:text-white">‹ Scripts</button>
+      <header className="flex items-center justify-between gap-2 py-4">
+        <button onClick={onBack} className="text-[15px] text-primary active:opacity-60">‹ Scripts</button>
         <div className="flex items-center gap-2">
           <button
             onClick={onVideo}
             disabled={disabled}
-            className="rounded-full border border-primary/60 bg-primary/10 px-4 py-2 text-sm font-bold text-primary disabled:opacity-40 active:scale-95 transition inline-flex items-center gap-1.5"
+            className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.07] px-4 py-2 text-[15px] text-neutral-100 transition active:opacity-60 disabled:opacity-30"
           >
             <Video className="h-4 w-4" /> Video
           </button>
           <button
             onClick={onPlay}
             disabled={disabled}
-            className="rounded-full bg-primary px-5 py-2 text-sm font-bold text-primary-foreground disabled:opacity-40 active:scale-95 transition"
+            className="rounded-full bg-primary px-5 py-2 text-[15px] font-medium text-primary-foreground transition active:opacity-70 disabled:opacity-30"
           >
             ▶ Play
           </button>
@@ -373,14 +373,14 @@ function Editor({
         value={script.title}
         onChange={(e) => onChange({ title: e.target.value })}
         placeholder="Script title"
-        className="w-full bg-transparent text-2xl font-bold outline-none placeholder:text-neutral-600 py-2"
+        className="w-full bg-transparent py-2 text-[28px] font-semibold tracking-tight outline-none placeholder:text-neutral-700"
       />
 
       <textarea
         value={script.body}
         onChange={(e) => onChange({ body: e.target.value })}
         placeholder="Paste or type your script here… 한글도 지원합니다."
-        className="mt-2 min-h-[40vh] w-full resize-y rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-base leading-relaxed outline-none focus:border-primary/50"
+        className="mt-2 min-h-[40vh] w-full resize-y rounded-2xl bg-white/[0.05] p-4 text-[16px] leading-relaxed outline-none"
       />
 
       <SettingsPanel settings={settings} onChange={onSettings} />
@@ -391,8 +391,8 @@ function Editor({
 function SettingsPanel({ settings, onChange }: { settings: Settings; onChange: (s: Settings) => void }) {
   const set = (patch: Partial<Settings>) => onChange({ ...settings, ...patch });
   return (
-    <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <h2 className="text-sm font-bold uppercase tracking-widest text-neutral-400">Settings</h2>
+    <section className="mt-8 rounded-2xl bg-white/[0.05] p-4">
+      <h2 className="text-[13px] font-medium uppercase tracking-[0.12em] text-neutral-500">Settings</h2>
       <div className="mt-4 space-y-4">
         <Slider label="Font size" value={settings.fontSize} min={24} max={140} step={1} suffix="px"
           onChange={(v) => set({ fontSize: v })} />
