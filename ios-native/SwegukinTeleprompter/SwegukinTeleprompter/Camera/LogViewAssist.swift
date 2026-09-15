@@ -123,6 +123,10 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
 
     private var ciContext: CIContext?
     private var commandQueue: MTLCommandQueue?
+    /// The cube already writes Rec. 709 encoded values, so the drawable is
+    /// handed sRGB (same transfer/primaries in practice) without a conversion.
+    private let outputColorSpace = CGColorSpace(name: CGColorSpace.sRGB)
+        ?? CGColorSpaceCreateDeviceRGB()
 
     init(source: LogAssistFrameSource) {
         let mtlDevice = MTLCreateSystemDefaultDevice()
@@ -184,7 +188,7 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
                          to: drawable.texture,
                          commandBuffer: commandBuffer,
                          bounds: CGRect(origin: .zero, size: target),
-                         colorSpace: nil)
+                         colorSpace: outputColorSpace)
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }

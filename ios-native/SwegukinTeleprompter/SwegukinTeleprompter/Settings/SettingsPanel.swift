@@ -3,14 +3,12 @@ import SwiftUI
 struct SettingsPanel: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var discoveredModes: [CaptureMode] = []
-    @State private var cinematicSupported = false
-    @State private var cinematicReason = "Requires Apple's Cinematic capture pipeline."
     @State private var appleLogSupported = false
-    @State private var apertureRange: ClosedRange<Double> = 1.4...16
+    @State private var appleLogReason = "Apple Log is not supported on this camera."
 
     /// Only the modes the camera actually reported are offered.
     var modes: [CaptureMode] = []
-    /// Aperture cannot change mid-take.
+    /// Apple Log cannot change mid-take.
     var isRecording: Bool = false
 
     private var cameraModes: [CaptureMode] {
@@ -68,20 +66,16 @@ struct SettingsPanel: View {
                     Toggle("Front camera", isOn: $settings.useFrontCamera)
                     Toggle("Stabilization", isOn: $settings.stabilization)
 
-                    Toggle("Cinematic mode", isOn: $settings.cinematicMode)
-                        .disabled(isRecording || !cinematicSupported)
-                    if !cinematicSupported {
-                        Text(cinematicReason)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.45))
-                    } else if settings.cinematicMode {
-                        apertureSlider
-                    }
+                    Toggle("Cinematic mode", isOn: .constant(false))
+                        .disabled(true)
+                    Text(CameraManager.cinematicUnavailableReason)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.45))
 
                     Toggle("Apple Log", isOn: $settings.appleLog)
                         .disabled(isRecording || !appleLogSupported)
                     if !appleLogSupported {
-                        Text("Apple Log not supported on this camera.")
+                        Text(appleLogReason)
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.45))
                     }
@@ -92,7 +86,6 @@ struct SettingsPanel: View {
                             .foregroundStyle(.white.opacity(0.45))
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: settings.cinematicMode)
                 .animation(.easeInOut(duration: 0.2), value: settings.appleLog)
             }
         }
@@ -100,30 +93,12 @@ struct SettingsPanel: View {
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
         .task(id: settings.useFrontCamera) {
             discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
-            let cinematic = CameraManager.cinematicStatus(front: settings.useFrontCamera)
-            cinematicSupported = cinematic.supported
-            cinematicReason = cinematic.reason
-            appleLogSupported = CameraManager.appleLogSupported(front: settings.useFrontCamera)
-            apertureRange = CameraManager.apertureRange(front: settings.useFrontCamera)
-            if !cinematicSupported { settings.cinematicMode = false }
+            let log = CameraManager.appleLogStatus(front: settings.useFrontCamera)
+            appleLogSupported = log.supported
+            appleLogReason = log.reason
             if !appleLogSupported { settings.appleLog = false }
         }
 
-    }
-
-    /// Same slider style as Font size / Scroll speed, with camera f-stop labels.
-    private var apertureSlider: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("Aperture")
-                Spacer()
-                Text(Format.aperture(settings.simulatedAperture))
-                    .foregroundStyle(.secondary)
-            }
-            Slider(value: $settings.simulatedAperture, in: apertureRange, step: 0.1)
-                .tint(.white)
-                .disabled(isRecording)
-        }
     }
 
     private var currentModeID: String {
