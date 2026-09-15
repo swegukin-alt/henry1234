@@ -569,11 +569,16 @@ struct PrompterView: View {
         guard videoMode, camera.isReady else { return }
         if camera.cinematicSupported {
             camera.applyCinematic(enabled: settings.cinematicMode, aperture: settings.simulatedAperture)
+        } else if settings.cinematicMode {
+            settings.cinematicMode = false
         }
         if camera.appleLogSupported {
             camera.applyAppleLog(settings.appleLog)
+        } else if settings.appleLog {
+            settings.appleLog = false
         }
     }
+
 
     private func finish() {
         guard !didFinish else { return }
