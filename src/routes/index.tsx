@@ -262,8 +262,8 @@ function Index() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-neutral-100" style={{ fontFamily: "var(--font-sans)" }}>
-      <div className="mx-auto max-w-2xl px-4 pb-24 pt-[max(env(safe-area-inset-top),1rem)]">
+    <div className="min-h-screen bg-black text-neutral-100" style={{ fontFamily: "var(--font-sans)" }}>
+      <div className="mx-auto max-w-2xl px-5 pb-24 pt-[max(env(safe-area-inset-top),1rem)]">
         {children}
       </div>
     </div>
@@ -279,34 +279,36 @@ function Library({
 }) {
   return (
     <div>
-      <header className="pt-6 pb-5">
-        <h1 className="text-[26px] sm:text-3xl font-semibold tracking-tight leading-[1.15] bg-gradient-to-br from-primary to-primary bg-clip-text text-transparent">
+      <header className="pt-10 pb-7">
+        <h1 className="text-[32px] font-semibold tracking-tight leading-[1.1] text-white">
           Let's kick some ass
         </h1>
-        <p className="text-[13px] text-neutral-400 mt-2 leading-snug">
+        <p className="mt-2 text-[15px] leading-snug text-neutral-500">
           Never give up. Remember where you came from.
         </p>
         <button
           onClick={onCreate}
-          className="mt-5 w-full rounded-2xl bg-primary px-4 py-3.5 text-base font-bold text-primary-foreground active:scale-[0.98] transition"
+          className="mt-7 w-full rounded-2xl bg-primary px-4 py-3.5 text-[17px] font-medium text-primary-foreground transition active:opacity-70"
         >
           Let's go
         </button>
         <button
           onClick={onAllVideos}
-          className="mt-2.5 w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/[0.04] px-4 py-3 text-sm font-bold text-neutral-200 active:scale-[0.98] transition"
+          className="mt-2.5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white/[0.07] px-4 py-3.5 text-[15px] font-medium text-neutral-100 transition active:opacity-70"
         >
-          <Film className="h-4 w-4 text-primary" /> All videos
+          <Film className="h-4 w-4 text-neutral-400" /> All videos
         </button>
       </header>
 
-      <ul className="mt-2 space-y-2">
-        {scripts.map((s) => (
-          <li key={s.id} className={`rounded-2xl border ${activeId === s.id ? "border-primary/50" : "border-white/10"} bg-white/[0.03]`}>
+      <ul className="mt-2 overflow-hidden rounded-2xl bg-white/[0.05]">
+        {scripts.map((s, i) => (
+          <li key={s.id} className={i > 0 ? "border-t border-white/[0.07]" : ""}>
             <div className="flex items-stretch">
-              <button onClick={() => onSelect(s.id)} className="flex-1 text-left px-4 py-3">
-                <div className="font-semibold truncate">{s.title || "Untitled"}</div>
-                <div className="text-xs text-neutral-400 mt-0.5 line-clamp-1">
+              <button onClick={() => onSelect(s.id)} className="min-w-0 flex-1 px-4 py-3.5 text-left active:opacity-60">
+                <div className={`truncate text-[16px] ${activeId === s.id ? "text-primary" : "text-white"}`}>
+                  {s.title || "Untitled"}
+                </div>
+                <div className="mt-0.5 line-clamp-1 text-[13px] text-neutral-500">
                   {s.body.trim().slice(0, 80) || "Empty script"}
                 </div>
               </button>
@@ -314,7 +316,7 @@ function Library({
                 onClick={() => {
                   if (confirm(`Delete "${s.title}"?`)) onDelete(s.id);
                 }}
-                className="px-4 text-neutral-500 hover:text-red-400 text-sm"
+                className="px-4 text-sm text-neutral-600 hover:text-red-400"
                 aria-label="Delete"
               >
                 ✕
@@ -323,8 +325,8 @@ function Library({
           </li>
         ))}
         {scripts.length === 0 && (
-          <li className="rounded-2xl border border-dashed border-white/10 px-4 py-10 text-center text-neutral-400">
-            No scripts yet. Tap <span className="text-primary font-bold">Let's go</span> to start.
+          <li className="px-4 py-12 text-center text-[15px] text-neutral-500">
+            No scripts yet. Tap <span className="text-primary">Let's go</span> to start.
           </li>
         )}
       </ul>
