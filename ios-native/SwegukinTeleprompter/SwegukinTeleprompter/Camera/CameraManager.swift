@@ -408,6 +408,14 @@ final class CameraManager: NSObject, ObservableObject {
 
 
     /// Apple Log is only offered when a capture format lists it.
+    /// True when the format delivers 10-bit samples — the '420f' (full-range) or
+    /// 'x420' (video-range) 4:2:0 YpCbCr pixel formats Apple uses for Apple Log.
+    static func isTenBitFormat(_ format: AVCaptureDevice.Format) -> Bool {
+        let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+        return subType == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+            || subType == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+    }
+
     static func appleLogSupported(front: Bool) -> Bool {
         if #available(iOS 17.2, *) {
             guard let device = pickCamera(front: front) else { return false }
