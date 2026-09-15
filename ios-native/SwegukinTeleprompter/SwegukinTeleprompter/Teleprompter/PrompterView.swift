@@ -25,8 +25,8 @@ struct PrompterView: View {
     @State private var dragStartOffset: CGFloat?
     @State private var didRestorePosition = false
 
-    private let document: ScriptDocument
-    private let punctuationWordIndices: [Int: Bool]
+    @State private var document: ScriptDocument
+    @State private var punctuationWordIndices: [Int: Bool]
 
     let script: Script
     let videoMode: Bool
@@ -36,9 +36,14 @@ struct PrompterView: View {
         self.script = script
         self.videoMode = videoMode
         self.onExit = onExit
-        let document = ScriptDocument(script.body)
-        self.document = document
-        self.punctuationWordIndices = Dictionary(uniqueKeysWithValues: document.words.enumerated().compactMap { index, word in
+        let chunking = UserDefaults.standard.object(forKey: "chunking") as? Bool ?? true
+        let document = ScriptDocument(script.body, chunking: chunking)
+        _document = State(initialValue: document)
+        _punctuationWordIndices = State(initialValue: Self.punctuationIndices(in: document))
+    }
+
+    private static func punctuationIndices(in document: ScriptDocument) -> [Int: Bool] {
+        Dictionary(uniqueKeysWithValues: document.words.enumerated().compactMap { index, word in
             if word.range(of: #"[.!?…。！？]$"#, options: .regularExpression) != nil { return (index, true) }
             if word.range(of: #"[,;:—、，]$"#, options: .regularExpression) != nil { return (index, false) }
             return nil
@@ -153,6 +158,12 @@ struct PrompterView: View {
                 engine.speedScale = 1
             }
         }
+        .onChange(of: settings.chunking) { _, enabled in
+            let next = ScriptDocument(script.body, chunking: enabled)
+            document = next
+            punctuationWordIndices = Self.punctuationIndices(in: next)
+            didRestorePosition = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             camera.refreshRotation()
         }
@@ -160,7 +171,7 @@ struct PrompterView: View {
             if camera.isRecording { stopRecording() } else { engine.pause() }
         }
         .sheet(isPresented: $showClips) {
-            ClipsView(scriptID: script.id)
+            ClipsView(scriptID: script.id, onBack: { showClips = false })
                 .environmentObject(recordings)
         }
         .alert("Camera", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {

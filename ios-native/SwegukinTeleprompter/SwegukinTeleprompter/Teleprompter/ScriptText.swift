@@ -14,7 +14,8 @@ struct ScriptDocument {
     let blocks: [ScriptBlock]
     let words: [String]
 
-    init(_ source: String) {
+    init(_ source: String, chunking: Bool = false) {
+        let source = chunking ? Self.chunked(source) : source
         var blocks: [ScriptBlock] = []
         var words: [String] = []
         var cursor = source.startIndex
@@ -39,6 +40,26 @@ struct ScriptDocument {
         self.blocks = blocks
         self.words = words
     }
+
+    private static func chunked(_ source: String) -> String {
+        let words = source.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        guard !words.isEmpty else { return source }
+        var output: [String] = []
+        var lineLength = 0
+        for (index, word) in words.enumerated() {
+            output.append(word)
+            lineLength += word.count + 1
+            let punctuation = word.range(of: #"[.!?,;:…。！？，、]$"#, options: .regularExpression) != nil
+            let koreanEnding = word.range(of: #"(은|는|이|가|을|를|에서|으로|지만|니까|습니다|니다|요|죠|다)[.!?…。！？]?$"#, options: .regularExpression) != nil
+            if lineLength >= 34, (punctuation || koreanEnding), index < words.count - 1 {
+                output.append("\n")
+                lineLength = 0
+            } else if index < words.count - 1 {
+                output.append(" ")
+            }
+        }
+        return output.joined()
+    }
 }
 
 /// Long scripts are split into stable native text layers; only the block that
@@ -53,13 +74,24 @@ struct ScriptText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(document.blocks) { block in
-                Text(attributed(block))
+                blockText(block)
                     .font(.custom("Pretendard Variable", size: fontSize).weight(.medium))
                     .lineSpacing(max(0, fontSize * lineHeight - nativeFontLineHeight))
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func blockText(_ block: ScriptBlock) -> some View {
+        if let highlightIndex,
+           highlightIndex >= block.firstWordIndex,
+           highlightIndex < block.firstWordIndex + block.wordRanges.count {
+            Text(attributed(block))
+        } else {
+            Text(block.text).foregroundStyle(foreground)
         }
     }
 
