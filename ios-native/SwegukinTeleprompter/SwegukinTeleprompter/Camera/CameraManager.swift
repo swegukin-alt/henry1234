@@ -132,21 +132,23 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// Runs on the session queue. Returns false only when there is genuinely no
     /// usable camera input.
-    private nonisolated func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) -> Bool {
+    private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) -> Bool {
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
 
         for input in session.inputs { session.removeInput(input) }
+        videoInput = nil
+        audioInput = nil
 
         guard let camera = Self.pickCamera(front: front),
               let input = try? AVCaptureDeviceInput(device: camera),
               session.canAddInput(input) else {
             session.commitConfiguration()
-            Task { @MainActor in self.status = "No camera available on this device." }
+            status = "No camera available on this device."
             return false
         }
         session.addInput(input)
-        Task { @MainActor in self.videoInput = input }
+        videoInput = input
 
         // A preset the hardware is guaranteed to support keeps the preview alive
         // even when the requested mode is not offered by this camera.
@@ -163,7 +165,7 @@ final class CameraManager: NSObject, ObservableObject {
            let aInput = try? AVCaptureDeviceInput(device: mic),
            session.canAddInput(aInput) {
             session.addInput(aInput)
-            Task { @MainActor in self.audioInput = aInput }
+            audioInput = aInput
         }
 
         if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) {
