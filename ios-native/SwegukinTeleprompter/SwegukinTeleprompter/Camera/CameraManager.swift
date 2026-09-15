@@ -440,8 +440,6 @@ final class CameraManager: NSObject, ObservableObject {
         }
         #endif
     }
-        #endif
-    }
 
 
     /// Apple Log is a capture colour space. A device only accepts it while an
