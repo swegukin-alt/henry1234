@@ -8,6 +8,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   cameraCapabilities,
+  cameraDiagnostics,
   checkPermission,
   connectRemote,
   currentOrientation,
