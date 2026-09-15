@@ -33,6 +33,8 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var cinematicSupported = false
     @Published private(set) var appleLogSupported = false
     @Published private(set) var apertureRange: ClosedRange<Double> = 1.4...16
+    /// Plain-language reason shown under a disabled Cinematic row.
+    @Published private(set) var cinematicReason = "Requires Apple's Cinematic capture pipeline."
 
     let session = AVCaptureSession()
 
