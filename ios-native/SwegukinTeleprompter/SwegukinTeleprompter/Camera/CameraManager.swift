@@ -428,6 +428,11 @@ final class CameraManager: NSObject, ObservableObject {
                     device.isVideoHDREnabled = false
                 }
                 device.activeColorSpace = .appleLog
+                if movieOutput.availableVideoCodecTypes.contains(.hevc),
+                   let connection = movieOutput.connection(with: .video) {
+                    movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc],
+                                                  for: connection)
+                }
             } else {
                 if state.deviceUniqueID == device.uniqueID,
                    let previous = state.previous {
