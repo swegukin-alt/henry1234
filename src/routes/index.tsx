@@ -1088,7 +1088,9 @@ function Prompter({
     setRecording(false);
     setPlaying(false);
     setControlsVisible(true);
-    setFinalizing({ done: 0, total: 1, phase: "assembling" });
+    // The file is already on disk — closing it is instant, so no progress
+    // panel appears unless iOS genuinely takes a moment.
+    const slow = window.setTimeout(() => setFinalizing({ done: 0, total: 1, phase: "assembling" }), 700);
     try {
       const { mimeType, filePath } = await rec.stop();
       if (!filePath) throw new Error("The recording finished but iOS did not hand back the file.");
@@ -1104,16 +1106,22 @@ function Prompter({
         },
         filePath,
       );
-      if (clip) setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+      if (!clip) throw new Error("The take was filmed but could not be added to the library.");
+      setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
+      window.clearTimeout(slow);
       setFinalizing(null);
       haptic("record-stop");
     } catch (e) {
-      setFinalizing({ done: 0, total: 1, phase: "error" });
+      window.clearTimeout(slow);
+      setFinalizing(null);
+      const msg = (e as { message?: string })?.message || "The take could not be stored.";
       setWriteWarn(true);
-      setWriteWarnMsg((e as { message?: string })?.message || "The take could not be stored.");
+      setWriteWarnMsg(msg);
+      setCamError(msg);
       haptic("error");
     }
   }, [script.id]);
+
   useEffect(() => { finishNativeRecordingRef.current = finishNativeRecording; }, [finishNativeRecording]);
 
   const startNativeRecording = useCallback(async () => {
