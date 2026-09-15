@@ -42,6 +42,9 @@ final class CameraManager: NSObject, ObservableObject {
     private let movieOutput = AVCaptureMovieFileOutput()
     private var device: AVCaptureDevice? { videoInput?.device }
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    /// Format the camera used before Apple Log was switched on.
+    private var preAppleLogFormat: AVCaptureDevice.Format?
+
     private weak var attachedPreviewLayer: AVCaptureVideoPreviewLayer?
     private var timer: Timer?
     private var startedAt: Date?
