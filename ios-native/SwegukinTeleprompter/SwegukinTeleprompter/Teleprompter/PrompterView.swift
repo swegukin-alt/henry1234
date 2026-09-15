@@ -648,13 +648,12 @@ private struct ScriptScrollLayer: View {
                     Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
                 }
             )
-            // Keep the long text at its intrinsic height and translate its
-            // rendered layer inside a separate fixed viewport. Constraining the
-            // text itself to one screen made SwiftUI discard its visible glyphs.
-            .transformEffect(CGAffineTransform(
-                translationX: 0,
-                y: viewportHeight * 0.20 - engine.offset
-            ))
+            // Keep the long text at its intrinsic height. SwiftUI can discard
+            // the glyphs of an oversized hierarchy when the entire hierarchy
+            // is moved with transformEffect; a layout offset preserves its
+            // segmented text layers while the fixed viewport below keeps the
+            // toolbar and indicators pinned to the screen.
+            .offset(y: viewportHeight * 0.20 - engine.offset)
             .scaleEffect(x: mirrorH ? -1 : 1, y: flip, anchor: .top)
         }
         .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
