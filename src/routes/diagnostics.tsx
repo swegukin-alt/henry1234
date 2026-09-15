@@ -79,6 +79,8 @@ function Diagnostics() {
   const [bleSupported, setBleSupported] = useState(false);
   const [impls, setImpls] = useState<ImplRow[]>([]);
   const [bridge, setBridge] = useState<BridgeRow[]>([]);
+  const [camDiag, setCamDiag] = useState("reading…");
+  const [storeErr, setStoreErr] = useState("");
   // Device capabilities only exist in the browser, so nothing is read until
   // after hydration.
   const [ready, setReady] = useState(false);
@@ -87,10 +89,13 @@ function Diagnostics() {
     setReady(true);
     void cameraCapabilities().then(setCaps);
     void storageEstimate().then(setUsage);
-    void mediaStore().then((s) => {
-      setLiveStore(s.kind);
-      void s.storageUsage().then(setStoreUsage).catch(() => {});
-    });
+    void mediaStore()
+      .then((s) => {
+        setLiveStore(s.kind);
+        void s.storageUsage().then(setStoreUsage).catch(() => {});
+      })
+      .catch((e: { message?: string }) => setStoreErr(e?.message || "unavailable"));
+    void cameraDiagnostics().then(setCamDiag);
     void remoteService().then((s) => setBleSupported(s.capabilities().supportsBle));
     void implementationReport().then(setImpls);
     void bridgeReport().then(setBridge);
@@ -154,6 +159,14 @@ function Diagnostics() {
               }))
             : [{ label: "Implementations", value: "reading…" }]
         }
+      />
+
+      <Section
+        title="Native back ends"
+        rows={[
+          { label: "Camera back end", value: camDiag },
+          { label: "Video storage error", value: storeErr || "none" },
+        ]}
       />
 
       <Section
