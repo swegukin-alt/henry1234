@@ -478,6 +478,7 @@ struct PrompterView: View {
     private func begin() async {
         IdleTimer.keepAwake(true)
         if videoMode { await restartCamera() }
+        guard !didFinish else { return }
         if settings.voiceFollow && !videoMode {
             await voice.start(script: script.body)
         }
@@ -492,6 +493,9 @@ struct PrompterView: View {
                 hdr: settings.hdr,
                 stabilization: settings.stabilization
             )
+            // Permission prompts and capture setup can finish after Back has
+            // already removed this screen. Never leave that late session alive.
+            if didFinish { camera.stop() }
         } catch CameraManager.CameraError.permissionDenied {
             errorMessage = "Camera access is off. Enable it in Settings to record."
         } catch {
