@@ -2,9 +2,14 @@ import SwiftUI
 
 struct SettingsPanel: View {
     @EnvironmentObject private var settings: AppSettings
+    @State private var discoveredModes: [CaptureMode] = []
 
     /// Only the modes the camera actually reported are offered.
     var modes: [CaptureMode] = []
+
+    private var cameraModes: [CaptureMode] {
+        modes.isEmpty ? discoveredModes : modes
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -47,12 +52,13 @@ struct SettingsPanel: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 40)
 
-            if !modes.isEmpty {
+            if !cameraModes.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("CAMERA").font(.system(size: 13)).tracking(1.5).foregroundStyle(.white.opacity(0.36))
                     Picker("Recording mode", selection: Binding(get: { currentModeID }, set: { apply(modeID: $0) })) {
-                        ForEach(modes) { mode in Text(mode.label).tag(mode.id) }
+                        ForEach(cameraModes) { mode in Text(mode.label).tag(mode.id) }
                     }
+                    .pickerStyle(.menu)
                     Toggle("Front camera", isOn: $settings.useFrontCamera)
                     Toggle("Stabilization", isOn: $settings.stabilization)
                 }
@@ -60,15 +66,18 @@ struct SettingsPanel: View {
         }
         .padding(16)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+        .task(id: settings.useFrontCamera) {
+            discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
+        }
     }
 
     private var currentModeID: String {
         let id = "\(settings.quality)-\(settings.frameRate)-\(settings.hdr ? 1 : 0)"
-        return modes.contains { $0.id == id } ? id : (modes.first?.id ?? id)
+        return cameraModes.contains { $0.id == id } ? id : (cameraModes.first?.id ?? id)
     }
 
     private func apply(modeID: String) {
-        guard let mode = modes.first(where: { $0.id == modeID }) else { return }
+        guard let mode = cameraModes.first(where: { $0.id == modeID }) else { return }
         settings.quality = mode.quality
         settings.frameRate = mode.fps
         settings.hdr = mode.hdr

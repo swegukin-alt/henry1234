@@ -169,6 +169,13 @@ final class CameraManager: NSObject, ObservableObject {
         // retained by AVFoundation across format changes on multi-camera phones.
         if (try? camera.lockForConfiguration()) != nil {
             camera.videoZoomFactor = max(camera.minAvailableVideoZoomFactor, 1)
+            if camera.isFocusModeSupported(.continuousAutoFocus) {
+                camera.focusMode = .continuousAutoFocus
+            }
+            if camera.isExposureModeSupported(.continuousAutoExposure) {
+                camera.exposureMode = .continuousAutoExposure
+            }
+            camera.isSubjectAreaChangeMonitoringEnabled = true
             camera.unlockForConfiguration()
         }
 
@@ -273,16 +280,14 @@ final class CameraManager: NSObject, ObservableObject {
             }
             for range in format.videoSupportedFrameRateRanges {
                 for fps in [30, 60] where Double(fps) >= range.minFrameRate && Double(fps) <= range.maxFrameRate {
-                    let mode = CaptureMode(
-                        quality: quality,
-                        width: Int(dims.width),
-                        height: Int(dims.height),
-                        fps: fps,
-                        hdr: format.isVideoHDRSupported,
-                        stabilization: !format.videoSupportedFrameRateRanges.isEmpty
-                    )
-                    let key = "\(quality)-\(fps)-\(mode.hdr)"
-                    if found[key] == nil { found[key] = mode }
+                    let sdr = CaptureMode(quality: quality, width: Int(dims.width), height: Int(dims.height),
+                                          fps: fps, hdr: false, stabilization: true)
+                    found[sdr.id] = sdr
+                    if format.isVideoHDRSupported {
+                        let hdr = CaptureMode(quality: quality, width: Int(dims.width), height: Int(dims.height),
+                                              fps: fps, hdr: true, stabilization: true)
+                        found[hdr.id] = hdr
+                    }
                 }
             }
         }
@@ -295,16 +300,18 @@ final class CameraManager: NSObject, ObservableObject {
     private static func pickCamera(front: Bool) -> AVCaptureDevice? {
         let position: AVCaptureDevice.Position = front ? .front : .back
         let types: [AVCaptureDevice.DeviceType] = front
-            ? [.builtInWideAngleCamera, .builtInTrueDepthCamera]
+            ? [.builtInWideAngleCamera]
             : [.builtInWideAngleCamera, .builtInDualWideCamera, .builtInTripleCamera]
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: position)
-        return discovery.devices.max(by: { lhs, rhs in
-            let lhsFOV = lhs.formats.map(\.videoFieldOfView).max() ?? 0
-            let rhsFOV = rhs.formats.map(\.videoFieldOfView).max() ?? 0
-            return lhsFOV < rhsFOV
-        })
+        return discovery.devices.first
             ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
             ?? AVCaptureDevice.default(for: .video)
+    }
+
+    /// Camera modes are available before entering video mode, so the editor's
+    /// native camera menu never depends on an already-running capture session.
+    static func availableModes(front: Bool) -> [CaptureMode] {
+        supportedModes(for: pickCamera(front: front))
     }
 
     // MARK: - Controls
@@ -330,7 +337,11 @@ final class CameraManager: NSObject, ObservableObject {
             guard (try? device.lockForConfiguration()) != nil else { return }
             if device.isFocusPointOfInterestSupported {
                 device.focusPointOfInterest = point
-                if device.isFocusModeSupported(.autoFocus) { device.focusMode = .autoFocus }
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                } else if device.isFocusModeSupported(.autoFocus) {
+                    device.focusMode = .autoFocus
+                }
             }
             if device.isExposurePointOfInterestSupported {
                 device.exposurePointOfInterest = point

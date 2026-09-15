@@ -8,3 +8,6 @@
 - [x] Correct native camera field of view and portrait/landscape rotation.
 - [x] Keep long pasted scripts inside a fixed-height scrolling editor.
 - [x] Reduce long-script redraw work during teleprompter scrolling.
+- [x] Expose native camera quality controls before capture starts.
+- [x] Remove front-camera crop, reset zoom, and enable continuous focus/exposure.
+- [x] Keep video controls above the camera and reduce per-frame text composition work.
