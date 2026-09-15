@@ -67,17 +67,22 @@ struct SettingsPanel: View {
                     Toggle("Front camera", isOn: $settings.useFrontCamera)
                     Toggle("Stabilization", isOn: $settings.stabilization)
 
-                    if cinematicSupported {
-                        Toggle("Cinematic mode", isOn: $settings.cinematicMode)
-                            .disabled(isRecording)
-                        if settings.cinematicMode {
-                            apertureSlider
-                        }
+                    Toggle("Cinematic mode", isOn: $settings.cinematicMode)
+                        .disabled(isRecording || !cinematicSupported)
+                    if !cinematicSupported {
+                        Text("Requires Apple's Cinematic capture pipeline.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.45))
+                    } else if settings.cinematicMode {
+                        apertureSlider
                     }
 
-                    if appleLogSupported {
-                        Toggle("Apple Log", isOn: $settings.appleLog)
-                            .disabled(isRecording)
+                    Toggle("Apple Log", isOn: $settings.appleLog)
+                        .disabled(isRecording || !appleLogSupported)
+                    if !appleLogSupported {
+                        Text("Apple Log not supported on this camera.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.45))
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: settings.cinematicMode)
@@ -90,7 +95,10 @@ struct SettingsPanel: View {
             cinematicSupported = CameraManager.cinematicSupported(front: settings.useFrontCamera)
             appleLogSupported = CameraManager.appleLogSupported(front: settings.useFrontCamera)
             apertureRange = CameraManager.apertureRange(front: settings.useFrontCamera)
+            if !cinematicSupported { settings.cinematicMode = false }
+            if !appleLogSupported { settings.appleLog = false }
         }
+
     }
 
     /// Same slider style as Font size / Scroll speed, with camera f-stop labels.
