@@ -416,7 +416,10 @@ struct NativeScriptTextView: UIViewRepresentable {
         for block in document.blocks {
             for line in block.lines {
                 result += line.text
-                if line.breakAfter { result += "\n" }
+                // U+2029 marks only tokenizer-created breath breaks. Authored
+                // newlines remain untouched, matching the web's preserved
+                // whitespace without receiving an extra chunk gap.
+                if line.breakAfter { result += "\u{2029}" }
             }
         }
         return result
@@ -427,14 +430,28 @@ struct NativeScriptTextView: UIViewRepresentable {
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = fontSize * lineHeight
         paragraph.maximumLineHeight = fontSize * lineHeight
-        paragraph.paragraphSpacing = fontSize * 0.55
+        paragraph.paragraphSpacing = 0
         paragraph.lineBreakMode = .byWordWrapping
-        return NSAttributedString(string: string, attributes: [
+        let text = NSMutableAttributedString(string: string, attributes: [
             .font: font,
             .foregroundColor: UIColor(foreground),
-            .kern: fontSize * -0.015,
+            .kern: PrompterFont.tracking(size: fontSize),
             .paragraphStyle: paragraph,
         ])
+        let chunkParagraph = paragraph.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+        chunkParagraph.minimumLineHeight = fontSize * lineHeight
+        chunkParagraph.maximumLineHeight = fontSize * lineHeight
+        chunkParagraph.paragraphSpacing = fontSize * 0.55
+        let nsString = string as NSString
+        var searchRange = NSRange(location: 0, length: nsString.length)
+        while searchRange.length > 0 {
+            let range = nsString.range(of: "\u{2029}", options: [], range: searchRange)
+            if range.location == NSNotFound { break }
+            text.addAttribute(.paragraphStyle, value: chunkParagraph, range: range)
+            let next = range.location + range.length
+            searchRange = NSRange(location: next, length: nsString.length - next)
+        }
+        return text
     }
 
     private func updateHighlight(in view: UITextView, coordinator: Coordinator) {

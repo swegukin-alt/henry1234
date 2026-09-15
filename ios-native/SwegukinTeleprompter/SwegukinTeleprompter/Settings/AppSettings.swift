@@ -3,6 +3,13 @@ import Combine
 
 /// Small user preferences only. Video never touches UserDefaults.
 final class AppSettings: ObservableObject {
+    /// These values are shared with the web reader. Keep them in one place so
+    /// a fresh native install opens with exactly the same reading geometry.
+    static let webFontSize = 72.0
+    static let webSpeed = 70.0
+    static let webLineHeight = 1.5
+    static let webTextWidth = 82.0
+
     private let defaults = UserDefaults.standard
 
     @Published var fontSize: Double { didSet { write(fontSize, "fontSize") } }
@@ -38,10 +45,12 @@ final class AppSettings: ObservableObject {
         func i(_ key: String, _ fallback: Int) -> Int {
             defaults.object(forKey: key) as? Int ?? fallback
         }
-        fontSize = d("fontSize", 72)
-        speed = d("speed", 70)
-        lineHeight = d("lineHeight", 1.5)
-        textWidth = d("textWidth", 82)
+        fontSize = d("fontSize", Self.webFontSize)
+        speed = d("speed", Self.webSpeed)
+        // Line height is not user-adjustable on the web reader. Discard any
+        // stale value written by an older native build and lock it to the web.
+        lineHeight = Self.webLineHeight
+        textWidth = d("textWidth", Self.webTextWidth)
         margin = d("margin", 24)
         mirrorH = b("mirrorH", false)
         mirrorV = b("mirrorV", false)
@@ -69,10 +78,10 @@ final class AppSettings: ObservableObject {
     }
 
     func resetReaderDefaults() {
-        fontSize = 72
-        speed = 70
-        lineHeight = 1.5
-        textWidth = 82
+        fontSize = Self.webFontSize
+        speed = Self.webSpeed
+        lineHeight = Self.webLineHeight
+        textWidth = Self.webTextWidth
         margin = 24
         mirrorH = false
         mirrorV = false

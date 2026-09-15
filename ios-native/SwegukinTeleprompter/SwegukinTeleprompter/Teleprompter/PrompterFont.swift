@@ -13,8 +13,19 @@ enum PrompterFont {
     /// OpenType `wght` axis identifier.
     private static let weightAxis = 0x77676874  // 'wght'
     private static let targetWeight = 500.0
+    private static let registration: Void = {
+        guard let url = Bundle.main.url(forResource: "PretendardVariable", withExtension: "ttf") else {
+            assertionFailure("PretendardVariable.ttf is missing from the app bundle")
+            return
+        }
+        var error: Unmanaged<CFError>?
+        // A false result can simply mean the bundled font was registered by
+        // an earlier call. UIFont resolution below is the authoritative check.
+        _ = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+    }()
 
     static func uiFont(size: CGFloat) -> UIFont {
+        _ = registration
         guard let base = UIFont(name: "Pretendard Variable", size: size) else {
             return UIFont.systemFont(ofSize: size, weight: .medium)
         }
@@ -23,8 +34,14 @@ enum PrompterFont {
                 weightAxis: targetWeight
             ],
             kCTFontFeatureSettingsAttribute as UIFontDescriptor.AttributeName: [
-                [kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "palt"],
-                [kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "kern"],
+                [
+                    kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "palt",
+                    kCTFontOpenTypeFeatureValue as UIFontDescriptor.FeatureKey: 1,
+                ],
+                [
+                    kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "kern",
+                    kCTFontOpenTypeFeatureValue as UIFontDescriptor.FeatureKey: 1,
+                ],
             ],
         ])
         return UIFont(descriptor: descriptor, size: size)
