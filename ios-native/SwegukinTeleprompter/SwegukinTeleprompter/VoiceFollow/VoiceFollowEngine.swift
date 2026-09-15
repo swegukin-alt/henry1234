@@ -38,7 +38,7 @@ final class VoiceFollowEngine: ObservableObject {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
-        if #available(iOS 17.0, *) { request.addsPunctuation = false }
+        request.addsPunctuation = false
         self.request = request
 
         let input = audioEngine.inputNode

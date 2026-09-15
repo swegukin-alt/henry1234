@@ -84,7 +84,7 @@ final class KeyCommandViewController: UIViewController {
         var handled = false
         for press in presses {
             switch press.type {
-            case .playPause, .select:
+            case .select:
                 onAction?(.togglePlay); handled = true
             case .upArrow:
                 onAction?(.nudgeUp); handled = true
@@ -95,7 +95,11 @@ final class KeyCommandViewController: UIViewController {
             case .rightArrow:
                 onAction?(.speedUp); handled = true
             default:
-                break
+                // playPause exists on iOS 17.2+; the deployment target is 17.0,
+                // so it cannot sit in a case pattern.
+                if #available(iOS 17.2, *), press.type == .playPause {
+                    onAction?(.togglePlay); handled = true
+                }
             }
         }
         if !handled { super.pressesBegan(presses, with: event) }

@@ -23,6 +23,9 @@ final class AppSettings: ObservableObject {
     @Published var lastActiveScriptID: String? { didSet { defaults.set(lastActiveScriptID, forKey: "lastActiveScriptID") } }
 
     init() {
+        // Read through a local constant so the helpers never touch `self`
+        // before every stored property is initialized.
+        let defaults = UserDefaults.standard
         func d(_ key: String, _ fallback: Double) -> Double {
             defaults.object(forKey: key) as? Double ?? fallback
         }
