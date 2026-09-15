@@ -20,12 +20,14 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var isReady = false
     @Published private(set) var isRecording = false
     @Published private(set) var elapsed: Double = 0
+    /// Human readable state shown on the prompter when something is wrong.
     @Published private(set) var status: String = ""
     @Published private(set) var modes: [CaptureMode] = []
     @Published private(set) var micName: String = ""
     @Published var zoom: CGFloat = 1 { didSet { applyZoom() } }
     @Published private(set) var torchOn = false
     @Published private(set) var usingFront = true
+    @Published private(set) var previewRotationAngle: CGFloat = 90
 
     let session = AVCaptureSession()
 
@@ -35,13 +37,11 @@ final class CameraManager: NSObject, ObservableObject {
     private let movieOutput = AVCaptureMovieFileOutput()
     private var device: AVCaptureDevice? { videoInput?.device }
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private weak var attachedPreviewLayer: AVCaptureVideoPreviewLayer?
     private var timer: Timer?
     private var startedAt: Date?
     private var pendingCompletion: ((Result<URL, Error>) -> Void)?
-    private var currentFileURL: URL?
-
-    /// Preview angle, driven by the real hardware/horizon coordinator.
-    @Published private(set) var previewRotationAngle: CGFloat = 90
+    private var observing = false
 
     enum CameraError: LocalizedError {
         case noDevice, notReady, alreadyRecording, permissionDenied
@@ -51,13 +51,16 @@ final class CameraManager: NSObject, ObservableObject {
             case .noDevice: return "No camera available on this device."
             case .notReady: return "The camera is not running yet."
             case .alreadyRecording: return "Already recording."
-            case .permissionDenied: return "Camera or microphone access is turned off in Settings."
+            case .permissionDenied: return "Camera access is turned off. Enable it in Settings."
             }
         }
     }
 
     // MARK: - Lifecycle
 
+    /// Starting the camera never fails for a format reason. The session comes up
+    /// with a preset the hardware always supports, then the requested
+    /// resolution / frame rate / HDR is applied as a best effort on top.
     func start(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) async throws {
         if PermissionManager.cameraState() == .undetermined {
             _ = await PermissionManager.requestCamera()
@@ -65,40 +68,36 @@ final class CameraManager: NSObject, ObservableObject {
         if PermissionManager.microphoneState() == .undetermined {
             _ = await PermissionManager.requestMicrophone()
         }
-        guard PermissionManager.cameraState() == .granted else { throw CameraError.permissionDenied }
+        guard PermissionManager.cameraState() == .granted else {
+            status = "Camera access is off. Enable it in Settings."
+            throw CameraError.permissionDenied
+        }
 
         AudioSessionManager.shared.activateForCapture()
         AudioSessionManager.shared.onRouteChange = { [weak self] name in
             self?.micName = name
         }
-        AudioSessionManager.shared.onInterruptionBegan = { [weak self] in
-            self?.status = "Audio interrupted"
-        }
         micName = AudioSessionManager.shared.currentInputName
         usingFront = front
+        status = ""
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let running: Bool = await withCheckedContinuation { continuation in
             sessionQueue.async { [weak self] in
-                guard let self else { return }
-                do {
-                    try self.configure(front: front, quality: quality, fps: fps, hdr: hdr, stabilization: stabilization)
-                    if !self.session.isRunning { self.session.startRunning() }
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+                guard let self else { return continuation.resume(returning: false) }
+                let ok = self.configure(front: front, quality: quality, fps: fps, hdr: hdr, stabilization: stabilization)
+                if ok, !self.session.isRunning { self.session.startRunning() }
+                continuation.resume(returning: ok && self.session.isRunning)
             }
         }
 
         observeSession()
-        if let device {
-            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
-            rotationCoordinator = coordinator
-            previewRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+        isReady = running
+        if !running {
+            status = status.isEmpty ? "Camera could not start. Tap retry." : status
+            throw CameraError.noDevice
         }
         modes = Self.supportedModes(for: device)
-        isReady = true
-        status = ""
+        makeRotationCoordinator()
     }
 
     func stop() {
@@ -110,33 +109,61 @@ final class CameraManager: NSObject, ObservableObject {
         AudioSessionManager.shared.deactivate()
     }
 
+    /// Called by the preview view so rotation follows the real hardware horizon.
+    func attach(previewLayer: AVCaptureVideoPreviewLayer) {
+        attachedPreviewLayer = previewLayer
+        makeRotationCoordinator()
+    }
+
+    private func makeRotationCoordinator() {
+        guard let device else { return }
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: attachedPreviewLayer)
+        rotationCoordinator = coordinator
+        previewRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+    }
+
     func refreshRotation() {
         guard let coordinator = rotationCoordinator else { return }
-        previewRotationAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+        let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+        if angle != previewRotationAngle { previewRotationAngle = angle }
     }
 
     // MARK: - Configuration
 
-    private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) throws {
+    /// Runs on the session queue. Returns false only when there is genuinely no
+    /// usable camera input.
+    private nonisolated func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) -> Bool {
         session.beginConfiguration()
-        defer { session.commitConfiguration() }
-
         session.automaticallyConfiguresApplicationAudioSession = false
 
-        if let existing = videoInput {
-            session.removeInput(existing)
-            videoInput = nil
-        }
-        guard let camera = Self.pickCamera(front: front) else { throw CameraError.noDevice }
-        let input = try AVCaptureDeviceInput(device: camera)
-        guard session.canAddInput(input) else { throw CameraError.noDevice }
-        session.addInput(input)
-        videoInput = input
+        for input in session.inputs { session.removeInput(input) }
 
-        if audioInput == nil, let mic = AVCaptureDevice.default(for: .audio),
-           let aInput = try? AVCaptureDeviceInput(device: mic), session.canAddInput(aInput) {
+        guard let camera = Self.pickCamera(front: front),
+              let input = try? AVCaptureDeviceInput(device: camera),
+              session.canAddInput(input) else {
+            session.commitConfiguration()
+            Task { @MainActor in self.status = "No camera available on this device." }
+            return false
+        }
+        session.addInput(input)
+        Task { @MainActor in self.videoInput = input }
+
+        // A preset the hardware is guaranteed to support keeps the preview alive
+        // even when the requested mode is not offered by this camera.
+        let preset = Self.preset(for: quality)
+        if session.canSetSessionPreset(preset) {
+            session.sessionPreset = preset
+        } else if session.canSetSessionPreset(.high) {
+            session.sessionPreset = .high
+        }
+
+        // Audio is optional for the preview: a missing mic must never black out
+        // the camera.
+        if let mic = AVCaptureDevice.default(for: .audio),
+           let aInput = try? AVCaptureDeviceInput(device: mic),
+           session.canAddInput(aInput) {
             session.addInput(aInput)
-            audioInput = aInput
+            Task { @MainActor in self.audioInput = aInput }
         }
 
         if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) {
@@ -144,22 +171,35 @@ final class CameraManager: NSObject, ObservableObject {
         }
         movieOutput.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 1)
 
-        applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr)
-
         if let connection = movieOutput.connection(with: .video) {
             if connection.isVideoStabilizationSupported {
                 connection.preferredVideoStabilizationMode = stabilization ? .auto : .off
             }
             if connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false
-                connection.isVideoMirrored = front
+                connection.isVideoMirrored = false
             }
+        }
+
+        session.commitConfiguration()
+
+        // Best-effort refinement once the session is valid.
+        Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr)
+        return true
+    }
+
+    private static func preset(for quality: String) -> AVCaptureSession.Preset {
+        switch quality {
+        case "720p": return .hd1280x720
+        case "4k": return .hd4K3840x2160
+        default: return .hd1920x1080
         }
     }
 
-    /// Only combinations the hardware actually reports — nothing invented.
-    private func applyFormat(on camera: AVCaptureDevice, quality: String, fps: Int, hdr: Bool) {
-        let target = Self.dimensions(for: quality)
+    /// Only combinations the hardware actually reports — nothing invented, and a
+    /// miss simply leaves the working preset in place.
+    private static func applyFormat(on camera: AVCaptureDevice, quality: String, fps: Int, hdr: Bool) {
+        let target = dimensions(for: quality)
         let candidates = camera.formats.filter { format in
             let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             guard Int(dims.width) == target.width, Int(dims.height) == target.height else { return false }
@@ -169,22 +209,17 @@ final class CameraManager: NSObject, ObservableObject {
             if hdr { return format.isVideoHDRSupported }
             return true
         }
-        let chosen = candidates.first { !hdr ? !$0.isVideoHDRSupported : true } ?? candidates.first
-        guard let format = chosen else { return }
-        do {
-            try camera.lockForConfiguration()
-            camera.activeFormat = format
-            let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
-            camera.activeVideoMinFrameDuration = frameDuration
-            camera.activeVideoMaxFrameDuration = frameDuration
-            if format.isVideoHDRSupported {
-                camera.automaticallyAdjustsVideoHDREnabled = false
-                camera.isVideoHDREnabled = hdr
-            }
-            camera.unlockForConfiguration()
-        } catch {
-            NSLog("[Camera] format lock failed: \(error.localizedDescription)")
+        guard let format = candidates.first else { return }
+        guard (try? camera.lockForConfiguration()) != nil else { return }
+        camera.activeFormat = format
+        let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
+        camera.activeVideoMinFrameDuration = frameDuration
+        camera.activeVideoMaxFrameDuration = frameDuration
+        if format.isVideoHDRSupported {
+            camera.automaticallyAdjustsVideoHDREnabled = false
+            camera.isVideoHDREnabled = hdr
         }
+        camera.unlockForConfiguration()
     }
 
     static func dimensions(for quality: String) -> (width: Int, height: Int) {
@@ -235,15 +270,16 @@ final class CameraManager: NSObject, ObservableObject {
             ? [.builtInWideAngleCamera, .builtInTrueDepthCamera]
             : [.builtInWideAngleCamera, .builtInDualWideCamera, .builtInTripleCamera]
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: position)
-        return discovery.devices.first ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+        return discovery.devices.first
+            ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+            ?? AVCaptureDevice.default(for: .video)
     }
 
     // MARK: - Controls
 
     func switchCamera(quality: String, fps: Int, hdr: Bool, stabilization: Bool) async {
         guard !isRecording else { return }
-        usingFront.toggle()
-        try? await start(front: usingFront, quality: quality, fps: fps, hdr: hdr, stabilization: stabilization)
+        try? await start(front: !usingFront, quality: quality, fps: fps, hdr: hdr, stabilization: stabilization)
     }
 
     private func applyZoom() {
@@ -288,7 +324,7 @@ final class CameraManager: NSObject, ObservableObject {
     // MARK: - Recording
 
     func startRecording(to url: URL) throws {
-        guard isReady, session.isRunning else { throw CameraError.notReady }
+        guard session.isRunning else { throw CameraError.notReady }
         guard !movieOutput.isRecording else { throw CameraError.alreadyRecording }
 
         if let connection = movieOutput.connection(with: .video) {
@@ -296,15 +332,18 @@ final class CameraManager: NSObject, ObservableObject {
             if connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = false
+            }
         }
         try? FileManager.default.removeItem(at: url)
-        currentFileURL = url
         startedAt = Date()
         elapsed = 0
         movieOutput.startRecording(to: url, recordingDelegate: self)
         isRecording = true
         Haptics.strong()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let startedAt = self.startedAt else { return }
                 self.elapsed = Date().timeIntervalSince(startedAt)
@@ -324,13 +363,19 @@ final class CameraManager: NSObject, ObservableObject {
     // MARK: - Session health
 
     private func observeSession() {
+        guard !observing else { return }
+        observing = true
         let center = NotificationCenter.default
         center.addObserver(forName: .AVCaptureSessionRuntimeError, object: session, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                self?.status = "Camera error — restarting"
-                self?.sessionQueue.async { [weak self] in
-                    guard let self else { return }
+                guard let self else { return }
+                self.status = "Camera error — restarting"
+                self.sessionQueue.async {
                     if !self.session.isRunning { self.session.startRunning() }
+                    Task { @MainActor in
+                        self.isReady = self.session.isRunning
+                        if self.isReady { self.status = "" }
+                    }
                 }
             }
         }
@@ -366,7 +411,6 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
                 self.pendingCompletion?(.success(outputFileURL))
             }
             self.pendingCompletion = nil
-            self.currentFileURL = nil
         }
     }
 }
