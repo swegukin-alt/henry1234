@@ -4,24 +4,28 @@ import AVFoundation
 
 /// Native rebuild of the web teleprompter screen. The layout, scrim, typography
 /// and bottom toolbar mirror the web app exactly — only the plumbing is native.
+///
+/// Performance note: the scrolling engine is held in plain `@State` (not
+/// `@StateObject`) so its 120 Hz offset updates only re-render the small views
+/// that actually observe it — the script layer, the progress line and the
+/// percentage badge. The camera preview, chips and toolbar stay untouched.
 struct PrompterView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var recordings: RecordingStore
 
-    @StateObject private var engine = TeleprompterEngine()
+    @State private var engine = TeleprompterEngine()
     @StateObject private var camera = CameraManager()
     @StateObject private var voice = VoiceFollowEngine()
 
     private enum Panel { case settings, size, more }
 
     @State private var contentHeight: CGFloat = 0
-    @State private var countdownLeft = 0
     @State private var panel: Panel?
-    @State private var controlsVisible = true
     @State private var showClips = false
     @State private var errorMessage: String?
     @State private var currentTakeID: String?
     @State private var saving = false
+    @State private var isPlaying = false
     @State private var dragStartOffset: CGFloat?
     @State private var didRestorePosition = false
 
@@ -50,7 +54,6 @@ struct PrompterView: View {
         })
     }
 
-    private var remaining: Int { max(0, 100 - Int((engine.progress * 100).rounded())) }
     /// Video mode must never flip the words or interface. Beam-splitter
     /// mirroring is intentionally limited to normal teleprompter mode.
     private var interfaceFlip: CGFloat { !videoMode && settings.mirrorV ? -1 : 1 }
@@ -58,27 +61,51 @@ struct PrompterView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // Camera behind everything, with the same dark scrim as the web app.
                 if videoMode {
                     CameraPreviewView(
                         session: camera.session,
                         rotationAngle: camera.previewRotationAngle,
-                        mirrored: camera.usingFront
+                        mirrored: camera.usingFront,
+                        onAttach: { camera.attach(previewLayer: $0) }
                     )
-                        .ignoresSafeArea()
-                        .overlay {
-                            // Deliberately attached to the preview so UIKit can
-                            // never composite its camera layer above the scrim.
-                            Rectangle()
-                                .fill(Color.black.opacity(0.45))
-                                .ignoresSafeArea()
-                                .allowsHitTesting(false)
-                        }
+                    .ignoresSafeArea()
+                    .overlay {
+                        // Attached to the preview so UIKit can never composite
+                        // its camera layer above the scrim.
+                        Rectangle()
+                            .fill(Color.black.opacity(0.45))
+                            .ignoresSafeArea()
+                            .allowsHitTesting(false)
+                    }
                 } else {
                     readerBackground.ignoresSafeArea()
                 }
 
-                scriptLayer(geo: geo)
+                ScriptScrollLayer(
+                    engine: engine,
+                    document: document,
+                    punctuation: punctuationWordIndices,
+                    fontSize: settings.fontSize,
+                    lineHeight: settings.lineHeight,
+                    textWidth: settings.textWidth,
+                    viewportHeight: geo.size.height,
+                    foreground: videoMode || settings.background == "black" ? .white : .black,
+                    highlightEnabled: settings.readingHighlight,
+                    pausesEnabled: settings.pauses,
+                    voiceIndex: settings.voiceFollow ? voice.matchedIndex : nil,
+                    mirrorH: !videoMode && settings.mirrorH,
+                    flip: interfaceFlip,
+                    onContentHeight: { height in
+                        contentHeight = height
+                        // Web uses a 20vh lead-in and an 80vh tail. Together they
+                        // add one viewport so every last word passes the eye line.
+                        engine.contentHeight = height + geo.size.height
+                        if !didRestorePosition, height > 0 {
+                            didRestorePosition = true
+                            engine.seek(to: settings.readingPosition(for: script.id))
+                        }
+                    }
+                )
 
                 Color.clear
                     .contentShape(Rectangle())
@@ -96,36 +123,14 @@ struct PrompterView: View {
                             }
                     )
 
-                if countdownLeft > 0 {
-                    Text("\(countdownLeft)")
-                        .font(.system(size: 120, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                }
-
                 overlayChips(geo: geo)
 
-                if controlsVisible {
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        progressLine
-                        bottomToolbar
-                    }
-                    .ignoresSafeArea(edges: .bottom)
-                } else {
-                    VStack {
-                        Button {
-                            controlsVisible = true
-                        } label: {
-                            Text("•••")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.6))
-                                .padding(.horizontal, 12).padding(.vertical, 4)
-                                .background(.black.opacity(0.4), in: Capsule())
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, 10)
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    ProgressLine(engine: engine)
+                    bottomToolbar
                 }
+                .ignoresSafeArea(edges: .bottom)
 
                 if let panel { popover(for: panel) }
 
@@ -135,11 +140,12 @@ struct PrompterView: View {
             }
             .onAppear {
                 engine.viewportHeight = geo.size.height
+                engine.contentHeight = contentHeight + geo.size.height
                 engine.speed = settings.speed
             }
             .onChange(of: geo.size) { _, size in
                 engine.viewportHeight = size.height
-            engine.contentHeight = contentHeight + size.height
+                engine.contentHeight = contentHeight + size.height
             }
         }
         .background(Color.black)
@@ -147,28 +153,17 @@ struct PrompterView: View {
         .persistentSystemOverlays(.hidden)
         .task { await begin() }
         .onDisappear { finish() }
-        .onChange(of: highlightIndex) { _, index in
-            guard settings.pauses, let index, let strong = punctuationWordIndices[index] else {
-                engine.speedScale = 1
-                return
-            }
-            engine.speedScale = strong ? 0.68 : 0.82
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(strong ? 360 : 220))
-                engine.speedScale = 1
-            }
-        }
+        .onChange(of: settings.speed) { _, value in engine.speed = value }
         .onChange(of: settings.chunking) { _, enabled in
             let next = ScriptDocument(script.body, chunking: enabled)
             document = next
             punctuationWordIndices = Self.punctuationIndices(in: next)
-            didRestorePosition = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             camera.refreshRotation()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            if camera.isRecording { stopRecording() } else { engine.pause() }
+            if camera.isRecording { stopRecording() } else { pause() }
         }
         .sheet(isPresented: $showClips) {
             ClipsView(scriptID: script.id, onBack: { showClips = false })
@@ -182,49 +177,10 @@ struct PrompterView: View {
         }
     }
 
-    // MARK: - Script
-
-    private func scriptLayer(geo: GeometryProxy) -> some View {
-        // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
-        // line-height 1.5, -0.015em tracking, words never split.
-        ScriptText(
-            document: document,
-            fontSize: settings.fontSize,
-            lineHeight: settings.lineHeight,
-            highlightIndex: highlightIndex,
-            foreground: videoMode || settings.background == "black" ? .white : .black
-        )
-        .tracking(-0.015 * settings.fontSize)
-        .frame(width: geo.size.width * settings.textWidth / 100, alignment: .leading)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
-            }
-        )
-        .onPreferenceChange(ContentHeightKey.self) { height in
-            contentHeight = height
-            // Web uses a 20vh lead-in and 80vh tail. Together they add one
-            // viewport, allowing every final word to pass the reading line.
-            engine.contentHeight = height + geo.size.height
-            if !didRestorePosition, height > 0 {
-                didRestorePosition = true
-                engine.seek(to: settings.readingPosition(for: script.id))
-            }
-        }
-        // Web spacer: 20vh of clear space above the first line.
-        .offset(y: geo.size.height * 0.20 - engine.offset)
-        .scaleEffect(x: (!videoMode && settings.mirrorH) ? -1 : 1,
-                     y: interfaceFlip)
-        // Keep the full intrinsic document height. Constraining this frame to
-        // the viewport is what previously made long scripts appear truncated.
-        .frame(maxWidth: .infinity, alignment: .top)
-        .allowsHitTesting(false)
-    }
-
     // MARK: - Chips (top row, same positions as the web app)
 
     private func overlayChips(geo: GeometryProxy) -> some View {
-        VStack {
+        VStack(spacing: 8) {
             ZStack(alignment: .top) {
                 HStack(alignment: .top) {
                     if videoMode {
@@ -252,14 +208,10 @@ struct PrompterView: View {
 
                     Spacer(minLength: 8)
 
-                    Text("\(remaining)% left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(.black.opacity(0.6), in: Capsule())
+                    RemainingBadge(engine: engine)
                 }
 
-                if videoMode && camera.isReady && controlsVisible {
+                if videoMode && camera.isReady {
                     HStack(spacing: 6) {
                         Image(systemName: "mic.fill").font(.system(size: 12))
                         Text(camera.micName.isEmpty ? "Built-in mic" : camera.micName)
@@ -274,64 +226,77 @@ struct PrompterView: View {
             }
             .padding(.horizontal, 10)
             .padding(.top, 10)
-            .scaleEffect(y: interfaceFlip)
+
+            // Camera trouble is always visible and always recoverable.
+            if videoMode && (!camera.isReady || !camera.status.isEmpty) {
+                Button {
+                    Task { await restartCamera() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(camera.status.isEmpty ? "Camera is starting…" : camera.status)
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Retry")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.black.opacity(0.75), in: Capsule())
+                }
+            }
 
             Spacer()
         }
+        .scaleEffect(y: interfaceFlip)
     }
 
     // MARK: - Toolbar
 
-    private var progressLine: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Color.white.opacity(0.1)
-                Theme.accent.frame(width: proxy.size.width * engine.progress)
-            }
-        }
-        .frame(height: 2)
-    }
-
     private var bottomToolbar: some View {
         HStack(spacing: 0) {
-            iconButton("chevron.left", tint: Color(red: 0.22, green: 0.74, blue: 0.97), size: 24) { exit() }
+            iconButton("chevron.left", tint: Theme.accent) { exit() }
             Spacer(minLength: 0)
             if !videoMode {
-                iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75), size: 24) {
+                iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75)) {
                     settings.mirrorV.toggle()
                 }
                 Spacer(minLength: 0)
             }
-            iconButton(engine.isPlaying ? "pause.fill" : "play.fill", tint: Color(red: 0.22, green: 0.74, blue: 0.97), size: 28) { togglePlay() }
+            Button(action: togglePlay) {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: toolbarButtonSize, height: toolbarButtonSize)
+            }
             Spacer(minLength: 0)
             if videoMode {
                 Button {
                     camera.isRecording ? stopRecording() : startRecording()
                 } label: {
-                    Image(systemName: camera.isRecording ? "stop.fill" : "circle.fill")
-                        .font(.system(size: camera.isRecording ? 20 : 24))
-                        .foregroundStyle(.white)
-                        .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                        .background(camera.isRecording ? Color.red : Color.red.opacity(0.9), in: Circle())
+                    ZStack {
+                        Circle()
+                            .stroke(.white.opacity(0.85), lineWidth: 2)
+                            .frame(width: toolbarButtonSize, height: toolbarButtonSize)
+                        RoundedRectangle(cornerRadius: camera.isRecording ? 4 : toolbarButtonSize / 2, style: .continuous)
+                            .fill(Color.red)
+                            .frame(width: camera.isRecording ? 18 : toolbarButtonSize - 10,
+                                   height: camera.isRecording ? 18 : toolbarButtonSize - 10)
+                    }
+                    .frame(width: toolbarButtonSize, height: toolbarButtonSize)
                 }
-                .disabled((!camera.isReady && !camera.isRecording) || saving)
-                .opacity((!camera.isReady && !camera.isRecording) || saving ? 0.4 : 1)
+                .disabled(saving)
+                .opacity(saving ? 0.4 : 1)
                 Spacer(minLength: 0)
             }
-            iconButton("slider.horizontal.3", size: 24) { toggle(.settings) }
+            iconButton("slider.horizontal.3") { toggle(.settings) }
             Spacer(minLength: 0)
-            iconButton("textformat", size: 24) { toggle(.size) }
+            iconButton("textformat") { toggle(.size) }
             Spacer(minLength: 0)
-            Button { toggle(.more) } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                    .background(Theme.accent.opacity(0.9), in: Circle())
-            }
+            iconButton("ellipsis", tint: panel == .more ? Theme.accent : .white.opacity(0.75)) { toggle(.more) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .padding(.bottom, safeBottom)
         .frame(maxWidth: .infinity)
         .background(.black.opacity(0.85))
@@ -344,15 +309,15 @@ struct PrompterView: View {
             .first ?? 0
     }
 
-    /// The web toolbar uses 40px on compact phones and 44px when space permits.
+    /// One shared size for every toolbar control, exactly like the web app.
     private var toolbarButtonSize: CGFloat {
         UIScreen.main.bounds.width >= 430 ? 44 : 40
     }
 
-    private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), size: CGFloat = 20, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name)
-                .font(.system(size: size, weight: .medium))
+                .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: toolbarButtonSize, height: toolbarButtonSize)
         }
@@ -374,7 +339,6 @@ struct PrompterView: View {
                 case .settings:
                     popRow("Speed", "\(Int(settings.speed))") {
                         Slider(value: $settings.speed, in: 10...250, step: 1)
-                            .onChange(of: settings.speed) { _, v in engine.speed = v }
                     }
                     popRow("Width", "\(Int(settings.textWidth))%") {
                         Slider(value: $settings.textWidth, in: 50...100, step: 1)
@@ -401,22 +365,35 @@ struct PrompterView: View {
                         .buttonStyle(OutlineButtonStyle(active: settings.mirrorV))
                     }
 
-                    if videoMode && !camera.modes.isEmpty {
-                        Text("Resolution").font(.caption).foregroundStyle(.white.opacity(0.7))
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                            ForEach(camera.modes) { mode in
-                                let active = settings.quality == mode.quality
-                                    && settings.frameRate == mode.fps && settings.hdr == mode.hdr
-                                Button {
-                                    settings.quality = mode.quality
-                                    settings.frameRate = mode.fps
-                                    settings.hdr = mode.hdr
-                                } label: {
-                                    Text(mode.label).font(.system(size: 12, weight: .semibold))
-                                        .frame(maxWidth: .infinity)
+                    if videoMode {
+                        Button {
+                            Task { await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
+                                                             hdr: settings.hdr, stabilization: settings.stabilization) }
+                            settings.useFrontCamera = !camera.usingFront
+                        } label: {
+                            Text(camera.usingFront ? "Front camera" : "Back camera").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(OutlineButtonStyle(active: camera.usingFront))
+                        .disabled(camera.isRecording)
+
+                        if !camera.modes.isEmpty {
+                            Text("Resolution").font(.caption).foregroundStyle(.white.opacity(0.7))
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                                ForEach(camera.modes) { mode in
+                                    let active = settings.quality == mode.quality
+                                        && settings.frameRate == mode.fps && settings.hdr == mode.hdr
+                                    Button {
+                                        settings.quality = mode.quality
+                                        settings.frameRate = mode.fps
+                                        settings.hdr = mode.hdr
+                                        Task { await restartCamera() }
+                                    } label: {
+                                        Text(mode.label).font(.system(size: 12, weight: .semibold))
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(OutlineButtonStyle(active: active))
+                                    .disabled(camera.isRecording)
                                 }
-                                .buttonStyle(OutlineButtonStyle(active: active))
-                                .disabled(camera.isRecording)
                             }
                         }
                     }
@@ -472,14 +449,6 @@ struct PrompterView: View {
 
     // MARK: - Behaviour
 
-    private var highlightIndex: Int? {
-        if settings.voiceFollow, let matched = voice.matchedIndex { return matched }
-        guard settings.readingHighlight else { return nil }
-        let words = document.words.count
-        guard words > 0 else { return nil }
-        return min(words - 1, Int(engine.progress * Double(words)))
-    }
-
     private var readerBackground: Color {
         switch settings.background {
         case "white": return .white
@@ -490,26 +459,32 @@ struct PrompterView: View {
 
     private func begin() async {
         IdleTimer.keepAwake(true)
-        if videoMode {
-            do {
-                try await camera.start(
-                    front: settings.useFrontCamera,
-                    quality: settings.quality,
-                    fps: settings.frameRate,
-                    hdr: settings.hdr,
-                    stabilization: settings.stabilization
-                )
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
+        if videoMode { await restartCamera() }
         if settings.voiceFollow && !videoMode {
             await voice.start(script: script.body)
         }
     }
 
+    private func restartCamera() async {
+        do {
+            try await camera.start(
+                front: settings.useFrontCamera,
+                quality: settings.quality,
+                fps: settings.frameRate,
+                hdr: settings.hdr,
+                stabilization: settings.stabilization
+            )
+        } catch CameraManager.CameraError.permissionDenied {
+            errorMessage = "Camera access is off. Enable it in Settings to record."
+        } catch {
+            // Non-permission problems stay on the retry chip instead of
+            // interrupting with an alert.
+        }
+    }
+
     private func finish() {
         engine.pause()
+        isPlaying = false
         voice.stop()
         if camera.isRecording { stopRecording() }
         camera.stop()
@@ -523,27 +498,21 @@ struct PrompterView: View {
         onExit()
     }
 
+    private func pause() {
+        engine.pause()
+        isPlaying = false
+    }
+
+    private func play() {
+        engine.speed = settings.speed
+        engine.play()
+        isPlaying = true
+    }
+
     private func togglePlay() {
         Haptics.tap()
         if panel != nil { panel = nil; return }
-        if settings.countdown > 0 && !engine.isPlaying && countdownLeft == 0 {
-            countdownLeft = settings.countdown
-            Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
-                Task { @MainActor in
-                    countdownLeft -= 1
-                    if countdownLeft <= 0 {
-                        timer.invalidate()
-                        engine.speed = settings.speed
-                        engine.play()
-                    }
-                }
-            }
-            return
-        }
-        engine.speed = settings.speed
-        engine.toggle()
-        controlsVisible = !engine.isPlaying
-        if engine.isPlaying { panel = nil }
+        if engine.isPlaying { pause() } else { play() }
     }
 
     private func startRecording() {
@@ -552,9 +521,7 @@ struct PrompterView: View {
         do {
             try camera.startRecording(to: url)
             currentTakeID = id
-            engine.speed = settings.speed
-            engine.play()
-            controlsVisible = false
+            play()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -563,8 +530,7 @@ struct PrompterView: View {
     private func stopRecording() {
         guard camera.isRecording else { return }
         saving = true
-        engine.pause()
-        controlsVisible = true
+        pause()
         let id = currentTakeID ?? UUID().uuidString
         camera.stopRecording { result in
             Task { @MainActor in
@@ -596,6 +562,97 @@ struct PrompterView: View {
             guard videoMode else { return }
             camera.isRecording ? stopRecording() : startRecording()
         }
+    }
+}
+
+// MARK: - Engine-observing subviews
+
+/// Only this view redraws on every scroll frame.
+private struct ScriptScrollLayer: View {
+    @ObservedObject var engine: TeleprompterEngine
+
+    let document: ScriptDocument
+    let punctuation: [Int: Bool]
+    let fontSize: Double
+    let lineHeight: Double
+    let textWidth: Double
+    let viewportHeight: CGFloat
+    let foreground: Color
+    let highlightEnabled: Bool
+    let pausesEnabled: Bool
+    let voiceIndex: Int?
+    let mirrorH: Bool
+    let flip: CGFloat
+    let onContentHeight: (CGFloat) -> Void
+
+    private var highlightIndex: Int? {
+        if let voiceIndex { return voiceIndex }
+        guard highlightEnabled else { return nil }
+        let words = document.words.count
+        guard words > 0 else { return nil }
+        return min(words - 1, Int(engine.progress * Double(words)))
+    }
+
+    var body: some View {
+        // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
+        // line-height 1.5, -0.015em tracking, words never split.
+        ScriptText(
+            document: document,
+            fontSize: fontSize,
+            lineHeight: lineHeight,
+            highlightIndex: highlightIndex,
+            foreground: foreground
+        )
+        .tracking(-0.015 * fontSize)
+        .frame(width: UIScreen.main.bounds.width * textWidth / 100, alignment: .leading)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
+            }
+        )
+        .onPreferenceChange(ContentHeightKey.self) { height in onContentHeight(height) }
+        // Web spacer: 20vh of clear space above the first line.
+        .offset(y: viewportHeight * 0.20 - engine.offset)
+        .scaleEffect(x: mirrorH ? -1 : 1, y: flip)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .allowsHitTesting(false)
+        .onChange(of: highlightIndex) { _, index in
+            guard pausesEnabled, let index, let strong = punctuation[index] else {
+                engine.speedScale = 1
+                return
+            }
+            engine.speedScale = strong ? 0.68 : 0.82
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(strong ? 360 : 220))
+                engine.speedScale = 1
+            }
+        }
+    }
+}
+
+private struct ProgressLine: View {
+    @ObservedObject var engine: TeleprompterEngine
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Color.white.opacity(0.1)
+                Theme.accent.frame(width: proxy.size.width * engine.progress)
+            }
+        }
+        .frame(height: 2)
+    }
+}
+
+private struct RemainingBadge: View {
+    @ObservedObject var engine: TeleprompterEngine
+
+    var body: some View {
+        Text("\(max(0, 100 - Int((engine.progress * 100).rounded())))% left")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.black.opacity(0.6), in: Capsule())
     }
 }
 
