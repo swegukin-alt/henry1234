@@ -3,7 +3,9 @@ import QuartzCore
 import Combine
 
 /// Frame-synchronised scrolling. CADisplayLink keeps the text moving in step
-/// with the display, so it is equally smooth at 60 Hz and 120 Hz ProMotion.
+/// with the display. The web reader advances once per rendered frame; using a
+/// fixed 60 Hz here avoids asking SwiftUI to reposition a very tall script 120
+/// times per second while the camera is encoding 4K video.
 @MainActor
 final class TeleprompterEngine: ObservableObject {
     @Published private(set) var offset: CGFloat = 0
@@ -42,7 +44,7 @@ final class TeleprompterEngine: ObservableObject {
         let link = CADisplayLink(target: DisplayLinkProxy { [weak self] link in
             self?.tick(link)
         }, selector: #selector(DisplayLinkProxy.handle(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
         link.add(to: .main, forMode: .common)
         self.link = link
     }
