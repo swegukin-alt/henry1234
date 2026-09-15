@@ -3,12 +3,9 @@ import SwiftUI
 struct SettingsPanel: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var discoveredModes: [CaptureMode] = []
-    @State private var appleLogSupported = false
-    @State private var appleLogReason = "Apple Log is not supported on this camera."
 
     /// Only the modes the camera actually reported are offered.
     var modes: [CaptureMode] = []
-    /// Apple Log cannot change mid-take.
     var isRecording: Bool = false
 
     private var cameraModes: [CaptureMode] {
@@ -71,28 +68,13 @@ struct SettingsPanel: View {
                     Text(CameraManager.cinematicUnavailableReason)
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.45))
-
-                    Toggle("Apple Log", isOn: $settings.appleLog)
-                        .disabled(isRecording || !appleLogSupported)
-                    if !appleLogSupported {
-                        Text(appleLogReason)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
                 }
-                .animation(.easeInOut(duration: 0.2), value: settings.appleLog)
             }
         }
         .padding(16)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
         .task(id: "\(settings.useFrontCamera)-\(settings.quality)-\(settings.frameRate)") {
             discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
-            let log = CameraManager.appleLogStatus(front: settings.useFrontCamera,
-                                                   quality: settings.quality,
-                                                   fps: settings.frameRate)
-            appleLogSupported = log.supported
-            appleLogReason = log.reason
-            if !appleLogSupported { settings.appleLog = false }
         }
 
     }
