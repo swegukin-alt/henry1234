@@ -22,6 +22,8 @@ final class TeleprompterEngine: ObservableObject {
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval = 0
 
+    nonisolated init() {}
+
     var maxOffset: CGFloat {
         max(0, contentHeight - viewportHeight)
     }
