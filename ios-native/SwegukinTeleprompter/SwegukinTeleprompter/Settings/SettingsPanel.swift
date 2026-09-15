@@ -85,8 +85,15 @@ struct SettingsPanel: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.45))
                     }
+                    if settings.appleLog && appleLogSupported {
+                        Toggle("View assist (Rec. 709)", isOn: $settings.logViewAssist)
+                        Text("Preview only. The recording stays pure Apple Log — no LUT is burnt in.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
                 }
                 .animation(.easeInOut(duration: 0.2), value: settings.cinematicMode)
+                .animation(.easeInOut(duration: 0.2), value: settings.appleLog)
             }
         }
         .padding(16)
