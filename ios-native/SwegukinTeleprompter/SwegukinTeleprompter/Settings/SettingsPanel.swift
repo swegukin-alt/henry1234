@@ -68,20 +68,16 @@ struct SettingsPanel: View {
                     Toggle("Front camera", isOn: $settings.useFrontCamera)
                     Toggle("Stabilization", isOn: $settings.stabilization)
 
-                    Toggle("Cinematic mode", isOn: $settings.cinematicMode)
-                        .disabled(isRecording || !cinematicSupported)
-                    if !cinematicSupported {
-                        Text(cinematicReason)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.45))
-                    } else if settings.cinematicMode {
-                        apertureSlider
-                    }
+                    Toggle("Cinematic mode", isOn: .constant(false))
+                        .disabled(true)
+                    Text(CameraManager.cinematicUnavailableReason)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.45))
 
                     Toggle("Apple Log", isOn: $settings.appleLog)
                         .disabled(isRecording || !appleLogSupported)
                     if !appleLogSupported {
-                        Text("Apple Log not supported on this camera.")
+                        Text(appleLogReason)
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.45))
                     }
