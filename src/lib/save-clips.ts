@@ -90,27 +90,28 @@ export function startSave(
               if (res.ok) {
                 patch({ phase: "done", title: "Shared", detail: "Pick AirDrop, Save Video, or Save to Files to finish." });
               } else if (res.code === "cancelled") {
-                patch({ phase: "ready", title: "Share closed", detail: "Nothing was saved yet. Tap Share again, or save to Photos below.", actionLabel: "Share", runPrimary: runShare, saveToFiles: runPhotos });
+                patch({ phase: "ready", title: "Ready", detail: "Nothing was saved yet.", actionLabel: "Save to camera roll", runPrimary: runPhotos, secondaryLabel: "Share", saveToFiles: runShare });
               } else {
                 patch({ phase: "error", title: "Couldn't share", detail: res.reason });
               }
             });
           };
           const runPhotos = () => {
-            patch({ phase: "working", title: "Saving to Photos…", detail: "The original stays in the app until this finishes." });
+            patch({ phase: "working", title: "Saving to camera roll…", detail: "The original stays in the app until this finishes." });
             void saveVideoToPhotos(path).then((res) => {
               patch(res.ok
-                ? { phase: "done", title: "Saved to Photos", detail: "It's in your camera roll." }
-                : { phase: "error", title: "Couldn't save to Photos", detail: res.reason });
+                ? { phase: "done", title: "Saved to camera roll", detail: "It's in your Photos app." }
+                : { phase: "error", title: "Couldn't save to camera roll", detail: res.reason });
             });
           };
           patch({
             phase: "ready",
-            title: "Ready to share",
-            detail: `${fmtSize(clip.sizeBytes || 0)} · Tap Share to AirDrop it, save to Photos or save to Files.`,
-            actionLabel: "Share",
-            runPrimary: runShare,
-            saveToFiles: runPhotos,
+            title: "Ready",
+            detail: `${fmtSize(clip.sizeBytes || 0)} · Save it to your camera roll, or share it.`,
+            actionLabel: "Save to camera roll",
+            runPrimary: runPhotos,
+            secondaryLabel: "Share",
+            saveToFiles: runShare,
           });
           return;
         }

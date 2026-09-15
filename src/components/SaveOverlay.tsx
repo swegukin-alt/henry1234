@@ -78,9 +78,15 @@ export function SaveOverlay({
               Save to Files
             </button>
           )}
-          {/* Quiet second path, so a closed or refused share sheet never leaves
-              the video stuck on the phone. */}
-          {ready && job.saveToFiles && job.actionLabel === "Share" && (
+          {/* Second path, so a closed or refused share sheet never leaves the
+              video stuck on the phone. Big button when labelled (native:
+              Share), quiet link otherwise (web: Save to Files instead). */}
+          {ready && job.saveToFiles && job.secondaryLabel && (
+            <button onClick={job.saveToFiles} className="w-full rounded-2xl border border-white/25 px-6 py-4 text-lg font-bold text-white active:scale-95">
+              {job.secondaryLabel}
+            </button>
+          )}
+          {ready && job.saveToFiles && !job.secondaryLabel && job.actionLabel === "Share" && (
             <button onClick={job.saveToFiles} className="text-sm text-neutral-300 underline underline-offset-4 active:scale-95">
               Save to Files instead
             </button>
