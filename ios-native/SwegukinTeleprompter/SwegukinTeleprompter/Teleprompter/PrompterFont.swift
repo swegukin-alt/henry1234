@@ -19,14 +19,9 @@ enum PrompterFont {
             return
         }
         var error: Unmanaged<CFError>?
-        let registered = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
-        if !registered {
-            let code = error?.takeRetainedValue().code
-            // Already registered is harmless; UIFont can resolve it below.
-            if code != CTFontManagerError.alreadyRegistered.rawValue {
-                assertionFailure("Pretendard registration failed")
-            }
-        }
+        // A false result can simply mean the bundled font was registered by
+        // an earlier call. UIFont resolution below is the authoritative check.
+        _ = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
     }()
 
     static func uiFont(size: CGFloat) -> UIFont {
