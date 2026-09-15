@@ -586,15 +586,10 @@ struct PrompterView: View {
         }
     }
 
-    /// Cinematic video and Apple Log are applied on top of the existing capture
-    /// setup; unsupported hardware silently keeps the current behaviour.
+    /// Apple Log is applied on top of the existing capture setup; unsupported
+    /// hardware silently keeps the current behaviour.
     private func applyAdvancedCamera() {
         guard videoMode, camera.isReady else { return }
-        if camera.cinematicSupported {
-            camera.applyCinematic(enabled: settings.cinematicMode, aperture: settings.simulatedAperture)
-        } else if settings.cinematicMode {
-            settings.cinematicMode = false
-        }
         if camera.appleLogSupported {
             camera.applyAppleLog(settings.appleLog)
         } else if settings.appleLog {
