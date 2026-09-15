@@ -28,16 +28,29 @@ struct PrompterView: View {
     let onExit: () -> Void
 
     private var remaining: Int { max(0, 100 - Int((engine.progress * 100).rounded())) }
-    private var mirrorFlip: CGFloat { settings.mirrorV ? -1 : 1 }
+    /// Video mode must never flip the words or interface. Beam-splitter
+    /// mirroring is intentionally limited to normal teleprompter mode.
+    private var interfaceFlip: CGFloat { !videoMode && settings.mirrorV ? -1 : 1 }
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 // Camera behind everything, with the same dark scrim as the web app.
                 if videoMode {
-                    CameraPreviewView(session: camera.session, rotationAngle: camera.previewRotationAngle)
+                    CameraPreviewView(
+                        session: camera.session,
+                        rotationAngle: camera.previewRotationAngle,
+                        mirrored: camera.usingFront
+                    )
                         .ignoresSafeArea()
-                    Color.black.opacity(0.45).ignoresSafeArea().allowsHitTesting(false)
+                        .overlay {
+                            // Deliberately attached to the preview so UIKit can
+                            // never composite its camera layer above the scrim.
+                            Rectangle()
+                                .fill(Color.black.opacity(0.45))
+                                .ignoresSafeArea()
+                                .allowsHitTesting(false)
+                        }
                 } else {
                     Color.black.ignoresSafeArea()
                 }
@@ -142,7 +155,7 @@ struct PrompterView: View {
         // Web spacer: 20vh of clear space above the first line.
         .offset(y: geo.size.height * 0.20 - engine.offset)
         .scaleEffect(x: (!videoMode && settings.mirrorH) ? -1 : 1,
-                     y: settings.mirrorV ? -1 : 1)
+                     y: interfaceFlip)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .allowsHitTesting(false)
     }
@@ -151,31 +164,39 @@ struct PrompterView: View {
 
     private func overlayChips(geo: GeometryProxy) -> some View {
         VStack {
-            HStack(alignment: .top) {
-                if videoMode {
-                    if camera.isRecording {
-                        HStack(spacing: 8) {
-                            Circle().fill(.white).frame(width: 10, height: 10)
-                            Text("REC \(Format.duration(camera.elapsed))")
-                                .font(.system(size: 14, weight: .medium).monospacedDigit())
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Color.red.opacity(0.9), in: Capsule())
-                    } else {
-                        Button { showClips = true } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "film").foregroundStyle(Theme.accent)
-                                Text("Clips").font(.system(size: 14, weight: .semibold))
+            ZStack(alignment: .top) {
+                HStack(alignment: .top) {
+                    if videoMode {
+                        if camera.isRecording {
+                            HStack(spacing: 8) {
+                                Circle().fill(.white).frame(width: 10, height: 10)
+                                Text("REC \(Format.duration(camera.elapsed))")
+                                    .font(.system(size: 14, weight: .medium).monospacedDigit())
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(.black.opacity(0.6), in: Capsule())
+                            .background(Color.red.opacity(0.9), in: Capsule())
+                        } else {
+                            Button { showClips = true } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "film").foregroundStyle(Theme.accent)
+                                    Text("Clips").font(.system(size: 14, weight: .semibold))
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(.black.opacity(0.6), in: Capsule())
+                            }
                         }
                     }
-                }
 
-                Spacer(minLength: 8)
+                    Spacer(minLength: 8)
+
+                    Text("\(remaining)% left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(.black.opacity(0.6), in: Capsule())
+                }
 
                 if videoMode && camera.isReady && controlsVisible {
                     HStack(spacing: 6) {
@@ -187,19 +208,12 @@ struct PrompterView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(.black.opacity(0.6), in: Capsule())
-
-                    Spacer(minLength: 8)
+                    .frame(maxWidth: geo.size.width * 0.60)
                 }
-
-                Text("\(remaining)% left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.black.opacity(0.6), in: Capsule())
             }
             .padding(.horizontal, 10)
             .padding(.top, 10)
-            .scaleEffect(y: mirrorFlip)
+            .scaleEffect(y: interfaceFlip)
 
             Spacer()
         }
@@ -218,15 +232,17 @@ struct PrompterView: View {
     }
 
     private var bottomToolbar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             iconButton("chevron.left", tint: Theme.accent, size: 22) { exit() }
+            Spacer(minLength: 0)
             if !videoMode {
                 iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75)) {
                     settings.mirrorV.toggle()
                 }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
             iconButton(engine.isPlaying ? "pause.fill" : "play.fill", tint: Theme.accent, size: 26) { togglePlay() }
+            Spacer(minLength: 0)
             if videoMode {
                 Button {
                     camera.isRecording ? stopRecording() : startRecording()
@@ -239,10 +255,12 @@ struct PrompterView: View {
                 }
                 .disabled((!camera.isReady && !camera.isRecording) || saving)
                 .opacity((!camera.isReady && !camera.isRecording) || saving ? 0.4 : 1)
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
             iconButton("slider.horizontal.3") { toggle(.settings) }
+            Spacer(minLength: 0)
             iconButton("textformat") { toggle(.size) }
+            Spacer(minLength: 0)
             Button { toggle(.more) } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 18, weight: .semibold))
@@ -256,7 +274,7 @@ struct PrompterView: View {
         .padding(.bottom, safeBottom)
         .frame(maxWidth: .infinity)
         .background(.black.opacity(0.85))
-        .scaleEffect(y: mirrorFlip)
+        .scaleEffect(y: interfaceFlip)
     }
 
     private var safeBottom: CGFloat {
@@ -349,7 +367,7 @@ struct PrompterView: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.1)))
             .padding(.horizontal, 16)
             .padding(.bottom, 78 + safeBottom)
-            .scaleEffect(y: mirrorFlip)
+            .scaleEffect(y: interfaceFlip)
         }
     }
 

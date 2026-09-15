@@ -1,10 +1,19 @@
 import SwiftUI
+import CoreText
 
 @main
 struct SwegukinTeleprompterApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var scripts = ScriptStore()
     @StateObject private var recordings = RecordingStore()
+
+    init() {
+        // Bundle and register the same Pretendard Variable face used by the web
+        // teleprompter. Registration is local to this native process.
+        if let url = Bundle.main.url(forResource: "PretendardVariable", withExtension: "ttf") {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The script itself. Words are laid out once; the only thing that moves every
 /// frame is the offset applied by the caller, which keeps scrolling cheap.
@@ -10,10 +11,18 @@ struct ScriptText: View {
 
     var body: some View {
         Text(attributed)
-            .font(.system(size: fontSize, weight: .medium, design: .default))
-            .lineSpacing(fontSize * (lineHeight - 1))
+            .font(.custom("Pretendard Variable", size: fontSize).weight(.medium))
+            // CSS line-height is an absolute line box. SwiftUI lineSpacing is
+            // extra space after the font's native line box, so compensate for
+            // Pretendard's real metrics to reproduce the web app's 1.5 value.
+            .lineSpacing(max(0, fontSize * lineHeight - nativeFontLineHeight))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var nativeFontLineHeight: CGFloat {
+        UIFont(name: "Pretendard Variable", size: fontSize)?.lineHeight
+            ?? UIFont.systemFont(ofSize: fontSize, weight: .medium).lineHeight
     }
 
     private var attributed: AttributedString {
@@ -25,7 +34,10 @@ struct ScriptText: View {
         let range = words[highlightIndex]
         if let lower = AttributedString.Index(range.lowerBound, within: text),
            let upper = AttributedString.Index(range.upperBound, within: text) {
-            text[lower..<upper].foregroundColor = Theme.accent
+            // Match the web reader: text remains white and the current word
+            // receives only a faint white wash, never a blue text color.
+            text[lower..<upper].foregroundColor = Color.white
+            text[lower..<upper].backgroundColor = Color.white.opacity(0.09)
         }
         return text
     }

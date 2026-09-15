@@ -14,6 +14,7 @@ final class PreviewUIView: UIView {
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
     var rotationAngle: CGFloat
+    var mirrored: Bool
 
     func makeUIView(context: Context) -> PreviewUIView {
         let view = PreviewUIView()
@@ -27,9 +28,14 @@ struct CameraPreviewView: UIViewRepresentable {
         if uiView.previewLayer.session !== session {
             uiView.previewLayer.session = session
         }
-        if let connection = uiView.previewLayer.connection,
-           connection.isVideoRotationAngleSupported(rotationAngle) {
-            connection.videoRotationAngle = rotationAngle
+        if let connection = uiView.previewLayer.connection {
+            if connection.isVideoRotationAngleSupported(rotationAngle) {
+                connection.videoRotationAngle = rotationAngle
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = mirrored
+            }
         }
     }
 }
