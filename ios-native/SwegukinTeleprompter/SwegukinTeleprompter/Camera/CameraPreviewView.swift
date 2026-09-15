@@ -29,7 +29,9 @@ struct CameraPreviewView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: PreviewUIView, coordinator: Void) {
-        uiView.previewLayer.session = nil
+        // CameraManager exclusively owns session shutdown on its serial queue.
+        // Clearing this connection here on the main thread can race with
+        // stopRunning() when leaving video mode and crash AVFoundation.
     }
 
     func updateUIView(_ uiView: PreviewUIView, context: Context) {

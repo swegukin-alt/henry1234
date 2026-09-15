@@ -238,7 +238,8 @@ struct PrompterView: View {
                     .frame(maxWidth: geo.size.width * 0.60)
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 10 + safeHorizontal.leading)
+            .padding(.trailing, 10 + safeHorizontal.trailing)
             .padding(.top, 10)
 
             // Camera trouble is always visible and always recoverable.
@@ -316,6 +317,13 @@ struct PrompterView: View {
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }
             .first ?? 0
+    }
+
+    private var safeHorizontal: (leading: CGFloat, trailing: CGFloat) {
+        let insets = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets }
+            .first
+        return (insets?.left ?? 0, insets?.right ?? 0)
     }
 
     /// One shared size for every toolbar control, exactly like the web app.
@@ -429,7 +437,8 @@ struct PrompterView: View {
                 .frame(maxHeight: max(140, panelGeometry.size.height - 92 - safeBottom))
                 .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.1)))
-                .padding(.horizontal, 16)
+                .padding(.leading, 16 + safeHorizontal.leading)
+                .padding(.trailing, 16 + safeHorizontal.trailing)
                 .padding(.bottom, 72 + safeBottom)
                 .scaleEffect(y: interfaceFlip)
             }

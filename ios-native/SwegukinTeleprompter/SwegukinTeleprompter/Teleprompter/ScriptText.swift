@@ -128,7 +128,7 @@ struct ScriptDocument {
     }
 
     private static func breathGroups(_ source: String, chunking: Bool) -> [Group] {
-        guard chunking else { return [Group(text: source, breakAfter: false)] }
+        guard chunking else { return plainGroups(source) }
 
         // Port of the web tokeniser, including its whitespace handling. Using
         // split/join here changed Korean spacing and removed authored newlines.
@@ -190,6 +190,25 @@ struct ScriptDocument {
         }
         commit(breakAfter: false)
         if groups.isEmpty { groups = [Group(text: source, breakAfter: false)] }
+        return groups
+    }
+
+    /// Keep unchanged, unchunked text in bounded native text layers. A single
+    /// multi-thousand-word SwiftUI Text can exceed iOS's renderable layer height
+    /// and disappear even though its layout and scrolling continue normally.
+    private static func plainGroups(_ source: String) -> [Group] {
+        guard !source.isEmpty else { return [Group(text: "", breakAfter: false)] }
+        var groups: [Group] = []
+        var current = ""
+
+        for character in source {
+            current.append(character)
+            if current.count >= 600 && (character == "\n" || current.count >= 900) {
+                groups.append(Group(text: current, breakAfter: false))
+                current = ""
+            }
+        }
+        if !current.isEmpty { groups.append(Group(text: current, breakAfter: false)) }
         return groups
     }
 }
