@@ -15,6 +15,11 @@ struct CaptureMode: Identifiable, Hashable {
     var label: String { "\(quality == "4k" ? "4K" : quality) · \(fps)fps\(hdr ? " · HDR" : "")" }
 }
 
+/// Small holder used from the capture queue.
+final class CaptureFormatStore {
+    var previous: AVCaptureDevice.Format?
+}
+
 @MainActor
 final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var isReady = false
