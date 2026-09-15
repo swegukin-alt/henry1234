@@ -470,6 +470,14 @@ struct PrompterView: View {
                                         .font(.caption2)
                                         .foregroundStyle(.white.opacity(0.45))
                                 }
+                                if settings.appleLog && camera.appleLogSupported {
+                                    Toggle("View assist (Rec. 709)", isOn: $settings.logViewAssist)
+                                        .tint(Theme.accent)
+                                    Text("Preview only — the recording stays pure Apple Log.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.45))
+                                }
+
 
                             }
 
