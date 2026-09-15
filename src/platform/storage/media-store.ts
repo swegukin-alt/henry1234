@@ -159,7 +159,7 @@ export const deleteClip = async (id: string) => (await mediaStore()).deleteClip(
 export const deleteAllForScript = async (scriptId: string) =>
   (await mediaStore()).deleteAllForScript(scriptId);
 
-export const requestPersistentStorage = async () => (await mediaStore()).requestPersistentStorage();
+export const requestPersistentStorage = async () => (await readStore()).requestPersistentStorage();
 export const storageUsage = async () => (await readStore()).storageUsage();
 export const clearAllStorage = async () => (await mediaStore()).clearAllStorage();
 export const purgeOrphanChunks = async () => (await readStore()).purgeOrphanChunks();
