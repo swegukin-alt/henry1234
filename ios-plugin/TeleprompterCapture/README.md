@@ -15,20 +15,24 @@ things no off-the-shelf Capacitor plugin exposes:
 | Audio route changes and interruptions (call, Siri) | no | yes |
 | Zoom, focus, exposure, torch, stabilization | zoom/torch only | yes |
 
-The app works with either back-end: if TeleprompterCapture is registered it is
-used, otherwise camera-preview is used with the limitations above reported
-truthfully in `/diagnostics`. The app never falls back to the browser camera on
-iOS.
+The iPhone recording path requires TeleprompterCapture. It never falls back to
+camera-preview or the browser camera: either the custom AVFoundation session is
+live, or the app shows a visible native-camera error.
 
 ## Adding it to the Xcode project
 
 1. `bun run build:ios && npx cap add ios && npx cap sync ios`
-2. In Xcode, drag `ios-plugin/TeleprompterCapture/TeleprompterCapture.swift` and
-   `TeleprompterCapturePlugin.swift` into the `App` target (Create folder
+2. In Xcode, drag all three Swift files in this folder into the `App` target:
+   `TeleprompterCapture.swift`, `TeleprompterCapturePlugin.swift`, and
+   `TeleprompterViewController.swift` (Create folder
    references off, Copy items on).
-3. Build. Capacitor registers the plugin automatically through
-   `CAP_PLUGIN`; the JavaScript side reaches it with
-   `registerPlugin("TeleprompterCapture")` — no npm package required.
+3. Open `Base.lproj/Main.storyboard`, select **Bridge View Controller**, open
+   Identity Inspector, and set its Custom Class to `TeleprompterViewController`
+   with Module `App`. This is required: Capacitor 8 does not auto-register an
+   app-local Swift plugin merely because its files are in the target.
+4. Build. `TeleprompterViewController.capacitorDidLoad()` registers the native
+   plugin instance; JavaScript reaches it with
+   `registerPlugin("TeleprompterCapture")`.
 
 ## Info.plist keys
 

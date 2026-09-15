@@ -143,47 +143,87 @@ import UIKit
         if let existing = videoInput { session.removeInput(existing) }
         guard let camera = Self.bestCamera(position: position) else { throw CaptureError.noCamera }
         let vIn = try AVCaptureDeviceInput(device: camera)
-        if session.canAddInput(vIn) { session.addInput(vIn); videoInput = vIn }
+        guard session.canAddInput(vIn) else {
+            session.commitConfiguration()
+            throw CaptureError.noCamera
+        }
+        session.addInput(vIn)
+        videoInput = vIn
 
-        if audioInput == nil, let mic = AVCaptureDevice.default(for: .audio) {
+        if audioInput == nil {
+            guard let mic = AVCaptureDevice.default(for: .audio) else {
+                session.commitConfiguration()
+                throw CaptureError.noMicrophone
+            }
             let aIn = try AVCaptureDeviceInput(device: mic)
-            if session.canAddInput(aIn) { session.addInput(aIn); audioInput = aIn }
+            guard session.canAddInput(aIn) else {
+                session.commitConfiguration()
+                throw CaptureError.noMicrophone
+            }
+            session.addInput(aIn)
+            audioInput = aIn
         }
 
-        if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
+        if !session.outputs.contains(movieOutput) {
+            guard session.canAddOutput(movieOutput) else {
+                session.commitConfiguration()
+                throw CaptureError.notRunning
+            }
+            session.addOutput(movieOutput)
+        }
         session.commitConfiguration()
 
         // Exact format control (resolution + frame rate + HDR) has to happen
         // after the session is configured, and overrides the preset.
-        applyFormat(on: camera, height: targetHeight, fps: fps, hdr: hdr)
+        try applyFormat(on: camera, height: targetHeight, fps: fps, hdr: hdr)
         applyStabilization()
 
         let host = previewView ?? {
-            let v = UIView(frame: view.bounds)
-            v.backgroundColor = .black
-            v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            let v = UIView(frame: .zero)
+            v.backgroundColor = .clear
+            v.translatesAutoresizingMaskIntoConstraints = false
             view.insertSubview(v, at: 0)
+            NSLayoutConstraint.activate([
+                v.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                v.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                v.topAnchor.constraint(equalTo: view.topAnchor),
+                v.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            ])
             previewView = v
             return v
         }()
-        host.frame = view.bounds
+        view.layoutIfNeeded()
 
         let layer = previewLayer ?? AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
-        layer.frame = host.bounds
+        layer.frame = host.bounds.isEmpty ? view.bounds : host.bounds
         if layer.superlayer == nil { host.layer.addSublayer(layer) }
         previewLayer = layer
-
-        if !session.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { self.session.startRunning() }
+        if let connection = layer.connection {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = position == .front
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = Self.currentVideoOrientation()
+            }
         }
         let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
         return CGSize(width: CGFloat(dims.width), height: CGFloat(dims.height))
     }
 
+    /// AVCaptureSession.startRunning is blocking and must not run on the main
+    /// thread. Completion fires only after the preview is genuinely live, so
+    /// JavaScript cannot enable Record while the session is still starting.
+    public func startSession(_ completion: @escaping (Bool) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            if !self.session.isRunning { self.session.startRunning() }
+            let running = self.session.isRunning
+            DispatchQueue.main.async { completion(running) }
+        }
+    }
+
     /// Keeps the picture matching the view after a rotation.
     public func layoutPreview(in view: UIView) {
-        previewView?.frame = view.bounds
+        view.layoutIfNeeded()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         previewLayer?.frame = previewView?.bounds ?? view.bounds
@@ -231,11 +271,13 @@ import UIKit
     /// Picks the hardware format that matches the requested resolution, frame
     /// rate and HDR — this is what gives 4K60 and 10-bit HDR, which a plain
     /// session preset cannot reach.
-    private func applyFormat(on device: AVCaptureDevice, height: Int, fps: Int, hdr: Bool) {
+    private func applyFormat(on device: AVCaptureDevice, height: Int, fps: Int, hdr: Bool) throws {
         let wanted = device.formats.filter { format in
             let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             guard Int(dims.height) == height else { return false }
-            let supportsFps = format.videoSupportedFrameRateRanges.contains { Double(fps) <= $0.maxFrameRate + 0.1 }
+        let supportsFps = format.videoSupportedFrameRateRanges.contains {
+            Double(fps) >= $0.minFrameRate - 0.1 && Double(fps) <= $0.maxFrameRate + 0.1
+        }
             guard supportsFps else { return false }
             if hdr {
                 if #available(iOS 14.1, *) { return !format.supportedColorSpaces.filter { $0 == .HLG_BT2020 }.isEmpty }
@@ -248,47 +290,55 @@ import UIKit
             CMVideoFormatDescriptionGetDimensions(a.formatDescription).width <
             CMVideoFormatDescriptionGetDimensions(b.formatDescription).width
         }
-        guard let format = chosen else { return }
-        do {
-            try device.lockForConfiguration()
-            device.activeFormat = format
-            let duration = CMTimeMake(value: 1, timescale: Int32(fps))
-            device.activeVideoMinFrameDuration = duration
-            device.activeVideoMaxFrameDuration = duration
-            if #available(iOS 14.1, *), hdr, format.supportedColorSpaces.contains(.HLG_BT2020) {
-                device.activeColorSpace = .HLG_BT2020
-            }
-            if format.isVideoHDRSupported {
-                device.automaticallyAdjustsVideoHDREnabled = !hdr
-                if hdr { device.isVideoHDREnabled = true }
-            }
-            device.unlockForConfiguration()
-        } catch {
-            // A refused format must never take the camera down: the preset stands.
+        guard let format = chosen else {
+            throw NSError(domain: "TeleprompterCapture", code: 1001,
+                          userInfo: [NSLocalizedDescriptionKey:
+                            "This camera does not support \(height)p at \(fps) fps\(hdr ? " with HDR" : "")."])
         }
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        device.activeFormat = format
+        let duration = CMTimeMake(value: 1, timescale: Int32(fps))
+        device.activeVideoMinFrameDuration = duration
+        device.activeVideoMaxFrameDuration = duration
+        if #available(iOS 14.1, *), hdr, format.supportedColorSpaces.contains(.HLG_BT2020) {
+            device.activeColorSpace = .HLG_BT2020
+        }
+        device.automaticallyAdjustsVideoHDREnabled = false
+        if format.isVideoHDRSupported { device.isVideoHDREnabled = hdr }
     }
 
     /// What this exact iPhone can do — read from the hardware, never guessed.
     public func deviceCapabilities() -> [String: Any] {
         guard let device = videoInput?.device ?? Self.bestCamera(position: .front) else {
-            return ["resolutions": ["1080p"], "frameRates": [30], "hdr": false,
-                    "stabilization": ["off"], "maxZoom": 1]
+            return ["resolutions": [], "frameRates": [], "hdr": false,
+                    "stabilization": [], "maxZoom": 1, "modes": []]
         }
         var heights = Set<Int>()
         var rates = Set<Int>()
         var hdr = false
-        let activeHeight = Int(CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription).height)
+        var formatModes: [[String: Any]] = []
         for format in device.formats {
             let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-            heights.insert(Int(dims.height))
-            if Int(dims.height) == activeHeight {
-                for range in format.videoSupportedFrameRateRanges {
-                    if range.maxFrameRate >= 59.9 { rates.insert(60) }
-                    if range.maxFrameRate >= 29.9 { rates.insert(30) }
+            let height = Int(dims.height)
+            guard [720, 1080, 2160].contains(height) else { continue }
+            heights.insert(height)
+            let quality = height == 2160 ? "4k" : height == 720 ? "720p" : "1080p"
+            let formatHDR = format.isVideoHDRSupported || {
+                if #available(iOS 14.1, *) { return format.supportedColorSpaces.contains(.HLG_BT2020) }
+                return false
+            }()
+            let stabilizationModes = format.isVideoStabilizationSupported ? ["off", "auto"] : ["off"]
+            for frameRate in [30, 60] where format.videoSupportedFrameRateRanges.contains(where: { Double(frameRate) >= $0.minFrameRate - 0.1 && Double(frameRate) <= $0.maxFrameRate + 0.1 }) {
+                rates.insert(frameRate)
+                formatModes.append(["quality": quality, "width": Int(dims.width), "height": height,
+                                    "fps": frameRate, "hdr": false, "stabilization": stabilizationModes])
+                if formatHDR {
+                    formatModes.append(["quality": quality, "width": Int(dims.width), "height": height,
+                                        "fps": frameRate, "hdr": true, "stabilization": stabilizationModes])
                 }
             }
-            if format.isVideoHDRSupported { hdr = true }
-            if #available(iOS 14.1, *), format.supportedColorSpaces.contains(.HLG_BT2020) { hdr = true }
+            if formatHDR { hdr = true }
         }
         var resolutions: [String] = []
         if heights.contains(720) { resolutions.append("720p") }
@@ -296,16 +346,19 @@ import UIKit
         if heights.contains(2160) { resolutions.append("4k") }
         if resolutions.isEmpty { resolutions = ["1080p"] }
 
-        var modes = ["off"]
+        var stabilizationModes = ["off"]
         if let connection = movieOutput.connection(with: .video), connection.isVideoStabilizationSupported {
-            modes.append(contentsOf: ["standard", "cinematic", "auto"])
+            if connection.isVideoStabilizationModeSupported(.standard) { stabilizationModes.append("standard") }
+            if connection.isVideoStabilizationModeSupported(.cinematic) { stabilizationModes.append("cinematic") }
+            if connection.isVideoStabilizationModeSupported(.auto) { stabilizationModes.append("auto") }
         }
         return [
             "resolutions": resolutions,
             "frameRates": rates.isEmpty ? [30] : rates.sorted(),
             "hdr": hdr,
-            "stabilization": modes,
-            "maxZoom": Double(device.activeFormat.videoMaxZoomFactor)
+            "stabilization": stabilizationModes,
+            "maxZoom": Double(device.activeFormat.videoMaxZoomFactor),
+            "modes": formatModes
         ]
     }
 
@@ -356,24 +409,22 @@ import UIKit
         return Int(Date().timeIntervalSince(started) * 1000)
     }
 
-    public func startRecording(videoBitrate: Int?, audioBitrate: Int?) throws {
+    public func startRecording(recordingId: String?) throws {
         guard session.isRunning else { throw CaptureError.notRunning }
         guard !movieOutput.isRecording else { throw CaptureError.alreadyRecording }
-        if let connection = movieOutput.connection(with: .video) {
-            // HEVC keeps 4K60 and HDR at a sane file size; H.264 stays the
-            // safest choice for everything else.
-            let codec: AVVideoCodecType = movieOutput.availableVideoCodecTypes.contains(.hevc) ? .hevc : .h264
-            var settings = movieOutput.recommendedVideoSettingsForVideoCodecType(codec, assetWriterOutputFileType: .mp4) ?? [:]
-            if let bitrate = videoBitrate {
-                var props = settings[AVVideoCompressionPropertiesKey] as? [String: Any] ?? [:]
-                props[AVVideoAverageBitRateKey] = bitrate
-                settings[AVVideoCompressionPropertiesKey] = props
-            }
-            movieOutput.setOutputSettings(settings, for: connection)
+        guard movieOutput.connection(with: .audio) != nil else { throw CaptureError.noMicrophone }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let directory = documents.appendingPathComponent("recordings", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let chosenId: String
+        if let recordingId, !recordingId.isEmpty { chosenId = recordingId }
+        else { chosenId = UUID().uuidString }
+        let safeId = chosenId
+            .replacingOccurrences(of: "/", with: "-")
+        let url = directory.appendingPathComponent("\(safeId).mov")
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
         }
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("take-\(Int(Date().timeIntervalSince1970)).mp4")
-        try? FileManager.default.removeItem(at: url)
         recordingStartedAt = Date()
         movieOutput.startRecording(to: url, recordingDelegate: self)
     }

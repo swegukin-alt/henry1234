@@ -1,23 +1,19 @@
 // iOS camera.
 //
-// Two native back-ends, in order of preference:
+// One native back-end:
 //
-//  1. `TeleprompterCapture` — the small custom Swift/AVFoundation plugin in
+//  `TeleprompterCapture` — the small custom Swift/AVFoundation plugin in
 //     `ios-plugin/TeleprompterCapture`. It is the only back-end that gives us
 //     everything continuous teleprompter recording needs: chosen bitrate and
 //     resolution, live recording state and duration, interruption events, audio
 //     route control, zoom/torch, and a file path we own.
-//  2. `@capacitor-community/camera-preview` — a real AVFoundation preview layer
-//     behind the WebView with start/stop video recording. Enough to film, but
-//     it cannot report duration, cannot set bitrate, and its `stopRecordVideo`
-//     never resolves on iOS (the file URL arrives on the `startRecordVideo`
-//     promise instead), so we drive it defensively.
-//
 // There is no browser fallback here on purpose. Inside the app the camera is
-// native or it fails visibly — it never quietly reverts to getUserMedia.
+// TeleprompterCapture or it fails visibly. The generic camera-preview plugin is
+// deliberately not a recording fallback because it cannot honor device modes
+// or return a finished long recording reliably.
 
 import { noteImpl } from "../runtime";
-import { captureProbeError, loadModule, PLUGIN_MODULES, probeCapturePlugin } from "../native-plugins";
+import { captureProbeError, probeCapturePlugin } from "../native-plugins";
 import { fail, ok } from "../types";
 import type {
   CameraCapabilities,
@@ -28,17 +24,9 @@ import type {
   StabilizationMode,
 } from "./types";
 
-type PreviewPlugin = {
-  start: (o: Record<string, unknown>) => Promise<void>;
-  stop: () => Promise<void>;
-  flip: () => Promise<void>;
-  startRecordVideo: (o: Record<string, unknown>) => Promise<{ value?: string } | void>;
-  stopRecordVideo: () => Promise<{ videoFilePath?: string } | void>;
-  isCameraStarted: () => Promise<{ value: boolean }>;
-};
-
 type CaptureResult = {
   path: string;
+  relativePath?: string;
   mimeType?: string;
   durationMs?: number;
   width?: number;
@@ -57,6 +45,14 @@ type CapturePlugin = {
     hdr?: boolean;
     stabilization?: string[];
     maxZoom?: number;
+    modes?: Array<{
+      quality: CameraQuality;
+      width: number;
+      height: number;
+      fps: number;
+      hdr: boolean;
+      stabilization: StabilizationMode[];
+    }>;
   }>;
   stopRecording: () => Promise<CaptureResult>;
   recordingState: () => Promise<{ state: "inactive" | "recording"; durationMs: number }>;
@@ -69,8 +65,7 @@ const DIMS = {
 } as const;
 
 let custom: CapturePlugin | null = null;
-let preview: PreviewPlugin | null = null;
-let backEnd: "custom" | "camera-preview" | "none" = "none";
+let backEnd: "custom" | "none" = "none";
 
 let lastResolveError = "";
 
@@ -87,19 +82,7 @@ async function resolveBackEnd(): Promise<typeof backEnd> {
   if (custom) {
     backEnd = "custom";
     lastResolveError = "";
-  } else {
-    lastResolveError = captureProbeError();
-    const mod = await loadModule<{ CameraPreview?: PreviewPlugin }>(PLUGIN_MODULES.cameraPreview);
-    if (mod?.CameraPreview) {
-      try {
-        await mod.CameraPreview.isCameraStarted();
-        preview = mod.CameraPreview;
-        backEnd = "camera-preview";
-      } catch (e) {
-        lastResolveError += ` CameraPreview: ${(e as { message?: string })?.message || "not installed"}.`;
-      }
-    }
-  }
+  } else lastResolveError = captureProbeError();
   noteImpl("camera", backEnd === "none" ? "native (no plugin)" : `native (${backEnd})`);
   return backEnd;
 }
@@ -110,7 +93,7 @@ export function nativeCameraBackEnd(): typeof backEnd {
 }
 
 const missing =
-  "The native camera plugin (TeleprompterCapture) did not answer. Check that both Swift files are in the Xcode App target, then rebuild.";
+  "The native camera plugin is not registered. Add all three TeleprompterCapture Swift files and set the storyboard Bridge View Controller class to TeleprompterViewController.";
 
 export const nativeCamera: CameraService = {
   name: "camera.ios",
@@ -121,7 +104,7 @@ export const nativeCamera: CameraService = {
   capabilities(): CameraCapabilities {
     const full = backEnd === "custom";
     return {
-      supportsZoom: backEnd !== "none",
+      supportsZoom: full,
       // Focus, exposure, lens choice, 4K, 60 fps and stabilisation are only
       // reachable through the custom AVFoundation plugin. camera-preview does
       // not expose them and we do not claim them.
@@ -131,7 +114,7 @@ export const nativeCamera: CameraService = {
       supports4K: full,
       supports60fps: full,
       supportsStabilization: full,
-      supportsTorch: backEnd !== "none",
+      supportsTorch: full,
       previewMode: "native-surface",
       recordingOutput: "native-file",
     };
@@ -143,11 +126,12 @@ export const nativeCamera: CameraService = {
     try {
       const r = await custom.deviceCapabilities();
       return {
-        resolutions: (r.resolutions ?? ["1080p"]) as CameraQuality[],
-        frameRates: r.frameRates ?? [30],
+        resolutions: (r.resolutions ?? []) as CameraQuality[],
+        frameRates: r.frameRates ?? [],
         hdr: !!r.hdr,
-        stabilization: (r.stabilization ?? ["off"]) as StabilizationMode[],
+        stabilization: (r.stabilization ?? []) as StabilizationMode[],
         maxZoom: r.maxZoom ?? 1,
+        modes: r.modes ?? [],
       };
     } catch {
       return null;
@@ -159,30 +143,16 @@ export const nativeCamera: CameraService = {
     if (be === "none") return fail(`${missing}${lastResolveError ? ` (${lastResolveError})` : ""}`, "plugin-missing");
     const dims = DIMS[quality] ?? DIMS["1080p"];
     try {
-      if (be === "custom") {
-        const res = await custom!.startPreview({
-          position: facing === "front" ? "front" : "rear",
-          quality,
-          width: dims.width,
-          height: dims.height,
-          fps: fps ?? 30,
-          hdr: !!hdr,
-          stabilization: stabilization ?? "auto",
-        });
-        return ok({ stream: null, width: res.width ?? dims.width, height: res.height ?? dims.height });
-      }
-      await preview!.start({
+      const res = await custom!.startPreview({
         position: facing === "front" ? "front" : "rear",
-        // The teleprompter HTML must stay readable on top of the camera layer.
-        toBack: true,
-        width: typeof window === "undefined" ? dims.width : window.screen.width,
-        height: typeof window === "undefined" ? dims.height : window.screen.height,
-        enableHighResolution: quality === "4k",
-        enableZoom: true,
-        disableAudio: false,
-        rotateWhenOrientationChanged: true,
+        quality,
+        width: dims.width,
+        height: dims.height,
+        fps: fps ?? 30,
+        hdr: !!hdr,
+        stabilization: stabilization ?? "auto",
       });
-      return ok({ stream: null, width: dims.width, height: dims.height });
+      return ok({ stream: null, width: res.width ?? dims.width, height: res.height ?? dims.height });
     } catch (e) {
       return fail(
         (e as { message?: string })?.message ||
@@ -193,8 +163,7 @@ export const nativeCamera: CameraService = {
 
   async stopPreview() {
     try {
-      if (backEnd === "custom") await custom?.stopPreview();
-      else await preview?.stop();
+      await custom?.stopPreview();
     } catch {
       /* already down */
     }
@@ -204,8 +173,7 @@ export const nativeCamera: CameraService = {
     const be = await resolveBackEnd();
     if (be === "none") return fail(missing, "plugin-missing");
     try {
-      if (be === "custom") await custom!.flip({ position: facing === "front" ? "front" : "rear" });
-      else await preview!.flip();
+      await custom!.flip({ position: facing === "front" ? "front" : "rear" });
       return ok({ stream: null, width: 0, height: 0 });
     } catch (e) {
       return fail((e as { message?: string })?.message || "The camera could not be switched.");
@@ -231,8 +199,7 @@ export const nativeCamera: CameraService = {
     if (be === "custom") {
       try {
         await custom!.startRecording({
-          videoBitrate: opts.videoBitsPerSecond,
-          audioBitrate: opts.audioBitsPerSecond,
+          recordingId: opts.recordingId,
         });
       } catch (e) {
         return fail((e as { message?: string })?.message || "Recording could not start.");
@@ -249,57 +216,12 @@ export const nativeCamera: CameraService = {
         state: () => "recording",
         stop: async () => {
           const res = await custom!.stopRecording();
-          return { mimeType: res.mimeType || "video/mp4", filePath: res.path };
+          return { mimeType: res.mimeType || "video/quicktime", filePath: res.relativePath || res.path };
         },
       };
       return ok(handle);
     }
 
-    // camera-preview: the file URL is delivered on the START promise when the
-    // recording finishes, and stopRecordVideo() resolves nothing. Keep the
-    // start promise and treat it as the result of stop.
-    let settled: string | null = null;
-    let failure: unknown = null;
-    const filePromise = Promise.resolve(preview!.startRecordVideo({}))
-      .then((r) => {
-        settled = (r as { value?: string } | undefined)?.value ?? null;
-        return settled;
-      })
-      .catch((e) => {
-        failure = e;
-        return null;
-      });
-    // A rejection in the first moments means recording never began.
-    await new Promise((r) => setTimeout(r, 60));
-    if (failure) {
-      return fail((failure as { message?: string })?.message || "Recording could not start.");
-    }
-
-    const handle: RecordingHandle = {
-      output: "native-file",
-      onChunk: () => {},
-      onError: () => {},
-      requestData: () => {},
-      state: () => (settled ? "inactive" : "recording"),
-      stop: async () => {
-        let direct: string | null = null;
-        try {
-          const r = (await Promise.race([
-            preview!.stopRecordVideo(),
-            new Promise((res) => setTimeout(() => res(undefined), 4000)),
-          ])) as { videoFilePath?: string } | undefined;
-          direct = r?.videoFilePath ?? null;
-        } catch {
-          /* the plugin does not resolve this call on iOS */
-        }
-        const path = direct ?? (await Promise.race([
-          filePromise,
-          new Promise<string | null>((res) => setTimeout(() => res(null), 15000)),
-        ]));
-        if (!path) throw new Error("The recording finished but iOS did not return the file.");
-        return { mimeType: "video/mp4", filePath: path };
-      },
-    };
-    return ok(handle);
+    return fail(missing, "plugin-missing");
   },
 };

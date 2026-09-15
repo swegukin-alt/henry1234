@@ -146,7 +146,8 @@
   html.native-camera,
   html.native-camera body,
   html.native-camera #root,
-  html.native-camera body > div {
+  html.native-camera body > div,
+  html.native-camera #root > div {
     background-color: transparent !important;
   }
 
