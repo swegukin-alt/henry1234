@@ -25,68 +25,82 @@ struct EditorView: View {
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
-            VStack(spacing: 0) {
-            HStack {
-                Button(action: saveAndGoBack) { Text("‹ Scripts") }
-                Spacer()
-                HStack(spacing: 8) {
-                    Button(action: { saveAndOpen(onVideo) }) {
-                        Label("Video", systemImage: "video.fill")
-                            .frame(height: 40).padding(.horizontal, 14)
-                            .background(.white.opacity(0.07), in: Capsule())
+                VStack(spacing: 0) {
+                    HStack {
+                        Button(action: saveAndGoBack) {
+                            Text("‹ Scripts")
+                        }
+
+                        Spacer()
+
+                        HStack(spacing: 8) {
+                            Button(action: { saveAndOpen(onVideo) }) {
+                                Label("Video", systemImage: "video.fill")
+                                    .frame(height: 40)
+                                    .padding(.horizontal, 14)
+                                    .background(.white.opacity(0.07), in: Capsule())
+                            }
+
+                            Button(action: { saveAndOpen(onPlay) }) {
+                                Label("Play", systemImage: "play.fill")
+                                    .frame(height: 40)
+                                    .padding(.horizontal, 16)
+                                    .background(Theme.accent, in: Capsule())
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .disabled(draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    Button(action: { saveAndOpen(onPlay) }) {
-                        Label("Play", systemImage: "play.fill")
-                            .frame(height: 40).padding(.horizontal, 16)
-                            .background(Theme.accent, in: Capsule())
-                            .foregroundStyle(.white)
-                    }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.vertical, 8)
+
+                    TextField("Script title", text: $draft.title)
+                        .font(.system(size: 28, weight: .semibold))
+                        .textFieldStyle(.plain)
+                        .padding(.vertical, 8)
+
+                    TextEditor(text: $draft.body)
+                        .font(.system(size: 16))
+                        .lineSpacing(5)
+                        .scrollContentBackground(.hidden)
+                        // Match the web editor's 40vh box. The editor scrolls its own
+                        // contents instead of growing to the full height of a pasted
+                        // script and pushing settings thousands of points down-screen.
+                        .frame(height: editorHeight)
+                        .padding(10)
+                        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+
+                    SettingsPanel()
+                        .padding(.top, 32)
                 }
-                .disabled(draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
             }
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(Theme.accent)
-            .padding(.vertical, 8)
-
-            TextField("Script title", text: $draft.title)
-                .font(.system(size: 28, weight: .semibold))
-                .textFieldStyle(.plain)
-                .padding(.vertical, 8)
-
-            TextEditor(text: $draft.body)
-                .font(.system(size: 16))
-                .lineSpacing(5)
-                .scrollContentBackground(.hidden)
-                // Match the web editor's 40vh box. The editor scrolls its own
-                // contents instead of growing to the full height of a pasted
-                // script and pushing settings thousands of points down-screen.
-                .frame(height: editorHeight)
-                .padding(10)
-                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
-
-            SettingsPanel()
-                .padding(.top, 32)
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 40)
+            .onAppear {
+                // Capture the viewport once. Keyboard animations must not resize
+                // the script box while someone is typing or pasting a long script.
+                editorHeight = max(260, geometry.size.height * 0.40)
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .onAppear {
-            // Capture the viewport once. Keyboard animations must not resize
-            // the script box while someone is typing or pasting a long script.
-            editorHeight = max(260, geometry.size.height * 0.40)
-        }
         .onChange(of: draft) { _, next in
             saveTask?.cancel()
             saveTask = Task {
                 try? await Task.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled else { return }
-                await MainActor.run { scriptStore.update(next) }
+                await MainActor.run {
+                    scriptStore.update(next)
+                }
             }
         }
-        .onDisappear { saveTask?.cancel(); scriptStore.update(draft) }
-        .onAppear { settings.lastActiveScriptID = draft.id }
+        .onDisappear {
+            saveTask?.cancel()
+            scriptStore.update(draft)
+        }
+        .onAppear {
+            settings.lastActiveScriptID = draft.id
+        }
     }
 
     private func saveAndGoBack() {
