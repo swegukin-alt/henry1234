@@ -3,9 +3,14 @@ import SwiftUI
 struct SettingsPanel: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var discoveredModes: [CaptureMode] = []
+    @State private var cinematicSupported = false
+    @State private var appleLogSupported = false
+    @State private var apertureRange: ClosedRange<Double> = 1.4...16
 
     /// Only the modes the camera actually reported are offered.
     var modes: [CaptureMode] = []
+    /// Aperture cannot change mid-take.
+    var isRecording: Bool = false
 
     private var cameraModes: [CaptureMode] {
         modes.isEmpty ? discoveredModes : modes
