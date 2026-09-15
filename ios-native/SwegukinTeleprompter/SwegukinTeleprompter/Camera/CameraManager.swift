@@ -136,8 +136,8 @@ final class CameraManager: NSObject, ObservableObject {
             .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
             .first
         switch orientation {
-        case .landscapeLeft: return 180
-        case .landscapeRight: return 0
+        case .landscapeLeft: return 0
+        case .landscapeRight: return 180
         case .portraitUpsideDown: return 270
         default: return 90
         }
