@@ -348,9 +348,7 @@ import UIKit
 
         var stabilizationModes = ["off"]
         if let connection = movieOutput.connection(with: .video), connection.isVideoStabilizationSupported {
-            if connection.isVideoStabilizationModeSupported(.standard) { stabilizationModes.append("standard") }
-            if connection.isVideoStabilizationModeSupported(.cinematic) { stabilizationModes.append("cinematic") }
-            if connection.isVideoStabilizationModeSupported(.auto) { stabilizationModes.append("auto") }
+            stabilizationModes.append(contentsOf: ["standard", "cinematic", "auto"])
         }
         return [
             "resolutions": resolutions,
