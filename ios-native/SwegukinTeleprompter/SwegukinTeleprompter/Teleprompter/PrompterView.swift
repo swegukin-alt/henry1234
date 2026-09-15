@@ -610,6 +610,7 @@ struct PrompterView: View {
         } else if settings.appleLog {
             settings.appleLog = false
         }
+        camera.setViewAssist(viewAssistActive)
     }
 
 
