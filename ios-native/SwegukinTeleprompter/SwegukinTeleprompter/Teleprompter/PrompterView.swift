@@ -198,8 +198,6 @@ struct PrompterView: View {
         .task { await begin() }
         .onDisappear { finish() }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
-        .onChange(of: settings.cinematicMode) { _, _ in applyAdvancedCamera() }
-        .onChange(of: settings.simulatedAperture) { _, _ in applyAdvancedCamera() }
         .onChange(of: settings.appleLog) { _, _ in
             applyAdvancedCamera()
             camera.setViewAssist(viewAssistActive)
