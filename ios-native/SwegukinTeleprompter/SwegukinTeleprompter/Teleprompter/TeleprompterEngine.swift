@@ -22,6 +22,8 @@ final class TeleprompterEngine: ObservableObject {
 
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval = 0
+    private var dragOrigin: CGFloat?
+    private var glideVelocity: CGFloat = 0
 
     nonisolated init() {}
 
@@ -41,6 +43,11 @@ final class TeleprompterEngine: ObservableObject {
         guard !isPlaying else { return }
         isPlaying = true
         lastTimestamp = 0
+        ensureDisplayLink()
+    }
+
+    private func ensureDisplayLink() {
+        guard link == nil else { return }
         let link = CADisplayLink(target: DisplayLinkProxy { [weak self] link in
             self?.tick(link)
         }, selector: #selector(DisplayLinkProxy.handle(_:)))
@@ -51,6 +58,8 @@ final class TeleprompterEngine: ObservableObject {
 
     func pause() {
         isPlaying = false
+        glideVelocity = 0
+        dragOrigin = nil
         link?.invalidate()
         link = nil
     }
@@ -71,6 +80,24 @@ final class TeleprompterEngine: ObservableObject {
         offset = min(max(0, value), maxOffset)
     }
 
+    /// Match the browser's native touch scrolling without putting a UIScrollView
+    /// around the very tall SwiftUI text hierarchy. Dragging follows the finger;
+    /// release uses iOS's normal deceleration rate and can coexist with playback.
+    func drag(translation: CGFloat) {
+        if dragOrigin == nil {
+            dragOrigin = offset
+            glideVelocity = 0
+        }
+        guard let dragOrigin else { return }
+        seek(to: dragOrigin - translation)
+    }
+
+    func endDrag(velocity: CGFloat) {
+        dragOrigin = nil
+        glideVelocity = -velocity
+        if abs(glideVelocity) >= 5 { ensureDisplayLink() }
+    }
+
     private func tick(_ link: CADisplayLink) {
         if lastTimestamp == 0 {
             lastTimestamp = link.timestamp
@@ -79,14 +106,33 @@ final class TeleprompterEngine: ObservableObject {
         // Returning from a permission sheet or interruption must never jump.
         let delta = min(link.timestamp - lastTimestamp, 0.05)
         lastTimestamp = link.timestamp
-        let step = speed * speedScale * CGFloat(delta)
+        if dragOrigin != nil { return }
+
+        let seconds = CGFloat(delta)
+        let automaticVelocity = isPlaying ? speed * speedScale : 0
+        let step = (automaticVelocity + glideVelocity) * seconds
         let next = offset + step
-        if next >= maxOffset {
-            offset = maxOffset
-            pause()
+        if next >= maxOffset || next <= 0 {
+            offset = min(max(0, next), maxOffset)
+            glideVelocity = 0
+            if next >= maxOffset { isPlaying = false }
+            if !isPlaying {
+                self.link?.invalidate()
+                self.link = nil
+            }
             return
         }
         offset = next
+
+        // UIScrollView.DecelerationRate.normal is 0.998 per millisecond.
+        if glideVelocity != 0 {
+            glideVelocity *= CGFloat(pow(0.998, delta * 1_000))
+            if abs(glideVelocity) < 5 { glideVelocity = 0 }
+        }
+        if !isPlaying && glideVelocity == 0 {
+            self.link?.invalidate()
+            self.link = nil
+        }
     }
 }
 

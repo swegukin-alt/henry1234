@@ -128,43 +128,36 @@ struct ScriptDocument {
     }
 
     private static func breathGroups(_ source: String, chunking: Bool) -> [Group] {
-        var groups: [Group] = []
-        // Hard newlines from the author are always respected.
-        for (paragraphIndex, paragraph) in source.components(separatedBy: "\n").enumerated() {
-            let trimmed = paragraph.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                if paragraphIndex > 0, var last = groups.popLast() {
-                    last = Group(text: last.text, breakAfter: true)
-                    groups.append(last)
-                }
-                continue
-            }
-            guard chunking else {
-                groups.append(Group(text: trimmed, breakAfter: false))
-                continue
-            }
-            groups.append(contentsOf: chunkParagraph(trimmed))
-        }
-        if groups.isEmpty { groups = [Group(text: source, breakAfter: false)] }
-        return groups
-    }
+        guard chunking else { return [Group(text: source, breakAfter: false)] }
 
-    private static func chunkParagraph(_ paragraph: String) -> [Group] {
-        let words = paragraph.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard !words.isEmpty else { return [] }
-
+        // Port of the web tokeniser, including its whitespace handling. Using
+        // split/join here changed Korean spacing and removed authored newlines.
+        let regex = try? NSRegularExpression(pattern: #"\s+|\S+"#)
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        let parts = regex?.matches(in: source, range: range).compactMap {
+            Range($0.range, in: source).map { String(source[$0]) }
+        } ?? [source]
         var groups: [Group] = []
-        var current: [String] = []
+        var current = ""
         var lineLength = 0
 
         func commit(breakAfter: Bool) {
             guard !current.isEmpty else { return }
-            groups.append(Group(text: current.joined(separator: " "), breakAfter: breakAfter))
-            current = []
+            groups.append(Group(text: current, breakAfter: breakAfter))
+            current = ""
             lineLength = 0
         }
 
-        for (index, word) in words.enumerated() {
+        var index = 0
+        while index < parts.count {
+            let word = parts[index]
+            if word.allSatisfy(\.isWhitespace) {
+                current += word
+                lineLength = word.contains("\n") ? 0 : lineLength + word.count
+                index += 1
+                continue
+            }
+
             let bare = strippedTrailingPunct(word)
             let norm = normalized(word)
             let strong = word.range(of: #"[.!?…。！？]$"#, options: .regularExpression) != nil
@@ -172,20 +165,31 @@ struct ScriptDocument {
             let starter = enConjunctions.contains(norm) || koClauseStarters.contains(bare)
 
             // Break BEFORE a conjunction / clause starter, like the web reader.
-            if starter, lineLength >= minLineChars { commit(breakAfter: true) }
+            if starter, lineLength >= minLineChars {
+                current = current.replacingOccurrences(of: #"[^\S\r\n]+$"#, with: "", options: .regularExpression)
+                commit(breakAfter: true)
+            }
 
-            current.append(word)
-            lineLength += word.count + 1
+            current += word
+            lineLength += word.count
 
-            let isLast = index == words.count - 1
-            if isLast { continue }
-            guard lineLength >= minLineChars, strong || soft || endsWithKoreanParticle(bare) else { continue }
-            // Don't orphan a very short tail word on its own line.
-            let remaining = words.count - index - 1
-            if remaining == 1, words[index + 1].count <= 3 { continue }
-            commit(breakAfter: true)
+            if lineLength >= minLineChars, strong || soft || endsWithKoreanParticle(bare) {
+                var nextIndex = index + 1
+                let whitespaceIndex = nextIndex < parts.count && parts[nextIndex].allSatisfy(\.isWhitespace) ? nextIndex : nil
+                if whitespaceIndex != nil { nextIndex += 1 }
+                let nextWord = nextIndex < parts.count ? parts[nextIndex] : ""
+                let restIsShort = !nextWord.isEmpty && nextWord.count <= 3 && nextIndex == parts.count - 1
+                if !restIsShort {
+                    commit(breakAfter: true)
+                    if let whitespaceIndex, !parts[whitespaceIndex].contains("\n") {
+                        index = whitespaceIndex
+                    }
+                }
+            }
+            index += 1
         }
         commit(breakAfter: false)
+        if groups.isEmpty { groups = [Group(text: source, breakAfter: false)] }
         return groups
     }
 }
@@ -225,10 +229,14 @@ struct ScriptText: View, Equatable {
             ForEach(block.lines) { line in
                 lineText(line, blockHighlighted: highlighted)
                     .font(.custom("Pretendard Variable", size: fontSize).weight(.medium))
-                    .lineSpacing(max(0, fontSize * lineHeight - nativeFontLineHeight))
+                    .lineSpacing(extraLineLeading)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    // CSS line-height adds leading to every line box. SwiftUI's
+                    // lineSpacing only inserts it between wrapped lines, so add
+                    // half-leading at both edges to match the web's 1.5 exactly.
+                    .padding(.vertical, extraLineLeading / 2)
                 // The web reader inserts a 0.55em spacer at each breath break.
                 if line.breakAfter {
                     Color.clear.frame(height: fontSize * 0.55)
@@ -257,6 +265,10 @@ struct ScriptText: View, Equatable {
     private var nativeFontLineHeight: CGFloat {
         UIFont(name: "Pretendard Variable", size: fontSize)?.lineHeight
             ?? UIFont.systemFont(ofSize: fontSize, weight: .medium).lineHeight
+    }
+
+    private var extraLineLeading: CGFloat {
+        max(0, fontSize * lineHeight - nativeFontLineHeight)
     }
 
     private func attributed(_ line: ScriptLine) -> AttributedString {
