@@ -354,81 +354,82 @@ struct PrompterView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                switch p {
-                case .settings:
-                    popRow("Speed", "\(Int(settings.speed))") {
-                        Slider(value: $settings.speed, in: 10...250, step: 1)
-                    }
-                    popRow("Width", "\(Int(settings.textWidth))%") {
-                        Slider(value: $settings.textWidth, in: 50...100, step: 1)
-                    }
-                    HStack(spacing: 8) {
-                        backgroundButton("Dark", value: "black")
-                        backgroundButton("Light", value: "white")
-                        backgroundButton("Sepia", value: "sepia")
-                    }
-                case .size:
-                    popRow("Font size", "\(Int(settings.fontSize))px") {
-                        Slider(value: $settings.fontSize, in: 24...140, step: 1)
-                    }
-                case .more:
-                    Button { engine.reset(); panel = nil } label: {
-                        Text("↺ Reset").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(OutlineButtonStyle(active: false))
-
-                    if !videoMode {
-                        Button { settings.mirrorV.toggle() } label: {
-                            Text("Flip ↕ (beam-splitter rig)").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(OutlineButtonStyle(active: settings.mirrorV))
-                    }
-
-                    if videoMode {
-                        Button {
-                            Task { await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
-                                                             hdr: settings.hdr, stabilization: settings.stabilization) }
-                            settings.useFrontCamera = !camera.usingFront
-                        } label: {
-                            Text(camera.usingFront ? "Front camera" : "Back camera").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(OutlineButtonStyle(active: camera.usingFront))
-                        .disabled(camera.isRecording)
-
-                        if !camera.modes.isEmpty {
-                            Text("Resolution").font(.caption).foregroundStyle(.white.opacity(0.7))
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                                ForEach(camera.modes) { mode in
-                                    let active = settings.quality == mode.quality
-                                        && settings.frameRate == mode.fps && settings.hdr == mode.hdr
-                                    Button {
-                                        settings.quality = mode.quality
-                                        settings.frameRate = mode.fps
-                                        settings.hdr = mode.hdr
-                                        Task { await restartCamera() }
-                                    } label: {
-                                        Text(mode.label).font(.system(size: 12, weight: .semibold))
-                                            .frame(maxWidth: .infinity)
-                                    }
-                                    .buttonStyle(OutlineButtonStyle(active: active))
-                                    .disabled(camera.isRecording)
-                                }
+                        switch p {
+                        case .settings:
+                            popRow("Speed", "\(Int(settings.speed))") {
+                                Slider(value: $settings.speed, in: 10...250, step: 1)
                             }
+                            popRow("Width", "\(Int(settings.textWidth))%") {
+                                Slider(value: $settings.textWidth, in: 50...100, step: 1)
+                            }
+                            HStack(spacing: 8) {
+                                backgroundButton("Dark", value: "black")
+                                backgroundButton("Light", value: "white")
+                                backgroundButton("Sepia", value: "sepia")
+                            }
+                        case .size:
+                            popRow("Font size", "\(Int(settings.fontSize))px") {
+                                Slider(value: $settings.fontSize, in: 24...140, step: 1)
+                            }
+                        case .more:
+                            Button { engine.reset(); panel = nil } label: {
+                                Text("↺ Reset").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(OutlineButtonStyle(active: false))
+
+                            if !videoMode {
+                                Button { settings.mirrorV.toggle() } label: {
+                                    Text("Flip ↕ (beam-splitter rig)").frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(OutlineButtonStyle(active: settings.mirrorV))
+                            }
+
+                            if videoMode {
+                                Button {
+                                    Task { await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
+                                                                     hdr: settings.hdr, stabilization: settings.stabilization) }
+                                    settings.useFrontCamera = !camera.usingFront
+                                } label: {
+                                    Text(camera.usingFront ? "Front camera" : "Back camera").frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(OutlineButtonStyle(active: camera.usingFront))
+                                .disabled(camera.isRecording)
+
+                                if !camera.modes.isEmpty {
+                                    Text("Resolution").font(.caption).foregroundStyle(.white.opacity(0.7))
+                                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                                        ForEach(camera.modes) { mode in
+                                            let active = settings.quality == mode.quality
+                                                && settings.frameRate == mode.fps && settings.hdr == mode.hdr
+                                            Button {
+                                                settings.quality = mode.quality
+                                                settings.frameRate = mode.fps
+                                                settings.hdr = mode.hdr
+                                                Task { await restartCamera() }
+                                            } label: {
+                                                Text(mode.label).font(.system(size: 12, weight: .semibold))
+                                                    .frame(maxWidth: .infinity)
+                                            }
+                                            .buttonStyle(OutlineButtonStyle(active: active))
+                                            .disabled(camera.isRecording)
+                                        }
+                                    }
+                                }
+
+                                Toggle("Stabilization", isOn: $settings.stabilization)
+                                    .tint(Theme.accent)
+                                    .disabled(camera.isRecording)
+                            }
+
+                            Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
+                            assistRow("Reading highlight", isOn: $settings.readingHighlight)
+                            assistRow("Chunk phrases", isOn: $settings.chunking)
+                            assistRow("Slow at punctuation", isOn: $settings.pauses)
+                            assistRow("Voice-follow highlight", isOn: $settings.voiceFollow)
+
+                            Text("Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.")
+                                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
                         }
-
-                        Toggle("Stabilization", isOn: $settings.stabilization)
-                            .tint(Theme.accent)
-                            .disabled(camera.isRecording)
-                    }
-
-                    Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
-                    assistRow("Reading highlight", isOn: $settings.readingHighlight)
-                    assistRow("Chunk phrases", isOn: $settings.chunking)
-                    assistRow("Slow at punctuation", isOn: $settings.pauses)
-                    assistRow("Voice-follow highlight", isOn: $settings.voiceFollow)
-
-                    Text("Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.")
-                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
                     }
                     .padding(14)
                 }
