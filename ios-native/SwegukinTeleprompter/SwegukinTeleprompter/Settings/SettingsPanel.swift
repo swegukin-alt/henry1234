@@ -70,7 +70,7 @@ struct SettingsPanel: View {
                     Toggle("Cinematic mode", isOn: $settings.cinematicMode)
                         .disabled(isRecording || !cinematicSupported)
                     if !cinematicSupported {
-                        Text("Requires Apple's Cinematic capture pipeline.")
+                        Text(cinematicReason)
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.45))
                     } else if settings.cinematicMode {
