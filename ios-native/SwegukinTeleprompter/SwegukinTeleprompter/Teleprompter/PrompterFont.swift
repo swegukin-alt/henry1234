@@ -23,8 +23,14 @@ enum PrompterFont {
                 weightAxis: targetWeight
             ],
             kCTFontFeatureSettingsAttribute as UIFontDescriptor.AttributeName: [
-                [kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "palt"],
-                [kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "kern"],
+                [
+                    kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "palt",
+                    kCTFontOpenTypeFeatureValue as UIFontDescriptor.FeatureKey: 1,
+                ],
+                [
+                    kCTFontOpenTypeFeatureTag as UIFontDescriptor.FeatureKey: "kern",
+                    kCTFontOpenTypeFeatureValue as UIFontDescriptor.FeatureKey: 1,
+                ],
             ],
         ])
         return UIFont(descriptor: descriptor, size: size)

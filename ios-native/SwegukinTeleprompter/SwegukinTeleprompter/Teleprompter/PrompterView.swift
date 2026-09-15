@@ -25,6 +25,7 @@ struct PrompterView: View {
     @State private var errorMessage: String?
     @State private var currentTakeID: String?
     @State private var saving = false
+    @State private var controlsVisible = true
     @State private var didRestorePosition = false
     @State private var didFinish = false
 
@@ -128,13 +129,31 @@ struct PrompterView: View {
                 overlayChips(geo: geo)
                     .zIndex(20)
 
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    ProgressLine(engine: engine)
-                    bottomToolbar
+                if controlsVisible {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        ProgressLine(engine: engine)
+                        bottomToolbar
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                    .zIndex(30)
+                } else {
+                    Button {
+                        Haptics.tap()
+                        controlsVisible = true
+                        pause()
+                    } label: {
+                        Text("•••")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.black.opacity(0.4), in: Capsule())
+                    }
+                    .padding(.top, 10)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .zIndex(30)
                 }
-                .ignoresSafeArea(edges: .bottom)
-                .zIndex(30)
 
                 if let panel { popover(for: panel).zIndex(40) }
 
@@ -225,7 +244,7 @@ struct PrompterView: View {
                     RemainingBadge(engine: engine)
                 }
 
-                if videoMode && camera.isReady {
+                if videoMode && camera.isReady && controlsVisible {
                     HStack(spacing: 6) {
                         Image(systemName: "mic.fill").font(.system(size: 12))
                         Text(camera.micName.isEmpty ? "Built-in mic" : camera.micName)
@@ -546,7 +565,13 @@ struct PrompterView: View {
     private func togglePlay() {
         Haptics.tap()
         if panel != nil { panel = nil; return }
-        if engine.isPlaying { pause() } else { play() }
+        if engine.isPlaying {
+            pause()
+            controlsVisible = true
+        } else {
+            play()
+            controlsVisible = false
+        }
     }
 
     private func startRecording() {
@@ -556,6 +581,8 @@ struct PrompterView: View {
             try camera.startRecording(to: url)
             currentTakeID = id
             play()
+            controlsVisible = false
+            panel = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -565,6 +592,7 @@ struct PrompterView: View {
         guard camera.isRecording else { return }
         saving = true
         pause()
+        controlsVisible = true
         let id = currentTakeID ?? UUID().uuidString
         camera.stopRecording { result in
             Task { @MainActor in

@@ -11,3 +11,4 @@
 - [x] Expose native camera quality controls before capture starts.
 - [x] Remove front-camera crop, reset zoom, and enable continuous focus/exposure.
 - [x] Keep video controls above the camera and reduce per-frame text composition work.
+- [x] Lock native reading geometry, chunk spacing, font features, and tap-to-hide controls to web behavior.
