@@ -247,7 +247,8 @@ struct ScriptText: View, Equatable {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(block.lines) { line in
                 lineText(line, blockHighlighted: highlighted)
-                    .font(.custom("Pretendard Variable", size: fontSize).weight(.medium))
+                    .font(PrompterFont.font(size: fontSize))
+                    .tracking(PrompterFont.tracking(size: fontSize))
                     .lineSpacing(extraLineLeading)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -282,8 +283,7 @@ struct ScriptText: View, Equatable {
     }
 
     private var nativeFontLineHeight: CGFloat {
-        UIFont(name: "Pretendard Variable", size: fontSize)?.lineHeight
-            ?? UIFont.systemFont(ofSize: fontSize, weight: .medium).lineHeight
+        PrompterFont.lineHeight(size: fontSize)
     }
 
     private var extraLineLeading: CGFloat {
@@ -423,8 +423,7 @@ struct NativeScriptTextView: UIViewRepresentable {
     }
 
     private func attributedText(_ string: String) -> NSAttributedString {
-        let font = UIFont(name: "Pretendard Variable", size: fontSize)
-            ?? UIFont.systemFont(ofSize: fontSize, weight: .medium)
+        let font = PrompterFont.uiFont(size: fontSize)
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = fontSize * lineHeight
         paragraph.maximumLineHeight = fontSize * lineHeight
