@@ -115,7 +115,14 @@ final class TeleprompterEngine: ObservableObject {
         // Returning from a permission sheet or interruption must never jump.
         let delta = min(link.timestamp - lastTimestamp, 0.05)
         lastTimestamp = link.timestamp
-        if dragOrigin != nil { return }
+        if dragOrigin != nil {
+            // Critically damped follow: fast enough to feel attached to the
+            // finger, smooth enough to absorb uneven touch sampling.
+            let alpha = min(1, CGFloat(delta) * 26)
+            let next = offset + (dragTarget - offset) * alpha
+            offset = abs(dragTarget - next) < 0.2 ? dragTarget : next
+            return
+        }
 
         let seconds = CGFloat(delta)
         let automaticVelocity = isPlaying ? speed * speedScale : 0
