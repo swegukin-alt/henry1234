@@ -26,6 +26,7 @@ struct PrompterView: View {
     @State private var currentTakeID: String?
     @State private var saving = false
     @State private var didRestorePosition = false
+    @State private var didFinish = false
 
     @State private var document: ScriptDocument
     @State private var punctuationWordIndices: [Int: Bool]
@@ -337,12 +338,14 @@ struct PrompterView: View {
 
     @ViewBuilder
     private func popover(for p: Panel) -> some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.001)
-                .ignoresSafeArea()
-                .onTapGesture { panel = nil }
+        GeometryReader { panelGeometry in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture { panel = nil }
 
-            VStack(alignment: .leading, spacing: 12) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
                 switch p {
                 case .settings:
                     popRow("Speed", "\(Int(settings.speed))") {
@@ -418,15 +421,18 @@ struct PrompterView: View {
 
                     Text("Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.")
                         .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                    }
+                    .padding(14)
                 }
+                .scrollIndicators(.hidden)
+                .frame(maxWidth: 420)
+                .frame(maxHeight: max(140, panelGeometry.size.height - 92 - safeBottom))
+                .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.1)))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 72 + safeBottom)
+                .scaleEffect(y: interfaceFlip)
             }
-            .padding(14)
-            .frame(maxWidth: 420)
-            .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.1)))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 78 + safeBottom)
-            .scaleEffect(y: interfaceFlip)
         }
     }
 
@@ -495,10 +501,15 @@ struct PrompterView: View {
     }
 
     private func finish() {
+        guard !didFinish else { return }
+        didFinish = true
         engine.pause()
         voice.stop()
-        if camera.isRecording { stopRecording() }
-        camera.stop()
+        if camera.isRecording {
+            stopRecording(stopCameraWhenFinished: true)
+        } else {
+            camera.stop()
+        }
         IdleTimer.keepAwake(false)
         settings.setReadingPosition(Double(engine.offset), for: script.id)
     }
@@ -536,7 +547,7 @@ struct PrompterView: View {
         }
     }
 
-    private func stopRecording() {
+    private func stopRecording(stopCameraWhenFinished: Bool = false) {
         guard camera.isRecording else { return }
         saving = true
         pause()
@@ -552,6 +563,7 @@ struct PrompterView: View {
                     errorMessage = error.localizedDescription
                 }
                 currentTakeID = nil
+                if stopCameraWhenFinished { camera.stop() }
             }
         }
     }
@@ -606,39 +618,35 @@ private struct ScriptScrollLayer: View {
     var body: some View {
         // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
         // line-height 1.5, -0.015em tracking, words never split.
-        ScriptText(
-            document: document,
-            fontSize: fontSize,
-            lineHeight: lineHeight,
-            highlightIndex: highlightIndex,
-            foreground: foreground
-        )
-        .equatable()
-        .tracking(-0.015 * fontSize)
-        .frame(width: viewportWidth * textWidth / 100, alignment: .leading)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
-            }
-        )
-        .onPreferenceChange(ContentHeightKey.self) { height in onContentHeight(height) }
-        // Web spacer: 20vh of clear space above the first line.
-        // A render transform matches the browser's translated text layer and
-        // avoids invalidating the long script's SwiftUI layout every frame.
-        .transformEffect(CGAffineTransform(
-            translationX: 0,
-            y: viewportHeight * 0.20 - engine.offset
-        ))
-        .scaleEffect(x: mirrorH ? -1 : 1, y: flip)
-        // A 3000–4000 word script is taller than the screen by a large factor.
-        // Without this clamp the scrolling layer reports its full height to the
-        // surrounding ZStack, which then pushes the toolbar, chips and progress
-        // line far below the visible screen. Fixing the layer to the viewport
-        // (and clipping the overflow) keeps every control on screen no matter
-        // how long the script is.
+        ZStack(alignment: .top) {
+            ScriptText(
+                document: document,
+                fontSize: fontSize,
+                lineHeight: lineHeight,
+                highlightIndex: highlightIndex,
+                foreground: foreground
+            )
+            .equatable()
+            .tracking(-0.015 * fontSize)
+            .frame(width: viewportWidth * textWidth / 100, alignment: .leading)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
+                }
+            )
+            // Keep the long text at its intrinsic height and translate its
+            // rendered layer inside a separate fixed viewport. Constraining the
+            // text itself to one screen made SwiftUI discard its visible glyphs.
+            .transformEffect(CGAffineTransform(
+                translationX: 0,
+                y: viewportHeight * 0.20 - engine.offset
+            ))
+            .scaleEffect(x: mirrorH ? -1 : 1, y: flip, anchor: .top)
+        }
         .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
         .clipped()
         .allowsHitTesting(false)
+        .onPreferenceChange(ContentHeightKey.self) { height in onContentHeight(height) }
 
         .onChange(of: highlightIndex) { _, index in
             guard pausesEnabled, let index, let strong = punctuation[index] else {
