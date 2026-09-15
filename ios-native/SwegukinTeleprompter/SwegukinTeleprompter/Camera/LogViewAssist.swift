@@ -12,7 +12,14 @@ import UIKit
 /// judged on screen, exactly like a monitor LUT that is never burnt in.
 enum LogToRec709 {
 
-    /// Apple Log transfer function constants, published by Apple.
+    // MARK: Apple Log transfer function (Apple Log Profile White Paper)
+    //
+    //   P(R) = 0                        , R <  R0
+    //        = c * (R - R0)^2           , R0 <= R < Rt
+    //        = g * log2(R + b) + d      , R >= Rt
+    //
+    // where R is scene linear reflectance (1.0 == 100% diffuse white) and
+    // P is the stored Apple Log code value in [0, 1].
     private static let R0: Float = -0.05641088
     private static let Rt: Float = 0.01
     private static let c: Float = 47.28711236
@@ -20,40 +27,51 @@ enum LogToRec709 {
     private static let g: Float = 0.08550479
     private static let d: Float = 0.69336945
 
-    /// Apple Log code value → scene linear.
-    private static func toLinear(_ y: Float) -> Float {
-        let threshold = c * (Rt - R0) * (Rt - R0)
-        if y < 0 { return 0 }
-        if y < threshold { return sqrt(max(0, y / c)) + R0 }
-        return pow(2, (y - d) / g) - b
+    /// Apple Log code value → scene linear reflectance (exact inverse of P).
+    private static func toLinear(_ p: Float) -> Float {
+        if p <= 0 { return R0 }
+        let knee = c * (Rt - R0) * (Rt - R0)      // ≈ 0.2086, the code value at Rt
+        if p < knee { return sqrtf(p / c) + R0 }
+        return powf(2, (p - d) / g) - b
     }
 
-    /// Rec. 709 opto-electronic transfer function.
+    /// Highlight shoulder. Apple Log holds far more than 100% white (code 1.0
+    /// is ≈ 12.0 in linear), so a straight clip would blow every highlight.
+    /// Below the knee the response is untouched — 18% grey stays exactly where
+    /// Rec. 709 puts it — above it, values roll off smoothly towards 1.0.
+    private static func shoulder(_ x: Float) -> Float {
+        let knee: Float = 0.6
+        if x <= knee { return max(0, x) }
+        let range = 1 - knee
+        return knee + range * (1 - expf(-(x - knee) / range))
+    }
+
+    /// Rec. 709 opto-electronic transfer function (ITU-R BT.709-6).
     private static func rec709(_ x: Float) -> Float {
         let v = max(0, min(1, x))
-        return v < 0.018 ? 4.5 * v : 1.099 * pow(v, 0.45) - 0.099
+        return v < 0.018 ? 4.5 * v : 1.099 * powf(v, 0.45) - 0.099
     }
 
-    /// One 32³ cube: inverse Apple Log, BT.2020 → BT.709 primaries, 709 gamma.
+    /// One 64³ cube: inverse Apple Log → linear, BT.2020 → BT.709 primaries,
+    /// highlight shoulder, Rec. 709 gamma.
     static let cube: CIFilter? = {
-        let size = 32
+        let size = 64
         var data = [Float](repeating: 0, count: size * size * size * 4)
         var offset = 0
+        let last = Float(size - 1)
         for bi in 0..<size {
             for gi in 0..<size {
                 for ri in 0..<size {
-                    let lr = toLinear(Float(ri) / Float(size - 1))
-                    let lg = toLinear(Float(gi) / Float(size - 1))
-                    let lb = toLinear(Float(bi) / Float(size - 1))
-                    // Exposure trim so 18% grey lands near a 709 middle grey.
-                    let e: Float = 1.0
+                    let lr = toLinear(Float(ri) / last)
+                    let lg = toLinear(Float(gi) / last)
+                    let lb = toLinear(Float(bi) / last)
                     // BT.2020 → BT.709 (linear light).
                     let r = 1.660491 * lr - 0.587641 * lg - 0.072850 * lb
                     let gg = -0.124550 * lr + 1.132900 * lg - 0.008349 * lb
                     let bb = -0.018151 * lr - 0.100579 * lg + 1.118730 * lb
-                    data[offset + 0] = rec709(r * e)
-                    data[offset + 1] = rec709(gg * e)
-                    data[offset + 2] = rec709(bb * e)
+                    data[offset + 0] = rec709(shoulder(r))
+                    data[offset + 1] = rec709(shoulder(gg))
+                    data[offset + 2] = rec709(shoulder(bb))
                     data[offset + 3] = 1
                     offset += 4
                 }
@@ -111,13 +129,23 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
         super.init(frame: .zero, device: mtlDevice)
         self.source = source
         self.framebufferOnly = false
-        self.isOpaque = true
-        self.backgroundColor = .black
+        // Transparent until the first frame lands, so a stalled assist shows
+        // the untouched log preview underneath rather than a black screen.
+        self.isOpaque = false
+        self.backgroundColor = .clear
+        self.layer.isOpaque = false
         self.enableSetNeedsDisplay = false
         self.isPaused = false
         self.preferredFramesPerSecond = 30
         if let mtlDevice {
-            ciContext = CIContext(mtlDevice: mtlDevice)
+            // Colour management OFF. Core Image would otherwise convert the
+            // Apple Log frame into its linear working space before the cube
+            // runs, which destroys the log curve the cube is built to invert.
+            ciContext = CIContext(mtlDevice: mtlDevice, options: [
+                .workingColorSpace: NSNull(),
+                .outputColorSpace: NSNull(),
+                .cacheIntermediates: false
+            ])
             commandQueue = mtlDevice.makeCommandQueue()
         }
         delegate = self
@@ -133,7 +161,9 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
               let buffer = source?.takeLatest(),
               let commandBuffer = commandQueue.makeCommandBuffer() else { return }
 
-        var image = CIImage(cvPixelBuffer: buffer)
+        // No colour space on the input either: the cube expects the raw Apple
+        // Log code values exactly as the sensor wrote them.
+        var image = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])
         image = LogToRec709.apply(to: image)
         if mirrored {
             image = image.transformed(by: CGAffineTransform(scaleX: -1, y: 1)
@@ -154,7 +184,7 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
                          to: drawable.texture,
                          commandBuffer: commandBuffer,
                          bounds: CGRect(origin: .zero, size: target),
-                         colorSpace: CGColorSpaceCreateDeviceRGB())
+                         colorSpace: nil)
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
