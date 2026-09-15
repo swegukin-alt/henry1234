@@ -182,6 +182,9 @@ struct PrompterView: View {
         .task { await begin() }
         .onDisappear { finish() }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
+        .onChange(of: settings.cinematicMode) { _, _ in applyAdvancedCamera() }
+        .onChange(of: settings.simulatedAperture) { _, _ in applyAdvancedCamera() }
+        .onChange(of: settings.appleLog) { _, _ in applyAdvancedCamera() }
         .onChange(of: settings.chunking) { _, enabled in
             let next = ScriptDocument(script.body, chunking: enabled)
             document = next
@@ -551,6 +554,18 @@ struct PrompterView: View {
         } catch {
             // Non-permission problems stay on the retry chip instead of
             // interrupting with an alert.
+        }
+    }
+
+    /// Cinematic video and Apple Log are applied on top of the existing capture
+    /// setup; unsupported hardware silently keeps the current behaviour.
+    private func applyAdvancedCamera() {
+        guard videoMode, camera.isReady else { return }
+        if camera.cinematicSupported {
+            camera.applyCinematic(enabled: settings.cinematicMode, aperture: settings.simulatedAperture)
+        }
+        if camera.appleLogSupported {
+            camera.applyAppleLog(settings.appleLog)
         }
     }
 
