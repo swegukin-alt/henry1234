@@ -1130,7 +1130,11 @@ function Prompter({
       haptic("error");
       return;
     }
-    const bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    // Match the iOS Camera app's own data rates: 60 fps and HDR both need
+    // considerably more bitrate to stay artefact-free.
+    let bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
+    if (camSettings.fps >= 60) bps = Math.round(bps * 1.7);
+    if (camSettings.hdr) bps = Math.round(bps * 1.25);
     recordingRef.current = true;
     const res = await startNativeCapture(handle, {
       videoBitsPerSecond: bps,
@@ -1158,7 +1162,7 @@ function Prompter({
     setControlsVisible(false);
     setPanel(null);
     haptic("record-start");
-  }, [quality]);
+  }, [quality, camSettings]);
 
   const startRecording = useCallback(() => {
     if (nativeAppRef.current) { void startNativeRecording(); return; }
@@ -1943,16 +1947,65 @@ function Prompter({
           </div>
           {videoMode && (
             <div className="mt-3">
-              <div className="mb-1 text-xs text-neutral-300">Recording quality</div>
+              <div className="mb-1 text-xs text-neutral-300">Resolution</div>
               <div className="flex gap-2">
-                {(["720p", "1080p", "4k"] as const).map((q) => (
-                  <button key={q} disabled={recording} onClick={() => setQuality(q)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                    {q === "4k" ? "4K (try)" : q}
-                  </button>
-                ))}
+                {(["720p", "1080p", "4k"] as const).map((q) => {
+                  const unsupported = !!camHw && !camHw.resolutions.includes(q);
+                  return (
+                    <button key={q} disabled={recording || unsupported} onClick={() => setQuality(q)}
+                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                      {q === "4k" ? "4K" : q}
+                    </button>
+                  );
+                })}
               </div>
-              <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
+
+              {nativeApp ? (
+                <>
+                  <div className="mt-3 mb-1 text-xs text-neutral-300">Frame rate</div>
+                  <div className="flex gap-2">
+                    {[30, 60].map((f) => {
+                      const unsupported = !!camHw && !camHw.frameRates.includes(f);
+                      return (
+                        <button key={f} disabled={recording || unsupported}
+                          onClick={() => setCamSettings((c) => ({ ...c, fps: f }))}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${camSettings.fps === f ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                          {f} fps
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    disabled={recording || (!!camHw && !camHw.hdr)}
+                    onClick={() => setCamSettings((c) => ({ ...c, hdr: !c.hdr }))}
+                    className={`mt-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-40 ${camSettings.hdr ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}>
+                    <span className="flex-1">HDR video</span>
+                    <span className="text-[11px] opacity-70">{camHw && !camHw.hdr ? "Unsupported" : camSettings.hdr ? "On" : "Off"}</span>
+                  </button>
+
+                  <div className="mt-3 mb-1 text-xs text-neutral-300">Stabilisation</div>
+                  <div className="flex gap-2">
+                    {(["off", "standard", "cinematic", "auto"] as const).map((m) => {
+                      const unsupported = !!camHw && !camHw.stabilization.includes(m);
+                      return (
+                        <button key={m} disabled={recording || unsupported}
+                          onClick={() => setCamSettings((c) => ({ ...c, stabilization: m }))}
+                          className={`flex-1 rounded-lg border px-2 py-2 text-[11px] font-semibold capitalize disabled:opacity-40 ${camSettings.stabilization === m ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                          {m === "cinematic" ? "Cine" : m}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-[11px] text-neutral-400">
+                    {camHw
+                      ? "Only modes this iPhone's camera can actually deliver are selectable."
+                      : "Reading what this camera supports…"}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-[11px] text-neutral-400">4K is attempted but iPhone Safari may fall back to 1080p.</p>
+              )}
             </div>
           )}
           {/* Reading assist toggles */}
