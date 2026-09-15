@@ -2227,6 +2227,10 @@ function ClipsSheet({
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [broken, setBroken] = useState<Set<string>>(new Set());
+  // Inside the iPhone app every take is one real file on disk — there are no
+  // leftover chunks to clear, nothing to repair or stitch, and quota bars are
+  // meaningless. All of that UI is web-only.
+  const native = isNative();
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
@@ -2260,7 +2264,7 @@ function ClipsSheet({
   const refreshSpace = useCallback(async () => {
     try { setSpace(await storageUsage()); } catch { setSpace(null); }
   }, []);
-  useEffect(() => { refreshSpace(); }, [refreshSpace, clips.length]);
+  useEffect(() => { if (!native) refreshSpace(); }, [native, refreshSpace, clips.length]);
 
   // Rebuild an unplayable recording from the raw data still in storage.
   const doRepair = useCallback(async (c: ClipMeta) => {
@@ -2344,7 +2348,7 @@ function ClipsSheet({
                       {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
-                  {broken.has(c.id) ? (
+                  {!native && (broken.has(c.id) ? (
                     <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
                       {busy === c.id ? "Repairing…" : "Repair"}
                     </button>
@@ -2352,7 +2356,7 @@ function ClipsSheet({
                     <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
                       {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
-                  )}
+                  ))}
                    <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip">
                     <Download className="h-4 w-4" />
                   </button>
@@ -2365,6 +2369,7 @@ function ClipsSheet({
           )}
         </div>
         {note && <div className="px-4 pb-2 text-[11px] leading-snug text-amber-200/90">{note}</div>}
+        {!native && (
         <div className="space-y-2 border-t border-white/10 px-3 py-2">
           {space && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
@@ -2413,12 +2418,13 @@ function ClipsSheet({
             {busy === "all" ? "Scanning…" : "Recover missing / damaged recordings"}
           </button>
         </div>
+        )}
         {clips.length > 0 && (
           <div className="flex gap-2 border-t border-white/10 p-3">
             <button onClick={() => { if (confirm("Delete all clips for this script?")) onDeleteAll(); }} className="rounded-full border border-white/15 px-4 py-2 text-sm text-neutral-300">
               Delete all
             </button>
-            <div className="flex-1 text-right text-xs text-neutral-400">Use the download button beside a video to save it.</div>
+            <div className="flex-1 text-right text-xs text-neutral-400">{native ? "Tap the arrow beside a video to save or share it." : "Use the download button beside a video to save it."}</div>
           </div>
         )}
       </div>
@@ -2477,10 +2483,10 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-             <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
-               <Download className="h-5 w-5" /> Save video
+              <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+                <Download className="h-5 w-5" /> {native ? "Save to camera roll" : "Save video"}
             </button>
-            {broken.has(playingClip.id) && (
+            {!native && broken.has(playingClip.id) && (
               <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-black/70 px-4 py-2 text-sm font-bold text-amber-300 backdrop-blur-sm disabled:opacity-50">
                 {busy === playingClip.id ? "Repairing…" : "Repair this take"}
               </button>
