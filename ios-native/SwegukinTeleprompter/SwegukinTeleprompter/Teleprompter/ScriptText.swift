@@ -435,7 +435,7 @@ struct NativeScriptTextView: UIViewRepresentable {
         // Web uses `word-break: keep-all` + `line-break: strict`: a Korean word
         // is never split across lines. Hangul word priority is the native
         // equivalent; without it TextKit breaks Hangul at any syllable.
-        paragraph.lineBreakStrategy = [.hangulWordPriority, .pushOut]
+        paragraph.lineBreakStrategy = [.hangulWordPriority]
         paragraph.hyphenationFactor = 0
         let text = NSMutableAttributedString(string: string, attributes: [
             .font: font,
