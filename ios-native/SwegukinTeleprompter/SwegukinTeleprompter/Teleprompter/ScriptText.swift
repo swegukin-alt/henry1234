@@ -10,7 +10,7 @@ struct ScriptText: View {
 
     var body: some View {
         Text(attributed)
-            .font(.system(size: fontSize, weight: .medium, design: .default))
+            .font(.custom("Pretendard Variable", size: fontSize).weight(.medium))
             .lineSpacing(fontSize * (lineHeight - 1))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -25,7 +25,10 @@ struct ScriptText: View {
         let range = words[highlightIndex]
         if let lower = AttributedString.Index(range.lowerBound, within: text),
            let upper = AttributedString.Index(range.upperBound, within: text) {
-            text[lower..<upper].foregroundColor = Theme.accent
+            // Match the web reader: text remains white and the current word
+            // receives only a faint white wash, never a blue text color.
+            text[lower..<upper].foregroundColor = Color.white
+            text[lower..<upper].backgroundColor = Color.white.opacity(0.09)
         }
         return text
     }
