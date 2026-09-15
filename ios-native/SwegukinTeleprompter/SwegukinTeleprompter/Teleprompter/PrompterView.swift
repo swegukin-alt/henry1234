@@ -620,9 +620,6 @@ private struct ScriptScrollLayer: View {
         .offset(y: viewportHeight * 0.20 - engine.offset)
         .scaleEffect(x: mirrorH ? -1 : 1, y: flip)
         .frame(maxWidth: .infinity, alignment: .top)
-        // Cache the stable text layers. The frame loop then composites one
-        // translated layer instead of laying out every paragraph again.
-        .compositingGroup()
         .allowsHitTesting(false)
         .onChange(of: highlightIndex) { _, index in
             guard pausesEnabled, let index, let strong = punctuation[index] else {
