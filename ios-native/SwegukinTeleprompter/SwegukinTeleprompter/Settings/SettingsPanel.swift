@@ -61,13 +61,45 @@ struct SettingsPanel: View {
                     .pickerStyle(.menu)
                     Toggle("Front camera", isOn: $settings.useFrontCamera)
                     Toggle("Stabilization", isOn: $settings.stabilization)
+
+                    if cinematicSupported {
+                        Toggle("Cinematic mode", isOn: $settings.cinematicMode)
+                            .disabled(isRecording)
+                        if settings.cinematicMode {
+                            apertureSlider
+                        }
+                    }
+
+                    if appleLogSupported {
+                        Toggle("Apple Log", isOn: $settings.appleLog)
+                            .disabled(isRecording)
+                    }
                 }
+                .animation(.easeInOut(duration: 0.2), value: settings.cinematicMode)
             }
         }
         .padding(16)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
         .task(id: settings.useFrontCamera) {
             discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
+            cinematicSupported = CameraManager.cinematicSupported(front: settings.useFrontCamera)
+            appleLogSupported = CameraManager.appleLogSupported(front: settings.useFrontCamera)
+            apertureRange = CameraManager.apertureRange(front: settings.useFrontCamera)
+        }
+    }
+
+    /// Same slider style as Font size / Scroll speed, with camera f-stop labels.
+    private var apertureSlider: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Aperture")
+                Spacer()
+                Text(Format.aperture(settings.simulatedAperture))
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: $settings.simulatedAperture, in: apertureRange, step: 0.1)
+                .tint(.white)
+                .disabled(isRecording)
         }
     }
 
