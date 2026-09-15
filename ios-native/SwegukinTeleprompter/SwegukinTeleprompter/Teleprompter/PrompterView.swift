@@ -624,8 +624,16 @@ private struct ScriptScrollLayer: View {
             y: viewportHeight * 0.20 - engine.offset
         ))
         .scaleEffect(x: mirrorH ? -1 : 1, y: flip)
-        .frame(maxWidth: .infinity, alignment: .top)
+        // A 3000–4000 word script is taller than the screen by a large factor.
+        // Without this clamp the scrolling layer reports its full height to the
+        // surrounding ZStack, which then pushes the toolbar, chips and progress
+        // line far below the visible screen. Fixing the layer to the viewport
+        // (and clipping the overflow) keeps every control on screen no matter
+        // how long the script is.
+        .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
+        .clipped()
         .allowsHitTesting(false)
+
         .onChange(of: highlightIndex) { _, index in
             guard pausesEnabled, let index, let strong = punctuation[index] else {
                 engine.speedScale = 1
