@@ -432,6 +432,11 @@ struct NativeScriptTextView: UIViewRepresentable {
         paragraph.maximumLineHeight = fontSize * lineHeight
         paragraph.paragraphSpacing = 0
         paragraph.lineBreakMode = .byWordWrapping
+        // Web uses `word-break: keep-all` + `line-break: strict`: a Korean word
+        // is never split across lines. Hangul word priority is the native
+        // equivalent; without it TextKit breaks Hangul at any syllable.
+        paragraph.lineBreakStrategy = [.hangulWordPriority, .pushOut]
+        paragraph.hyphenationFactor = 0
         let text = NSMutableAttributedString(string: string, attributes: [
             .font: font,
             .foregroundColor: UIColor(foreground),
