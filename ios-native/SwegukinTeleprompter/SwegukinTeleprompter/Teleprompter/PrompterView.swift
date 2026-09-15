@@ -617,7 +617,12 @@ private struct ScriptScrollLayer: View {
         )
         .onPreferenceChange(ContentHeightKey.self) { height in onContentHeight(height) }
         // Web spacer: 20vh of clear space above the first line.
-        .offset(y: viewportHeight * 0.20 - engine.offset)
+        // A render transform matches the browser's translated text layer and
+        // avoids invalidating the long script's SwiftUI layout every frame.
+        .transformEffect(CGAffineTransform(
+            translationX: 0,
+            y: viewportHeight * 0.20 - engine.offset
+        ))
         .scaleEffect(x: mirrorH ? -1 : 1, y: flip)
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)
