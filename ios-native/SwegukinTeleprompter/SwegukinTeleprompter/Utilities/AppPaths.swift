@@ -21,6 +21,11 @@ enum AppPaths {
 }
 
 enum Format {
+    /// Cinematic aperture shown the way a camera app shows it: f/1.4, f/2.8…
+    static func aperture(_ value: Double) -> String {
+        String(format: "f/%.1f", value)
+    }
+
     static func duration(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds > 0 else { return "0:00" }
         let total = Int(seconds.rounded())

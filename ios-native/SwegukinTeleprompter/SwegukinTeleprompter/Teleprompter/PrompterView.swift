@@ -182,6 +182,9 @@ struct PrompterView: View {
         .task { await begin() }
         .onDisappear { finish() }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
+        .onChange(of: settings.cinematicMode) { _, _ in applyAdvancedCamera() }
+        .onChange(of: settings.simulatedAperture) { _, _ in applyAdvancedCamera() }
+        .onChange(of: settings.appleLog) { _, _ in applyAdvancedCamera() }
         .onChange(of: settings.chunking) { _, enabled in
             let next = ScriptDocument(script.body, chunking: enabled)
             document = next
@@ -438,6 +441,25 @@ struct PrompterView: View {
                                 Toggle("Stabilization", isOn: $settings.stabilization)
                                     .tint(Theme.accent)
                                     .disabled(camera.isRecording)
+
+                                if camera.cinematicSupported {
+                                    Toggle("Cinematic mode", isOn: $settings.cinematicMode)
+                                        .tint(Theme.accent)
+                                        .disabled(camera.isRecording)
+                                    if settings.cinematicMode {
+                                        popRow("Aperture", Format.aperture(settings.simulatedAperture)) {
+                                            Slider(value: $settings.simulatedAperture,
+                                                   in: camera.apertureRange, step: 0.1)
+                                                .disabled(camera.isRecording)
+                                        }
+                                    }
+                                }
+
+                                if camera.appleLogSupported {
+                                    Toggle("Apple Log", isOn: $settings.appleLog)
+                                        .tint(Theme.accent)
+                                        .disabled(camera.isRecording)
+                                }
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -525,11 +547,25 @@ struct PrompterView: View {
             // Permission prompts and capture setup can finish after Back has
             // already removed this screen. Never leave that late session alive.
             if didFinish { camera.stop() }
+            camera.refreshAdvancedCapabilities(front: settings.useFrontCamera)
+            applyAdvancedCamera()
         } catch CameraManager.CameraError.permissionDenied {
             errorMessage = "Camera access is off. Enable it in Settings to record."
         } catch {
             // Non-permission problems stay on the retry chip instead of
             // interrupting with an alert.
+        }
+    }
+
+    /// Cinematic video and Apple Log are applied on top of the existing capture
+    /// setup; unsupported hardware silently keeps the current behaviour.
+    private func applyAdvancedCamera() {
+        guard videoMode, camera.isReady else { return }
+        if camera.cinematicSupported {
+            camera.applyCinematic(enabled: settings.cinematicMode, aperture: settings.simulatedAperture)
+        }
+        if camera.appleLogSupported {
+            camera.applyAppleLog(settings.appleLog)
         }
     }
 

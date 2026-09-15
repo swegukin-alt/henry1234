@@ -28,6 +28,11 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var torchOn = false
     @Published private(set) var usingFront = true
     @Published private(set) var previewRotationAngle: CGFloat = 90
+    /// Runtime-detected extras. False on hardware or OS versions without them,
+    /// in which case the UI hides the rows entirely.
+    @Published private(set) var cinematicSupported = false
+    @Published private(set) var appleLogSupported = false
+    @Published private(set) var apertureRange: ClosedRange<Double> = 1.4...16
 
     let session = AVCaptureSession()
 
@@ -312,6 +317,107 @@ final class CameraManager: NSObject, ObservableObject {
     /// native camera menu never depends on an already-running capture session.
     static func availableModes(front: Bool) -> [CaptureMode] {
         supportedModes(for: pickCamera(front: front))
+    }
+
+    // MARK: - Cinematic video & Apple Log (additive, runtime-detected)
+
+    /// True only when this iPhone and this iOS version genuinely report Apple's
+    /// Cinematic video capture for the selected camera.
+    static func cinematicSupported(front: Bool) -> Bool {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            guard let device = pickCamera(front: front) else { return false }
+            return device.formats.contains { $0.isCinematicVideoCaptureSupported }
+        }
+        #endif
+        return false
+    }
+
+    /// Apple Log is only offered when a capture format lists it.
+    static func appleLogSupported(front: Bool) -> Bool {
+        if #available(iOS 17.2, *) {
+            guard let device = pickCamera(front: front) else { return false }
+            return device.formats.contains { $0.supportedColorSpaces.contains(.appleLog) }
+        }
+        return false
+    }
+
+    /// The aperture values the hardware itself reports — nothing invented.
+    static func apertureRange(front: Bool) -> ClosedRange<Double> {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *), let device = pickCamera(front: front) {
+            let formats = device.formats.filter { $0.isCinematicVideoCaptureSupported }
+            let lows = formats.map { Double($0.minSimulatedAperture) }.filter { $0 > 0 }
+            let highs = formats.map { Double($0.maxSimulatedAperture) }.filter { $0 > 0 }
+            if let low = lows.min(), let high = highs.max(), low < high { return low...high }
+        }
+        #endif
+        return 1.4...16
+    }
+
+    func refreshAdvancedCapabilities(front: Bool) {
+        cinematicSupported = Self.cinematicSupported(front: front)
+        appleLogSupported = Self.appleLogSupported(front: front)
+        apertureRange = Self.apertureRange(front: front)
+    }
+
+    /// Best effort: an unsupported device or OS simply leaves capture untouched.
+    func applyCinematic(enabled: Bool, aperture: Double) {
+        #if compiler(>=6.2)
+        guard #available(iOS 26.0, *) else { return }
+        guard !isRecording, let device else { return }
+        let output = movieOutput
+        let session = self.session
+        sessionQueue.async {
+            if enabled, !device.activeFormat.isCinematicVideoCaptureSupported {
+                let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+                let match = device.formats.first { format in
+                    guard format.isCinematicVideoCaptureSupported else { return false }
+                    let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                    return d.width == dims.width && d.height == dims.height
+                } ?? device.formats.first { $0.isCinematicVideoCaptureSupported }
+                if let match, (try? device.lockForConfiguration()) != nil {
+                    device.activeFormat = match
+                    device.unlockForConfiguration()
+                }
+            }
+            if output.isCinematicVideoCaptureSupported {
+                session.beginConfiguration()
+                output.isCinematicVideoCaptureEnabled = enabled
+                session.commitConfiguration()
+            }
+            if enabled, (try? device.lockForConfiguration()) != nil {
+                let format = device.activeFormat
+                let low = Double(format.minSimulatedAperture)
+                let high = Double(format.maxSimulatedAperture)
+                if low > 0, high > low {
+                    device.simulatedAperture = Float(min(max(aperture, low), high))
+                }
+                device.unlockForConfiguration()
+            }
+        }
+        #endif
+    }
+
+    /// Switches the capture color space to Apple Log and restores the normal
+    /// one when turned off. Incompatible HDR is dropped for the session.
+    func applyAppleLog(_ enabled: Bool) {
+        guard #available(iOS 17.2, *) else { return }
+        guard !isRecording, let device else { return }
+        sessionQueue.async {
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            let spaces = device.activeFormat.supportedColorSpaces
+            if enabled, spaces.contains(.appleLog) {
+                if device.activeFormat.isVideoHDRSupported, device.isVideoHDREnabled {
+                    device.automaticallyAdjustsVideoHDREnabled = false
+                    device.isVideoHDREnabled = false
+                }
+                device.activeColorSpace = .appleLog
+            } else if device.activeColorSpace == .appleLog {
+                device.activeColorSpace = spaces.contains(.P3_D65) ? .P3_D65 : .sRGB
+            }
+            device.unlockForConfiguration()
+        }
     }
 
     // MARK: - Controls
