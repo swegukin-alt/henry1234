@@ -380,9 +380,22 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     func refreshAdvancedCapabilities(front: Bool) {
-        cinematicSupported = Self.cinematicSupported(front: front)
+        let status = Self.cinematicStatus(front: front)
+        cinematicSupported = status.supported
+        cinematicReason = status.reason
         appleLogSupported = Self.appleLogSupported(front: front)
         apertureRange = Self.apertureRange(front: front)
+    }
+
+    /// Stabilization can be toggled while the camera is live; applying it to the
+    /// existing connection avoids restarting capture.
+    func setStabilization(_ on: Bool) {
+        let output = movieOutput
+        sessionQueue.async {
+            guard let connection = output.connection(with: .video),
+                  connection.isVideoStabilizationSupported else { return }
+            connection.preferredVideoStabilizationMode = on ? .auto : .off
+        }
     }
 
     /// Best effort: an unsupported device or OS simply leaves capture untouched.
@@ -395,6 +408,7 @@ final class CameraManager: NSObject, ObservableObject {
         let device = input.device
         let session = self.session
         sessionQueue.async {
+            session.beginConfiguration()
             if enabled, !device.activeFormat.isCinematicVideoCaptureSupported {
                 let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
                 let match = device.formats.first { format in
@@ -403,11 +417,14 @@ final class CameraManager: NSObject, ObservableObject {
                     return d.width == dims.width && d.height == dims.height
                 } ?? device.formats.first { $0.isCinematicVideoCaptureSupported }
                 if let match, (try? device.lockForConfiguration()) != nil {
+                    // A session preset would override a hand-picked format.
+                    if session.canSetSessionPreset(.inputPriority) {
+                        session.sessionPreset = .inputPriority
+                    }
                     device.activeFormat = match
                     device.unlockForConfiguration()
                 }
             }
-            session.beginConfiguration()
             if input.isCinematicVideoCaptureSupported {
                 input.isCinematicVideoCaptureEnabled = enabled
                 if enabled {
@@ -421,6 +438,8 @@ final class CameraManager: NSObject, ObservableObject {
             }
             session.commitConfiguration()
         }
+        #endif
+    }
         #endif
     }
 
