@@ -41,7 +41,7 @@ final class RecordingStore: ObservableObject {
             fileName: url.lastPathComponent,
             createdAt: Date(),
             duration: duration.isFinite ? duration : 0,
-            fileSize: size ?? 0,
+            fileSize: size,
             title: title.isEmpty ? "Take" : title,
             scriptID: scriptID
         )
