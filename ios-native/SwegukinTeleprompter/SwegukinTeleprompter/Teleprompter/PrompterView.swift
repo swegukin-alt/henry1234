@@ -118,7 +118,8 @@ struct PrompterView: View {
                                 // UIKit-style momentum: the script keeps gliding
                                 // after release, while auto-scroll resumes at the
                                 // selected reading speed.
-                                engine.endDrag(velocity: value.velocity.height)
+                                let projectedDistance = value.predictedEndTranslation.height - value.translation.height
+                                engine.endDrag(velocity: projectedDistance / 0.25)
                                 settings.setReadingPosition(Double(engine.offset), for: script.id)
                             }
                     )
