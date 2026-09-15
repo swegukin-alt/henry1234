@@ -181,7 +181,7 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
                          to: drawable.texture,
                          commandBuffer: commandBuffer,
                          bounds: CGRect(origin: .zero, size: target),
-                         colorSpace: CGColorSpaceCreateDeviceRGB())
+                         colorSpace: nil)
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
