@@ -2418,12 +2418,13 @@ function ClipsSheet({
             {busy === "all" ? "Scanning…" : "Recover missing / damaged recordings"}
           </button>
         </div>
+        )}
         {clips.length > 0 && (
           <div className="flex gap-2 border-t border-white/10 p-3">
             <button onClick={() => { if (confirm("Delete all clips for this script?")) onDeleteAll(); }} className="rounded-full border border-white/15 px-4 py-2 text-sm text-neutral-300">
               Delete all
             </button>
-            <div className="flex-1 text-right text-xs text-neutral-400">Use the download button beside a video to save it.</div>
+            <div className="flex-1 text-right text-xs text-neutral-400">{native ? "Tap the arrow beside a video to save or share it." : "Use the download button beside a video to save it."}</div>
           </div>
         )}
       </div>
@@ -2482,10 +2483,10 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-             <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
-               <Download className="h-5 w-5" /> Save video
+              <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+                <Download className="h-5 w-5" /> {native ? "Save to camera roll" : "Save video"}
             </button>
-            {broken.has(playingClip.id) && (
+            {!native && broken.has(playingClip.id) && (
               <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/70 bg-black/70 px-4 py-2 text-sm font-bold text-amber-300 backdrop-blur-sm disabled:opacity-50">
                 {busy === playingClip.id ? "Repairing…" : "Repair this take"}
               </button>
