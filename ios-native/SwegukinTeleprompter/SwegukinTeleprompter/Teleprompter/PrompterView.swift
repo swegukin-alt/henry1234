@@ -58,11 +58,6 @@ struct PrompterView: View {
     /// mirroring is intentionally limited to normal teleprompter mode.
     private var interfaceFlip: CGFloat { !videoMode && settings.mirrorV ? -1 : 1 }
 
-    /// Rec. 709 monitoring preview: only while Apple Log is genuinely active.
-    private var viewAssistActive: Bool {
-        videoMode && settings.appleLog && settings.logViewAssist && camera.appleLogSupported
-    }
-
     var body: some View {
         GeometryReader { geo in
             ZStack {
@@ -74,16 +69,6 @@ struct PrompterView: View {
                         onAttach: { camera.attach(previewLayer: $0) }
                     )
                     .ignoresSafeArea()
-                    .overlay {
-                        // Monitoring-only Rec. 709 view of the Apple Log image.
-                        // Never affects the file being recorded.
-                        if viewAssistActive {
-                            LogAssistPreview(source: camera.assistFrames,
-                                             mirrored: camera.usingFront)
-                                .ignoresSafeArea()
-                                .allowsHitTesting(false)
-                        }
-                    }
                     .overlay {
                         // Attached to the preview so UIKit can never composite
                         // its camera layer above the scrim.
@@ -198,11 +183,7 @@ struct PrompterView: View {
         .task { await begin() }
         .onDisappear { finish() }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
-        .onChange(of: settings.appleLog) { _, _ in
-            applyAdvancedCamera()
-            camera.setViewAssist(viewAssistActive)
-        }
-        .onChange(of: settings.logViewAssist) { _, _ in camera.setViewAssist(viewAssistActive) }
+        .onChange(of: settings.appleLog) { _, _ in applyAdvancedCamera() }
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.chunking) { _, enabled in
             let next = ScriptDocument(script.body, chunking: enabled)
@@ -430,7 +411,9 @@ struct PrompterView: View {
                                     Task {
                                         await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
                                                                   hdr: settings.hdr, stabilization: settings.stabilization)
-                                        camera.refreshAdvancedCapabilities(front: camera.usingFront)
+                                        camera.refreshAdvancedCapabilities(front: camera.usingFront,
+                                                                           quality: settings.quality,
+                                                                           fps: settings.frameRate)
                                         applyAdvancedCamera()
                                     }
                                     settings.useFrontCamera = !camera.usingFront
@@ -480,15 +463,6 @@ struct PrompterView: View {
                                         .font(.caption2)
                                         .foregroundStyle(.white.opacity(0.45))
                                 }
-                                if settings.appleLog && camera.appleLogSupported {
-                                    Toggle("View assist (Rec. 709)", isOn: $settings.logViewAssist)
-                                        .tint(Theme.accent)
-                                    Text("Preview only — the recording stays pure Apple Log.")
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.45))
-                                }
-
-
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -576,7 +550,9 @@ struct PrompterView: View {
             // Permission prompts and capture setup can finish after Back has
             // already removed this screen. Never leave that late session alive.
             if didFinish { camera.stop() }
-            camera.refreshAdvancedCapabilities(front: settings.useFrontCamera)
+            camera.refreshAdvancedCapabilities(front: settings.useFrontCamera,
+                                               quality: settings.quality,
+                                               fps: settings.frameRate)
             applyAdvancedCamera()
         } catch CameraManager.CameraError.permissionDenied {
             errorMessage = "Camera access is off. Enable it in Settings to record."
@@ -591,18 +567,18 @@ struct PrompterView: View {
     private func applyAdvancedCamera() {
         guard videoMode, camera.isReady else { return }
         if camera.appleLogSupported {
-            camera.applyAppleLog(settings.appleLog)
+            camera.applyAppleLog(settings.appleLog,
+                                 quality: settings.quality,
+                                 fps: settings.frameRate)
         } else if settings.appleLog {
             settings.appleLog = false
         }
-        camera.setViewAssist(viewAssistActive)
     }
 
 
     private func finish() {
         guard !didFinish else { return }
         didFinish = true
-        camera.setViewAssist(false)
         engine.pause()
         voice.stop()
         if camera.isRecording {

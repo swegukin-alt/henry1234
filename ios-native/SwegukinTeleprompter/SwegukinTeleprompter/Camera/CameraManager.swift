@@ -16,8 +16,11 @@ struct CaptureMode: Identifiable, Hashable {
 }
 
 /// Small holder used from the capture queue.
-final class CaptureFormatStore {
+final class AppleLogStateStore {
     var previous: AVCaptureDevice.Format?
+    var previousColorSpace: AVCaptureColorSpace?
+    var previousAutomaticWideColor = true
+    var deviceUniqueID: String?
 }
 
 @MainActor
@@ -47,10 +50,7 @@ final class CameraManager: NSObject, ObservableObject {
     private let movieOutput = AVCaptureMovieFileOutput()
     private var device: AVCaptureDevice? { videoInput?.device }
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
-    /// Format the camera used before Apple Log was switched on. Held in a plain
-    /// reference box so the capture queue can read it without touching the
-    /// main-actor isolated manager.
-    private let formatStore = CaptureFormatStore()
+    private let appleLogState = AppleLogStateStore()
 
     private weak var attachedPreviewLayer: AVCaptureVideoPreviewLayer?
     private var timer: Timer?
@@ -140,55 +140,6 @@ final class CameraManager: NSObject, ObservableObject {
     func refreshRotation() {
         let angle = Self.interfaceRotationAngle()
         if angle != previewRotationAngle { previewRotationAngle = angle }
-        applyAssistRotation()
-    }
-
-    // MARK: - Apple Log view assist (monitoring only)
-
-    /// Live frames for the Rec. 709 monitoring preview. The recording pipeline
-    /// is untouched: the movie file keeps the camera's pure Apple Log signal.
-    let assistFrames = LogAssistFrameSource()
-    private let assistOutput = AVCaptureVideoDataOutput()
-    private let assistQueue = DispatchQueue(label: "camera.viewassist")
-    private var assistActive = false
-
-    func setViewAssist(_ on: Bool) {
-        guard on != assistActive else { return }
-        assistActive = on
-        let session = self.session
-        let output = assistOutput
-        let delegate = assistFrames
-        let queue = assistQueue
-        let angle = previewRotationAngle
-        sessionQueue.async {
-            session.beginConfiguration()
-            if on {
-                output.alwaysDiscardsLateVideoFrames = true
-                output.setSampleBufferDelegate(delegate, queue: queue)
-                if !session.outputs.contains(output), session.canAddOutput(output) {
-                    session.addOutput(output)
-                }
-                if let connection = output.connection(with: .video),
-                   connection.isVideoRotationAngleSupported(angle) {
-                    connection.videoRotationAngle = angle
-                }
-            } else {
-                output.setSampleBufferDelegate(nil, queue: nil)
-                if session.outputs.contains(output) { session.removeOutput(output) }
-            }
-            session.commitConfiguration()
-        }
-    }
-
-    private func applyAssistRotation() {
-        guard assistActive else { return }
-        let output = assistOutput
-        let angle = previewRotationAngle
-        sessionQueue.async {
-            guard let connection = output.connection(with: .video),
-                  connection.isVideoRotationAngleSupported(angle) else { return }
-            connection.videoRotationAngle = angle
-        }
     }
 
 
@@ -215,6 +166,10 @@ final class CameraManager: NSObject, ObservableObject {
     private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) -> Bool {
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
+        session.automaticallyConfiguresCaptureDeviceForWideColor = true
+        appleLogState.previous = nil
+        appleLogState.previousColorSpace = nil
+        appleLogState.deviceUniqueID = nil
 
         for input in session.inputs { session.removeInput(input) }
         videoInput = nil
@@ -386,47 +341,40 @@ final class CameraManager: NSObject, ObservableObject {
     /// reason rather than pretending to do something.
     static let cinematicUnavailableReason = "Requires Apple's Cinematic capture pipeline."
 
-    /// True when the format delivers 10-bit samples — the '420f' (full-range) or
-    /// 'x420' (video-range) 4:2:0 YpCbCr pixel formats Apple Log is written in.
-    static func isTenBitFormat(_ format: AVCaptureDevice.Format) -> Bool {
-        let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
-        return subType == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
-            || subType == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-    }
-
-    /// Every format on the camera that reports Apple Log in its supported
-    /// colour spaces, best (10-bit, highest resolution) first.
-    static func appleLogFormats(for device: AVCaptureDevice) -> [AVCaptureDevice.Format] {
-        device.formats
-            .filter { $0.supportedColorSpaces.contains(.appleLog) }
-            .sorted { lhs, rhs in
-                let l10 = isTenBitFormat(lhs), r10 = isTenBitFormat(rhs)
-                if l10 != r10 { return l10 }
-                let l = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
-                let r = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
-                return Int(l.width) * Int(l.height) > Int(r.width) * Int(r.height)
+    /// Returns a format that explicitly advertises Apple's documented Log color
+    /// space and supports the selected dimensions and frame rate.
+    private static func appleLogFormat(for device: AVCaptureDevice,
+                                       quality: String,
+                                       fps: Int) -> AVCaptureDevice.Format? {
+        let target = dimensions(for: quality)
+        return device.formats
+            .filter { format in
+                let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return Int(dimensions.width) == target.width
+                    && Int(dimensions.height) == target.height
+                    && format.supportedColorSpaces.contains(.appleLog)
+                    && format.videoSupportedFrameRateRanges.contains {
+                        Double(fps) >= $0.minFrameRate && Double(fps) <= $0.maxFrameRate
+                    }
             }
+            .max { $0.videoFieldOfView < $1.videoFieldOfView }
     }
 
-    /// Apple Log is only offered when the selected camera actually lists it.
-    static func appleLogStatus(front: Bool) -> (supported: Bool, reason: String) {
+    static func appleLogStatus(front: Bool, quality: String, fps: Int) -> (supported: Bool, reason: String) {
         guard let device = pickCamera(front: front) else {
             return (false, "No camera available.")
         }
-        if !appleLogFormats(for: device).isEmpty { return (true, "") }
-        if let other = pickCamera(front: !front), !appleLogFormats(for: other).isEmpty {
+        if appleLogFormat(for: device, quality: quality, fps: fps) != nil { return (true, "") }
+        if let other = pickCamera(front: !front),
+           appleLogFormat(for: other, quality: quality, fps: fps) != nil {
             return (false, front ? "Only available on the back camera."
                                  : "Only available on the front camera.")
         }
-        return (false, "Apple Log is not supported on this camera.")
+        return (false, "Apple Log is not supported for this camera mode.")
     }
 
-    static func appleLogSupported(front: Bool) -> Bool {
-        appleLogStatus(front: front).supported
-    }
-
-    func refreshAdvancedCapabilities(front: Bool) {
-        let status = Self.appleLogStatus(front: front)
+    func refreshAdvancedCapabilities(front: Bool, quality: String, fps: Int) {
+        let status = Self.appleLogStatus(front: front, quality: quality, fps: fps)
         appleLogSupported = status.supported
         appleLogReason = status.reason
     }
@@ -442,15 +390,13 @@ final class CameraManager: NSObject, ObservableObject {
         }
     }
 
-    /// Apple Log is a capture colour space (`AVCaptureColorSpace.appleLog`).
-    /// A device only accepts it while an Apple Log capable format is active, so
-    /// the format is switched first and restored when the toggle goes off.
-    /// Nothing is graded: the movie file receives the camera's own log signal.
-    func applyAppleLog(_ enabled: Bool) {
+    /// Enables Apple's camera-native Log color space. No Core Image processing,
+    /// LUT, or custom pixel conversion is involved in capture or preview.
+    func applyAppleLog(_ enabled: Bool, quality: String, fps: Int) {
         guard !isRecording, let device = videoInput?.device else { return }
         let session = self.session
-        let store = formatStore
-        let logFormats = Self.appleLogFormats(for: device)
+        let state = appleLogState
+        let logFormat = Self.appleLogFormat(for: device, quality: quality, fps: fps)
         sessionQueue.async {
             session.beginConfiguration()
             defer { session.commitConfiguration() }
@@ -458,33 +404,48 @@ final class CameraManager: NSObject, ObservableObject {
             defer { device.unlockForConfiguration() }
 
             if enabled {
-                if !device.activeFormat.supportedColorSpaces.contains(.appleLog) {
-                    let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-                    let match = logFormats.first { format in
-                        let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                        return d.width == dims.width && d.height == dims.height
-                    } ?? logFormats.first
-                    guard let match else { return }
-                    // A session preset would override a hand-picked format.
-                    if session.canSetSessionPreset(.inputPriority) {
-                        session.sessionPreset = .inputPriority
-                    }
-                    store.previous = device.activeFormat
-                    device.activeFormat = match
+                guard let logFormat else { return }
+                if state.deviceUniqueID != device.uniqueID {
+                    state.previous = nil
+                    state.previousColorSpace = nil
+                    state.deviceUniqueID = device.uniqueID
                 }
-                // Apple Log and video HDR are mutually exclusive.
+                if state.previous == nil {
+                    state.previous = device.activeFormat
+                    state.previousColorSpace = device.activeColorSpace
+                    state.previousAutomaticWideColor = session.automaticallyConfiguresCaptureDeviceForWideColor
+                }
+                session.automaticallyConfiguresCaptureDeviceForWideColor = false
+                if session.canSetSessionPreset(.inputPriority) {
+                    session.sessionPreset = .inputPriority
+                }
+                device.activeFormat = logFormat
+                let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
+                device.activeVideoMinFrameDuration = frameDuration
+                device.activeVideoMaxFrameDuration = frameDuration
                 if device.activeFormat.isVideoHDRSupported, device.isVideoHDREnabled {
                     device.automaticallyAdjustsVideoHDREnabled = false
                     device.isVideoHDREnabled = false
                 }
                 device.activeColorSpace = .appleLog
-            } else {
-                if let previous = store.previous {
-                    device.activeFormat = previous
-                    store.previous = nil
+                if movieOutput.availableVideoCodecTypes.contains(.hevc),
+                   let connection = movieOutput.connection(with: .video) {
+                    movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc],
+                                                  for: connection)
                 }
-                let spaces = device.activeFormat.supportedColorSpaces
-                device.activeColorSpace = spaces.contains(.P3_D65) ? .P3_D65 : .sRGB
+            } else {
+                if state.deviceUniqueID == device.uniqueID,
+                   let previous = state.previous {
+                    device.activeFormat = previous
+                    if let previousColorSpace = state.previousColorSpace,
+                       previous.supportedColorSpaces.contains(previousColorSpace) {
+                        device.activeColorSpace = previousColorSpace
+                    }
+                }
+                session.automaticallyConfiguresCaptureDeviceForWideColor = state.previousAutomaticWideColor
+                state.previous = nil
+                state.previousColorSpace = nil
+                state.deviceUniqueID = nil
             }
         }
     }

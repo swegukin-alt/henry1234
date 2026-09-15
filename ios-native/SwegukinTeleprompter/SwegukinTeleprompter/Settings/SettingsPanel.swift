@@ -79,21 +79,17 @@ struct SettingsPanel: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.white.opacity(0.45))
                     }
-                    if settings.appleLog && appleLogSupported {
-                        Toggle("View assist (Rec. 709)", isOn: $settings.logViewAssist)
-                        Text("Preview only. The recording stays pure Apple Log — no LUT is burnt in.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
                 }
                 .animation(.easeInOut(duration: 0.2), value: settings.appleLog)
             }
         }
         .padding(16)
         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
-        .task(id: settings.useFrontCamera) {
+        .task(id: "\(settings.useFrontCamera)-\(settings.quality)-\(settings.frameRate)") {
             discoveredModes = CameraManager.availableModes(front: settings.useFrontCamera)
-            let log = CameraManager.appleLogStatus(front: settings.useFrontCamera)
+            let log = CameraManager.appleLogStatus(front: settings.useFrontCamera,
+                                                   quality: settings.quality,
+                                                   fps: settings.frameRate)
             appleLogSupported = log.supported
             appleLogReason = log.reason
             if !appleLogSupported { settings.appleLog = false }
