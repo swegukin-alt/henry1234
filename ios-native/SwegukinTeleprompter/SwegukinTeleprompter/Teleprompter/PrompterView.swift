@@ -409,8 +409,12 @@ struct PrompterView: View {
 
                             if videoMode {
                                 Button {
-                                    Task { await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
-                                                                     hdr: settings.hdr, stabilization: settings.stabilization) }
+                                    Task {
+                                        await camera.switchCamera(quality: settings.quality, fps: settings.frameRate,
+                                                                  hdr: settings.hdr, stabilization: settings.stabilization)
+                                        camera.refreshAdvancedCapabilities(front: camera.usingFront)
+                                        applyAdvancedCamera()
+                                    }
                                     settings.useFrontCamera = !camera.usingFront
                                 } label: {
                                     Text(camera.usingFront ? "Front camera" : "Back camera").frame(maxWidth: .infinity)
