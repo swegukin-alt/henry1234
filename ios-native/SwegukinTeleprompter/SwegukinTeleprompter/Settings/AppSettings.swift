@@ -33,6 +33,9 @@ final class AppSettings: ObservableObject {
     @Published var cinematicMode: Bool { didSet { write(cinematicMode, "cinematicMode") } }
     @Published var simulatedAperture: Double { didSet { write(simulatedAperture, "simulatedAperture") } }
     @Published var appleLog: Bool { didSet { write(appleLog, "appleLog") } }
+    /// Monitoring only: shows a Rec. 709 preview of the log image on screen.
+    /// The recorded file always stays pure Apple Log.
+    @Published var logViewAssist: Bool { didSet { write(logViewAssist, "logViewAssist") } }
     @Published var lastActiveScriptID: String? { didSet { defaults.set(lastActiveScriptID, forKey: "lastActiveScriptID") } }
 
     init() {
@@ -71,6 +74,7 @@ final class AppSettings: ObservableObject {
         cinematicMode = b("cinematicMode", false)
         simulatedAperture = d("simulatedAperture", 2.8)
         appleLog = b("appleLog", false)
+        logViewAssist = b("logViewAssist", false)
         lastActiveScriptID = defaults.string(forKey: "lastActiveScriptID")
     }
 
