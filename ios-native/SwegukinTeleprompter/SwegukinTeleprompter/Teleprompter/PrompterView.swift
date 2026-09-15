@@ -262,39 +262,39 @@ struct PrompterView: View {
 
     private var bottomToolbar: some View {
         HStack(spacing: 0) {
-            iconButton("chevron.left", tint: Theme.accent, size: 22) { exit() }
+            iconButton("chevron.left", tint: Color(red: 0.22, green: 0.74, blue: 0.97), size: 24) { exit() }
             Spacer(minLength: 0)
             if !videoMode {
-                iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75)) {
+                iconButton("arrow.up.arrow.down", tint: settings.mirrorV ? Theme.accent : .white.opacity(0.75), size: 24) {
                     settings.mirrorV.toggle()
                 }
                 Spacer(minLength: 0)
             }
-            iconButton(engine.isPlaying ? "pause.fill" : "play.fill", tint: Theme.accent, size: 26) { togglePlay() }
+            iconButton(engine.isPlaying ? "pause.fill" : "play.fill", tint: Color(red: 0.22, green: 0.74, blue: 0.97), size: 28) { togglePlay() }
             Spacer(minLength: 0)
             if videoMode {
                 Button {
                     camera.isRecording ? stopRecording() : startRecording()
                 } label: {
                     Image(systemName: camera.isRecording ? "stop.fill" : "circle.fill")
-                        .font(.system(size: camera.isRecording ? 18 : 22))
+                        .font(.system(size: camera.isRecording ? 20 : 24))
                         .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
+                        .frame(width: toolbarButtonSize, height: toolbarButtonSize)
                         .background(camera.isRecording ? Color.red : Color.red.opacity(0.9), in: Circle())
                 }
                 .disabled((!camera.isReady && !camera.isRecording) || saving)
                 .opacity((!camera.isReady && !camera.isRecording) || saving ? 0.4 : 1)
                 Spacer(minLength: 0)
             }
-            iconButton("slider.horizontal.3") { toggle(.settings) }
+            iconButton("slider.horizontal.3", size: 24) { toggle(.settings) }
             Spacer(minLength: 0)
-            iconButton("textformat") { toggle(.size) }
+            iconButton("textformat", size: 24) { toggle(.size) }
             Spacer(minLength: 0)
             Button { toggle(.more) } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
+                    .frame(width: toolbarButtonSize, height: toolbarButtonSize)
                     .background(Theme.accent.opacity(0.9), in: Circle())
             }
         }
@@ -312,12 +312,17 @@ struct PrompterView: View {
             .first ?? 0
     }
 
+    /// The web toolbar uses 40px on compact phones and 44px when space permits.
+    private var toolbarButtonSize: CGFloat {
+        UIScreen.main.bounds.width >= 430 ? 44 : 40
+    }
+
     private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), size: CGFloat = 20, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: 42, height: 42)
+                .frame(width: toolbarButtonSize, height: toolbarButtonSize)
         }
     }
 
