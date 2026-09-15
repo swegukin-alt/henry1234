@@ -617,6 +617,7 @@ struct PrompterView: View {
     private func finish() {
         guard !didFinish else { return }
         didFinish = true
+        camera.setViewAssist(false)
         engine.pause()
         voice.stop()
         if camera.isRecording {
