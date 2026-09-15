@@ -50,6 +50,15 @@ export type CameraDeviceCapabilities = {
   hdr: boolean;
   stabilization: StabilizationMode[];
   maxZoom: number;
+  /** Valid combinations reported by AVCaptureDevice.Format on this camera. */
+  modes: Array<{
+    quality: CameraQuality;
+    width: number;
+    height: number;
+    fps: number;
+    hdr: boolean;
+    stabilization: StabilizationMode[];
+  }>;
 };
 
 export type PreviewHandle = {
@@ -65,6 +74,8 @@ export type RecorderOptions = {
   videoBitsPerSecond: number;
   audioBitsPerSecond: number;
   timesliceMs: number;
+  /** Native only: stable filename for the one on-disk take. */
+  recordingId?: string;
 };
 
 /** A recording handle shaped so both MediaRecorder and a native file recorder fit. */

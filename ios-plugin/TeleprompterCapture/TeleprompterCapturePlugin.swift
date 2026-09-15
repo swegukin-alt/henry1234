@@ -76,13 +76,19 @@ public class TeleprompterCapturePlugin: CAPPlugin, CAPBridgedPlugin {
                                                          fps: fps,
                                                          hdr: hdr,
                                                          stabilization: stabilization)
-                // Follow rotations so the picture always fills the screen.
-                NotificationCenter.default.addObserver(forName: UIDevice.orientationDidChangeNotification,
-                                                       object: nil, queue: .main) { [weak self] _ in
-                    guard let self = self, let container = self.webView?.superview else { return }
-                    self.capture.layoutPreview(in: container)
+                self.capture.startSession { running in
+                    guard running else {
+                        call.reject("The native camera session did not start.")
+                        return
+                    }
+                    // Follow rotations so the picture always fills the screen.
+                    NotificationCenter.default.addObserver(forName: UIDevice.orientationDidChangeNotification,
+                                                           object: nil, queue: .main) { [weak self] _ in
+                        guard let self = self, let container = self.webView?.superview else { return }
+                        self.capture.layoutPreview(in: container)
+                    }
+                    call.resolve(["width": size.width, "height": size.height])
                 }
-                call.resolve(["width": size.width, "height": size.height])
             } catch {
                 call.reject(error.localizedDescription)
             }
@@ -124,8 +130,7 @@ public class TeleprompterCapturePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func startRecording(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             do {
-                try self.capture.startRecording(videoBitrate: call.getInt("videoBitrate"),
-                                                audioBitrate: call.getInt("audioBitrate"))
+                try self.capture.startRecording(recordingId: call.getString("recordingId"))
                 call.resolve()
             } catch {
                 call.reject(error.localizedDescription)
@@ -142,7 +147,8 @@ public class TeleprompterCapturePlugin: CAPPlugin, CAPBridgedPlugin {
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
             call.resolve([
                 "path": url.absoluteString,
-                "mimeType": "video/mp4",
+                "relativePath": "recordings/\(url.lastPathComponent)",
+                "mimeType": "video/quicktime",
                 "sizeBytes": size ?? 0
             ])
         }

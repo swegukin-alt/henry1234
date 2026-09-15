@@ -581,10 +581,13 @@ function Prompter({
   // Inside the iPhone app the camera, the microphone and the recording are
   // native: no getUserMedia, no MediaRecorder, no blobs. Detected after mount
   // so the server-rendered markup and the first client render always match.
-  const [nativeApp, setNativeApp] = useState(false);
+  // Unknown until the WebView hydrates. Neither camera implementation may
+  // start during that gap: otherwise Capacitor briefly executes the web camera
+  // before this flips to true on a real iPhone.
+  const [nativeApp, setNativeApp] = useState<boolean | null>(null);
   useEffect(() => { setNativeApp(isNative()); }, []);
   const nativeAppRef = useRef(false);
-  useEffect(() => { nativeAppRef.current = nativeApp; }, [nativeApp]);
+  useEffect(() => { nativeAppRef.current = nativeApp === true; }, [nativeApp]);
   // Retry counter + technical detail, so a native camera problem is visible
   // and recoverable without restarting the app.
   const [camRetry, setCamRetry] = useState(0);
@@ -782,7 +785,7 @@ function Prompter({
   // Native iOS has no MediaStream to watch — the capture session owns the mic
   // and reports its own route changes through the audio service.
   useEffect(() => {
-    if (!videoMode || nativeApp) return;
+    if (!videoMode || nativeApp !== false) return;
     const check = () => {
       const stream = streamRef.current;
       if (!stream) return;
@@ -798,7 +801,7 @@ function Prompter({
   // Native camera: a real AVFoundation preview layer behind the WebView. The
   // teleprompter HTML stays exactly as it is and simply sits on top of it.
   useEffect(() => {
-    if (!videoMode || !nativeApp) return;
+    if (!videoMode || nativeApp !== true) return;
     let cancelled = false;
     (async () => {
       const perm = await requestPermission("camera");
@@ -809,12 +812,36 @@ function Prompter({
       }
       await requestPermission("microphone");
       if (cancelled) return;
+      const hardware = await cameraDeviceCapabilities();
+      if (cancelled) return;
+      if (!hardware || hardware.modes.length === 0) {
+        setCamError("The iPhone camera did not report any usable video modes.");
+        void cameraDiagnostics().then((d) => { if (!cancelled) setCamDiag(d); });
+        return;
+      }
+      setCamHw(hardware);
+      const exact = hardware.modes.find((m) => m.quality === quality && m.fps === camSettings.fps && m.hdr === camSettings.hdr);
+      const selected = exact ?? hardware.modes.find((m) => m.quality === quality && m.fps === camSettings.fps)
+        ?? hardware.modes.find((m) => m.quality === quality)
+        ?? hardware.modes[0];
+      if (!selected) {
+        setCamError("The iPhone camera did not report a usable video mode.");
+        return;
+      }
+      if (!exact) {
+        setQuality(selected.quality);
+        setCamSettings((current) => ({ ...current, fps: selected.fps, hdr: selected.hdr }));
+        return;
+      }
+      const stabilization = selected.stabilization.includes(camSettings.stabilization)
+        ? camSettings.stabilization
+        : selected.stabilization[0] ?? "off";
       const res = await startCamera({
-        quality,
+        quality: selected.quality,
         facing: "front",
-        fps: camSettings.fps,
-        hdr: camSettings.hdr,
-        stabilization: camSettings.stabilization,
+        fps: selected.fps,
+        hdr: selected.hdr,
+        stabilization,
       });
       if (cancelled) {
         if (res.ok) await stopCamera(res.value);
@@ -829,7 +856,6 @@ function Prompter({
       void cameraDiagnostics().then((d) => { if (!cancelled) setCamDiag(d); });
       setCamReady(true);
       setCamError(null);
-      void cameraDeviceCapabilities().then((hw) => { if (!cancelled) setCamHw(hw); });
       const mic = await pickBestMicrophone();
       if (cancelled) return;
       setMicLive(true);
@@ -858,7 +884,7 @@ function Prompter({
   // stack has to be see-through while video mode is open — otherwise the black
   // page paints over the camera and nothing but the words is visible.
   useEffect(() => {
-    if (!videoMode || !nativeApp) return;
+    if (!videoMode || nativeApp !== true) return;
     const root = document.documentElement;
     root.classList.add("native-camera");
     return () => { root.classList.remove("native-camera"); };
@@ -867,7 +893,7 @@ function Prompter({
   // Native lifecycle: if iOS suspends the app mid-take, the recording has
   // genuinely stopped. Close the file, keep it, and show the true state.
   useEffect(() => {
-    if (!videoMode || !nativeApp) return;
+    if (!videoMode || nativeApp !== true) return;
     return onLifecycleChange((state) => {
       if (state !== "background") return;
       if (nativeRecRef.current) void finishNativeRecordingRef.current?.();
@@ -880,7 +906,7 @@ function Prompter({
   useEffect(() => {
     // Browser camera only. Inside the iPhone app the native effect above owns
     // the camera and getUserMedia is never called.
-    if (!videoMode || nativeApp) return;
+    if (!videoMode || nativeApp !== false) return;
     let cancelled = false;
     const getConstraints = (q: Quality): MediaStreamConstraints => {
       const dims = q === "4k" ? { width: 3840, height: 2160 }
@@ -1096,7 +1122,6 @@ function Prompter({
     setControlsVisible(true);
     // The file is already on disk — closing it is instant, so no progress
     // panel appears unless iOS genuinely takes a moment.
-    const slow = window.setTimeout(() => setFinalizing({ done: 0, total: 1, phase: "assembling" }), 700);
     try {
       const { mimeType, filePath } = await rec.stop();
       if (!filePath) throw new Error("The recording finished but iOS did not hand back the file.");
@@ -1114,11 +1139,9 @@ function Prompter({
       );
       if (!clip) throw new Error("The take was filmed but could not be added to the library.");
       setClips((cs) => [clip, ...cs.filter((c) => c.id !== clip.id)]);
-      window.clearTimeout(slow);
       setFinalizing(null);
       haptic("record-stop");
     } catch (e) {
-      window.clearTimeout(slow);
       setFinalizing(null);
       const msg = (e as { message?: string })?.message || "The take could not be stored.";
       setWriteWarn(true);
@@ -1144,16 +1167,15 @@ function Prompter({
       haptic("error");
       return;
     }
-    // Match the iOS Camera app's own data rates: 60 fps and HDR both need
-    // considerably more bitrate to stay artefact-free.
-    let bps = quality === "4k" ? 45_000_000 : quality === "1080p" ? 14_000_000 : 6_000_000;
-    if (camSettings.fps >= 60) bps = Math.round(bps * 1.7);
-    if (camSettings.hdr) bps = Math.round(bps * 1.25);
+    const takeId = Math.random().toString(36).slice(2, 12);
     recordingRef.current = true;
     const res = await startNativeCapture(handle, {
-      videoBitsPerSecond: bps,
-      audioBitsPerSecond: 192_000,
+      // AVFoundation chooses the actual codec, bitrate, audio format and
+      // container for the selected hardware mode. No web-style format guesses.
+      videoBitsPerSecond: 0,
+      audioBitsPerSecond: 0,
       timesliceMs: 1000,
+      recordingId: takeId,
     });
     if (!res.ok) {
       recordingRef.current = false;
@@ -1163,7 +1185,7 @@ function Prompter({
     }
     nativeRecRef.current = res.value;
     nativeTakeRef.current = {
-      id: Math.random().toString(36).slice(2, 12),
+      id: takeId,
       startedAt: Date.now(),
       width: handle.width,
       height: handle.height,
@@ -1854,7 +1876,7 @@ function Prompter({
       {/* Camera preview — behind everything in video mode. Mirrored for natural feel; recorded stream is NOT mirrored. */}
       {videoMode && (
         <>
-          {!nativeApp && (
+          {nativeApp === false && (
             <video
               ref={videoElRef}
               className="absolute inset-0 h-full w-full object-cover"
@@ -1867,7 +1889,7 @@ function Prompter({
           {/* Dark scrim so the script stays readable over the video */}
           <div className="pointer-events-none absolute inset-0 bg-black/45" />
           {camError && (
-            <div className="absolute inset-0 z-40 grid place-items-center bg-black/80 p-6 text-center text-sm text-neutral-200">
+              <div className="absolute inset-x-3 top-3 z-40 rounded-lg bg-black/85 p-4 text-center text-sm text-neutral-200">
               <div>
                 <div className="mb-2 font-bold text-amber-300">Camera unavailable</div>
                 <div className="mb-3 text-neutral-300">{camError}</div>
@@ -1968,46 +1990,27 @@ function Prompter({
           {videoMode && (
             <div className="mt-3">
               <div className="mb-1 text-xs text-neutral-300">Resolution</div>
-              <div className="flex gap-2">
-                {(["720p", "1080p", "4k"] as const).map((q) => {
-                  const unsupported = !!camHw && !camHw.resolutions.includes(q);
-                  return (
-                    <button key={q} disabled={recording || unsupported} onClick={() => setQuality(q)}
-                      className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${quality === q ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                      {q === "4k" ? "4K" : q}
-                    </button>
-                  );
-                })}
-              </div>
-
               {nativeApp ? (
                 <>
-                  <div className="mt-3 mb-1 text-xs text-neutral-300">Frame rate</div>
-                  <div className="flex gap-2">
-                    {[30, 60].map((f) => {
-                      const unsupported = !!camHw && !camHw.frameRates.includes(f);
+                  <div className="grid grid-cols-2 gap-2">
+                    {(camHw?.modes ?? []).map((mode) => {
+                      const active = quality === mode.quality && camSettings.fps === mode.fps && camSettings.hdr === mode.hdr;
+                      const label = `${mode.quality === "4k" ? "4K" : mode.quality} · ${mode.fps}${mode.hdr ? " · HDR" : ""}`;
                       return (
-                        <button key={f} disabled={recording || unsupported}
-                          onClick={() => setCamSettings((c) => ({ ...c, fps: f }))}
-                          className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${camSettings.fps === f ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
-                          {f} fps
+                        <button key={`${mode.quality}-${mode.fps}-${mode.hdr}`} disabled={recording}
+                          onClick={() => { setQuality(mode.quality); setCamSettings((c) => ({ ...c, fps: mode.fps, hdr: mode.hdr })); }}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${active ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-300"}`}>
+                          {label}
                         </button>
                       );
                     })}
                   </div>
 
-                  <button
-                    disabled={recording || (!!camHw && !camHw.hdr)}
-                    onClick={() => setCamSettings((c) => ({ ...c, hdr: !c.hdr }))}
-                    className={`mt-2 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-40 ${camSettings.hdr ? "border-amber-400 text-amber-300" : "border-white/15 text-neutral-200"}`}>
-                    <span className="flex-1">HDR video</span>
-                    <span className="text-[11px] opacity-70">{camHw && !camHw.hdr ? "Unsupported" : camSettings.hdr ? "On" : "Off"}</span>
-                  </button>
-
                   <div className="mt-3 mb-1 text-xs text-neutral-300">Stabilisation</div>
                   <div className="flex gap-2">
                     {(["off", "standard", "cinematic", "auto"] as const).map((m) => {
-                      const unsupported = !!camHw && !camHw.stabilization.includes(m);
+                      const activeMode = camHw?.modes.find((mode) => mode.quality === quality && mode.fps === camSettings.fps && mode.hdr === camSettings.hdr);
+                      const unsupported = !!camHw && !(activeMode?.stabilization ?? camHw.stabilization).includes(m);
                       return (
                         <button key={m} disabled={recording || unsupported}
                           onClick={() => setCamSettings((c) => ({ ...c, stabilization: m }))}
@@ -2020,7 +2023,7 @@ function Prompter({
                   <p className="mt-2 text-[11px] text-neutral-400">
                     {camHw
                       ? "Only modes this iPhone's camera can actually deliver are selectable."
-                      : "Reading what this camera supports…"}
+                      : "Waiting for the native camera…"}
                   </p>
                 </>
               ) : (

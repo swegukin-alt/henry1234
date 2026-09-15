@@ -44,7 +44,7 @@ type IndexEntry = ClipMeta & { file: string; open?: boolean };
 type IndexFile = { clips: IndexEntry[] };
 
 function filenameFor(id: string, mimeType: string): string {
-  const ext = /webm/i.test(mimeType) ? "webm" : "mp4";
+  const ext = /webm/i.test(mimeType) ? "webm" : /quicktime|mov/i.test(mimeType) ? "mov" : "mp4";
   return `${DIR}/${id}.${ext}`;
 }
 
@@ -338,16 +338,19 @@ export async function createNativeMediaStore(): Promise<MediaStore | null> {
     async importRecording(meta, sourceUri) {
       const idx = await readIndex();
       const file = filenameFor(meta.id, meta.mimeType);
-      try {
-        await Filesystem.rename({ from: sourceUri, to: file, toDirectory: DATA });
-      } catch {
-        // Across volumes iOS refuses a move; a copy is the correct fallback and
-        // the original stays put until the copy succeeded.
-        await Filesystem.copy({ from: sourceUri, to: file, toDirectory: DATA });
+      // TeleprompterCapture writes directly to this final relative path. Older
+      // native captures may still return a temporary file URI, which is moved
+      // without ever reading the video into JavaScript memory.
+      if (sourceUri !== file) {
         try {
-          await Filesystem.deleteFile({ path: sourceUri, directory: undefined as unknown as Directory });
+          await Filesystem.rename({ from: sourceUri, to: file, toDirectory: DATA });
         } catch {
-          /* the temporary file is cleaned up by iOS */
+          await Filesystem.copy({ from: sourceUri, to: file, toDirectory: DATA });
+          try {
+            await Filesystem.deleteFile({ path: sourceUri, directory: undefined as unknown as Directory });
+          } catch {
+            /* the temporary file is cleaned up by iOS */
+          }
         }
       }
       let size = meta.sizeBytes ?? 0;
