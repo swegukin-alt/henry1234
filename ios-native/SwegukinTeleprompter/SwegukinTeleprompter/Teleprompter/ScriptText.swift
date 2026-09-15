@@ -338,3 +338,120 @@ struct ContentHeightKey: PreferenceKey {
         value = max(value, nextValue())
     }
 }
+
+/// TextKit-backed reader surface for long scripts. SwiftUI can report the
+/// correct height for a very tall Text hierarchy while dropping its glyphs;
+/// UITextView lays out only the visible text fragments and remains reliable for
+/// scripts containing thousands of Korean words.
+struct NativeScriptTextView: UIViewRepresentable {
+    let document: ScriptDocument
+    let fontSize: Double
+    let lineHeight: Double
+    let highlightIndex: Int?
+    let foreground: Color
+    let scrollOffset: CGFloat
+    let viewportHeight: CGFloat
+    let onContentHeight: (CGFloat) -> Void
+
+    final class Coordinator {
+        var signature = ""
+        var wordRanges: [NSRange] = []
+        var highlightedIndex: Int?
+        var reportedHeight: CGFloat = 0
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.isEditable = false
+        view.isSelectable = false
+        view.isScrollEnabled = true
+        view.isUserInteractionEnabled = false
+        view.showsVerticalScrollIndicator = false
+        view.showsHorizontalScrollIndicator = false
+        view.contentInsetAdjustmentBehavior = .never
+        view.textContainer.lineFragmentPadding = 0
+        view.textContainer.widthTracksTextView = true
+        view.textContainerInset = UIEdgeInsets(top: viewportHeight * 0.20, left: 0, bottom: viewportHeight * 0.80, right: 0)
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        let first = document.blocks.first?.lines.first?.text ?? ""
+        let last = document.blocks.last?.lines.last?.text ?? ""
+        let signature = "\(document.blocks.count)|\(document.words.count)|\(first)|\(last)|\(fontSize)|\(lineHeight)|\(foreground.description)"
+
+        if context.coordinator.signature != signature {
+            let rendered = renderedText()
+            context.coordinator.wordRanges = Self.wordRanges(in: rendered)
+            context.coordinator.highlightedIndex = nil
+            view.attributedText = attributedText(rendered)
+            context.coordinator.signature = signature
+        }
+
+        updateHighlight(in: view, coordinator: context.coordinator)
+
+        let inset = UIEdgeInsets(top: viewportHeight * 0.20, left: 0, bottom: viewportHeight * 0.80, right: 0)
+        if view.textContainerInset != inset { view.textContainerInset = inset }
+        view.layoutManager.ensureLayout(for: view.textContainer)
+
+        let textHeight = max(0, view.contentSize.height - inset.top - inset.bottom)
+        if abs(textHeight - context.coordinator.reportedHeight) > 0.5 {
+            context.coordinator.reportedHeight = textHeight
+            DispatchQueue.main.async { onContentHeight(textHeight) }
+        }
+
+        let maximum = max(0, view.contentSize.height - view.bounds.height)
+        let target = min(max(0, scrollOffset), maximum)
+        if abs(view.contentOffset.y - target) > 0.01 {
+            view.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+        }
+    }
+
+    private func renderedText() -> String {
+        var result = ""
+        for block in document.blocks {
+            for line in block.lines {
+                result += line.text
+                if line.breakAfter { result += "\n" }
+            }
+        }
+        return result
+    }
+
+    private func attributedText(_ string: String) -> NSAttributedString {
+        let font = UIFont(name: "Pretendard Variable", size: fontSize)
+            ?? UIFont.systemFont(ofSize: fontSize, weight: .medium)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = fontSize * lineHeight
+        paragraph.maximumLineHeight = fontSize * lineHeight
+        paragraph.paragraphSpacing = fontSize * 0.55
+        paragraph.lineBreakMode = .byWordWrapping
+        return NSAttributedString(string: string, attributes: [
+            .font: font,
+            .foregroundColor: UIColor(foreground),
+            .kern: fontSize * -0.015,
+            .paragraphStyle: paragraph,
+        ])
+    }
+
+    private func updateHighlight(in view: UITextView, coordinator: Coordinator) {
+        guard coordinator.highlightedIndex != highlightIndex else { return }
+        let storage = view.textStorage
+        if let old = coordinator.highlightedIndex, old < coordinator.wordRanges.count {
+            storage.removeAttribute(.backgroundColor, range: coordinator.wordRanges[old])
+        }
+        if let highlightIndex, highlightIndex >= 0, highlightIndex < coordinator.wordRanges.count {
+            storage.addAttribute(.backgroundColor, value: UIColor.white.withAlphaComponent(0.09), range: coordinator.wordRanges[highlightIndex])
+        }
+        coordinator.highlightedIndex = highlightIndex
+    }
+
+    private static func wordRanges(in string: String) -> [NSRange] {
+        let expression = try? NSRegularExpression(pattern: #"\S+"#)
+        return expression?.matches(in: string, range: NSRange(string.startIndex..<string.endIndex, in: string)).map(\.range) ?? []
+    }
+}
