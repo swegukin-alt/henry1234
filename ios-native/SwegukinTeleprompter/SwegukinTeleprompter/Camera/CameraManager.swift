@@ -28,13 +28,11 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var torchOn = false
     @Published private(set) var usingFront = true
     @Published private(set) var previewRotationAngle: CGFloat = 90
-    /// Runtime-detected extras. False on hardware or OS versions without them,
-    /// in which case the UI hides the rows entirely.
-    @Published private(set) var cinematicSupported = false
+    /// Runtime-detected extras. False on hardware without them, in which case
+    /// the UI disables the row and shows the reason.
     @Published private(set) var appleLogSupported = false
-    @Published private(set) var apertureRange: ClosedRange<Double> = 1.4...16
-    /// Plain-language reason shown under a disabled Cinematic row.
-    @Published private(set) var cinematicReason = "Requires Apple's Cinematic capture pipeline."
+    /// Plain-language reason shown under a disabled Apple Log row.
+    @Published private(set) var appleLogReason = "Apple Log is not supported on this camera."
 
     let session = AVCaptureSession()
 
