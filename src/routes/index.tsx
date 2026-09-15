@@ -1918,6 +1918,10 @@ function Prompter({
       >
         <div className="mx-auto" style={{ width: `${settings.width}%` }}>
           <div style={{ height: "20vh" }} />
+          {/* LOCKED READING TYPOGRAPHY — do not restyle. The rolling script
+              text keeps Pretendard Variable, weight 500, line-height 1.5 and
+              keep-all wrapping exactly as the user approved. Only the user's
+              own font-size / width / mirror controls may change it. */}
           <div
             ref={textInnerRef}
             className="whitespace-pre-wrap"
