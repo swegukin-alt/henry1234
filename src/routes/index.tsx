@@ -2227,6 +2227,10 @@ function ClipsSheet({
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [broken, setBroken] = useState<Set<string>>(new Set());
+  // Inside the iPhone app every take is one real file on disk — there are no
+  // leftover chunks to clear, nothing to repair or stitch, and quota bars are
+  // meaningless. All of that UI is web-only.
+  const native = isNative();
   const [playingClip, setPlayingClip] = useState<ClipRecord | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
