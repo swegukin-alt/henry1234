@@ -2348,7 +2348,7 @@ function ClipsSheet({
                       {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
-                  {broken.has(c.id) ? (
+                  {!native && (broken.has(c.id) ? (
                     <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-amber-400/60 px-3 py-1.5 text-xs font-bold text-amber-300 disabled:opacity-50">
                       {busy === c.id ? "Repairing…" : "Repair"}
                     </button>
@@ -2356,7 +2356,7 @@ function ClipsSheet({
                     <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
                       {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
-                  )}
+                  ))}
                    <button onClick={() => onExport(c)} className="grid h-9 w-9 place-items-center rounded-full text-amber-300 hover:bg-white/5" aria-label="Save this clip">
                     <Download className="h-4 w-4" />
                   </button>
@@ -2369,6 +2369,7 @@ function ClipsSheet({
           )}
         </div>
         {note && <div className="px-4 pb-2 text-[11px] leading-snug text-amber-200/90">{note}</div>}
+        {!native && (
         <div className="space-y-2 border-t border-white/10 px-3 py-2">
           {space && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
