@@ -45,12 +45,12 @@ export function SaveOverlay({
             <circle
               cx="24" cy="24" r="20" fill="none" strokeWidth="4" strokeLinecap="round"
               stroke="currentColor"
-              className={error ? "text-red-400" : "text-amber-400"}
+              className={error ? "text-red-400" : "text-primary"}
               strokeDasharray={working ? "38 126" : "126"}
             />
           </svg>
           {!working && (
-            <div className={`absolute inset-0 grid place-items-center text-2xl font-black ${error ? "text-red-400" : "text-amber-400"}`}>
+            <div className={`absolute inset-0 grid place-items-center text-2xl font-black ${error ? "text-red-400" : "text-primary"}`}>
               {error ? "!" : "✓"}
             </div>
           )}
@@ -68,13 +68,13 @@ export function SaveOverlay({
           {ready && job.runPrimary && (
             <button
               onClick={job.runPrimary}
-              className="w-full rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95"
+              className="w-full rounded-2xl bg-primary px-6 py-4 text-lg font-black text-black active:scale-95"
             >
               {job.actionLabel || "Share"}
             </button>
           )}
           {error && job.file && (
-            <button onClick={onFallback} className="w-full rounded-2xl bg-amber-400 px-6 py-4 text-lg font-black text-black active:scale-95">
+            <button onClick={onFallback} className="w-full rounded-2xl bg-primary px-6 py-4 text-lg font-black text-black active:scale-95">
               Save to Files
             </button>
           )}
