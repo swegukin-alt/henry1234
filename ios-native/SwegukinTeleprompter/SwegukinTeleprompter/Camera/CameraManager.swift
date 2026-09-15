@@ -374,75 +374,56 @@ final class CameraManager: NSObject, ObservableObject {
         supportedModes(for: pickCamera(front: front))
     }
 
-    // MARK: - Cinematic video & Apple Log (additive, runtime-detected)
+    // MARK: - Apple Log (AVFoundation, iOS 17+)
 
-    /// True only when this iPhone and this iOS version genuinely report Apple's
-    /// Cinematic video capture for the selected camera.
-    static func cinematicSupported(front: Bool) -> Bool {
-        cinematicStatus(front: front).supported
-    }
+    /// Cinematic video capture is not part of this recorder. Apple's Cinematic
+    /// pipeline is a separate capture path, so the row stays disabled with a
+    /// reason rather than pretending to do something.
+    static let cinematicUnavailableReason = "Requires Apple's Cinematic capture pipeline."
 
-    /// Support plus a plain-language reason when it is unavailable, so the UI
-    /// can say *why* the row is disabled instead of a generic message.
-    static func cinematicStatus(front: Bool) -> (supported: Bool, reason: String) {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            guard let device = pickCamera(front: front) else {
-                return (false, "No camera available.")
-            }
-            if device.formats.contains(where: { $0.isCinematicVideoCaptureSupported }) {
-                return (true, "")
-            }
-            if let other = pickCamera(front: !front),
-               other.formats.contains(where: { $0.isCinematicVideoCaptureSupported }) {
-                return (false, front ? "Only available on the back camera."
-                                     : "Only available on the front camera.")
-            }
-            return (false, "This camera doesn't offer Cinematic capture.")
-        }
-        return (false, "Cinematic capture needs iOS 26 or later.")
-        #else
-        return (false, "Build with the iOS 26 SDK to enable Cinematic capture.")
-        #endif
-    }
-
-
-    /// Apple Log is only offered when a capture format lists it.
     /// True when the format delivers 10-bit samples — the '420f' (full-range) or
-    /// 'x420' (video-range) 4:2:0 YpCbCr pixel formats Apple uses for Apple Log.
+    /// 'x420' (video-range) 4:2:0 YpCbCr pixel formats Apple Log is written in.
     static func isTenBitFormat(_ format: AVCaptureDevice.Format) -> Bool {
         let subType = CMFormatDescriptionGetMediaSubType(format.formatDescription)
         return subType == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
             || subType == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
     }
 
-    static func appleLogSupported(front: Bool) -> Bool {
-        if #available(iOS 17.2, *) {
-            guard let device = pickCamera(front: front) else { return false }
-            return device.formats.contains { $0.supportedColorSpaces.contains(.appleLog) }
-        }
-        return false
+    /// Every format on the camera that reports Apple Log in its supported
+    /// colour spaces, best (10-bit, highest resolution) first.
+    static func appleLogFormats(for device: AVCaptureDevice) -> [AVCaptureDevice.Format] {
+        device.formats
+            .filter { $0.supportedColorSpaces.contains(.appleLog) }
+            .sorted { lhs, rhs in
+                let l10 = isTenBitFormat(lhs), r10 = isTenBitFormat(rhs)
+                if l10 != r10 { return l10 }
+                let l = CMVideoFormatDescriptionGetDimensions(lhs.formatDescription)
+                let r = CMVideoFormatDescriptionGetDimensions(rhs.formatDescription)
+                return Int(l.width) * Int(l.height) > Int(r.width) * Int(r.height)
+            }
     }
 
-    /// The aperture values the hardware itself reports — nothing invented.
-    static func apertureRange(front: Bool) -> ClosedRange<Double> {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *), let device = pickCamera(front: front) {
-            let formats = device.formats.filter { $0.isCinematicVideoCaptureSupported }
-            let lows = formats.map { Double($0.minSimulatedAperture) }.filter { $0 > 0 }
-            let highs = formats.map { Double($0.maxSimulatedAperture) }.filter { $0 > 0 }
-            if let low = lows.min(), let high = highs.max(), low < high { return low...high }
+    /// Apple Log is only offered when the selected camera actually lists it.
+    static func appleLogStatus(front: Bool) -> (supported: Bool, reason: String) {
+        guard let device = pickCamera(front: front) else {
+            return (false, "No camera available.")
         }
-        #endif
-        return 1.4...16
+        if !appleLogFormats(for: device).isEmpty { return (true, "") }
+        if let other = pickCamera(front: !front), !appleLogFormats(for: other).isEmpty {
+            return (false, front ? "Only available on the back camera."
+                                 : "Only available on the front camera.")
+        }
+        return (false, "Apple Log is not supported on this camera.")
+    }
+
+    static func appleLogSupported(front: Bool) -> Bool {
+        appleLogStatus(front: front).supported
     }
 
     func refreshAdvancedCapabilities(front: Bool) {
-        let status = Self.cinematicStatus(front: front)
-        cinematicSupported = status.supported
-        cinematicReason = status.reason
-        appleLogSupported = Self.appleLogSupported(front: front)
-        apertureRange = Self.apertureRange(front: front)
+        let status = Self.appleLogStatus(front: front)
+        appleLogSupported = status.supported
+        appleLogReason = status.reason
     }
 
     /// Stabilization can be toggled while the camera is live; applying it to the
@@ -456,58 +437,16 @@ final class CameraManager: NSObject, ObservableObject {
         }
     }
 
-    /// Best effort: an unsupported device or OS simply leaves capture untouched.
-    /// Cinematic video lives on the capture *input* (AVCaptureDeviceInput), and
-    /// support is read from the device format — never from the movie output.
-    func applyCinematic(enabled: Bool, aperture: Double) {
-        #if compiler(>=6.2)
-        guard #available(iOS 26.0, *) else { return }
-        guard !isRecording, let input = videoInput else { return }
-        let device = input.device
-        let session = self.session
-        sessionQueue.async {
-            session.beginConfiguration()
-            if enabled, !device.activeFormat.isCinematicVideoCaptureSupported {
-                let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-                let match = device.formats.first { format in
-                    guard format.isCinematicVideoCaptureSupported else { return false }
-                    let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                    return d.width == dims.width && d.height == dims.height
-                } ?? device.formats.first { $0.isCinematicVideoCaptureSupported }
-                if let match, (try? device.lockForConfiguration()) != nil {
-                    // A session preset would override a hand-picked format.
-                    if session.canSetSessionPreset(.inputPriority) {
-                        session.sessionPreset = .inputPriority
-                    }
-                    device.activeFormat = match
-                    device.unlockForConfiguration()
-                }
-            }
-            if input.isCinematicVideoCaptureSupported {
-                input.isCinematicVideoCaptureEnabled = enabled
-                if enabled {
-                    let format = device.activeFormat
-                    let low = Double(format.minSimulatedAperture)
-                    let high = Double(format.maxSimulatedAperture)
-                    if low > 0, high > low {
-                        input.simulatedAperture = Float(min(max(aperture, low), high))
-                    }
-                }
-            }
-            session.commitConfiguration()
-        }
-        #endif
-    }
-
-
-    /// Apple Log is a capture colour space. A device only accepts it while an
-    /// Apple Log capable format is active, so the format is switched first and
-    /// the previous format/colour space is restored when the toggle goes off.
+    /// Apple Log is a capture colour space (`AVCaptureColorSpace.appleLog`).
+    /// A device only accepts it while an Apple Log capable format is active, so
+    /// the format is switched first and restored when the toggle goes off.
+    /// Nothing is graded: the movie file receives the camera's own log signal.
     func applyAppleLog(_ enabled: Bool) {
-        guard #available(iOS 17.2, *) else { return }
-        guard !isRecording, let device else { return }
+        guard !isRecording, let device = videoInput?.device else { return }
         let session = self.session
-        sessionQueue.async { [weak self] in
+        let store = formatStore
+        let logFormats = Self.appleLogFormats(for: device)
+        sessionQueue.async {
             session.beginConfiguration()
             defer { session.commitConfiguration() }
             guard (try? device.lockForConfiguration()) != nil else { return }
@@ -516,37 +455,35 @@ final class CameraManager: NSObject, ObservableObject {
             if enabled {
                 if !device.activeFormat.supportedColorSpaces.contains(.appleLog) {
                     let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-                    var logFormats = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
-                    // Apple Log is captured as 10-bit. When several formats match,
-                    // prefer a real 10-bit pixel format ('420f' full-range or 'x420'
-                    // video-range YpCbCr 4:2:0) over any 8-bit variant.
-                    logFormats.sort { lhs, rhs in
-                        Self.isTenBitFormat(lhs) && !Self.isTenBitFormat(rhs)
-                    }
                     let match = logFormats.first { format in
                         let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
                         return d.width == dims.width && d.height == dims.height
                     } ?? logFormats.first
                     guard let match else { return }
-                    self?.preAppleLogFormat = device.activeFormat
+                    // A session preset would override a hand-picked format.
+                    if session.canSetSessionPreset(.inputPriority) {
+                        session.sessionPreset = .inputPriority
+                    }
+                    store.previous = device.activeFormat
                     device.activeFormat = match
                 }
-                // Apple Log and HDR are mutually exclusive on these formats.
+                // Apple Log and video HDR are mutually exclusive.
                 if device.activeFormat.isVideoHDRSupported, device.isVideoHDREnabled {
                     device.automaticallyAdjustsVideoHDREnabled = false
                     device.isVideoHDREnabled = false
                 }
                 device.activeColorSpace = .appleLog
             } else {
-                if let previous = self?.preAppleLogFormat {
+                if let previous = store.previous {
                     device.activeFormat = previous
-                    self?.preAppleLogFormat = nil
+                    store.previous = nil
                 }
                 let spaces = device.activeFormat.supportedColorSpaces
                 device.activeColorSpace = spaces.contains(.P3_D65) ? .P3_D65 : .sRGB
             }
         }
     }
+
 
 
     // MARK: - Controls
