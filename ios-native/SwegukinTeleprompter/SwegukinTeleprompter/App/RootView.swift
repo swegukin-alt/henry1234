@@ -65,18 +65,18 @@ struct LibraryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Let's kick some ass")
-                    .font(.system(size: 30, weight: .semibold, design: .default))
-                    .foregroundStyle(Theme.accent)
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundStyle(.white)
                 Text("Never give up. Remember where you came from.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.36))
 
                 Button(action: onCreate) {
                     Text("Let's go")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 18))
+                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 16))
                         .foregroundStyle(.white)
                 }
 
@@ -85,29 +85,32 @@ struct LibraryView: View {
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
+                        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
                         .foregroundStyle(.white)
                 }
 
-                ForEach(scripts.scripts) { script in
+                VStack(spacing: 0) {
+                ForEach(Array(scripts.scripts.enumerated()), id: \.element.id) { index, script in
                     Button { onOpen(script.id) } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(script.title.isEmpty ? "Untitled" : script.title)
                                 .font(.headline)
                                 .foregroundStyle(.white)
-                            Text(script.body.isEmpty ? "Empty script" : String(script.body.prefix(80)))
+                            Text(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty script" : String(script.body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 18))
+                        .padding(.horizontal, 16).padding(.vertical, 14)
                     }
                     .contextMenu {
                         Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
                     }
+                    if index < scripts.scripts.count - 1 { Divider().overlay(.white.opacity(0.07)) }
                 }
+                }
+                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
 
                 if scripts.scripts.isEmpty {
                     Text("No scripts yet. Tap Let's go to start.")
@@ -117,7 +120,9 @@ struct LibraryView: View {
                         .padding(.vertical, 36)
                 }
             }
-            .padding(18)
+            .padding(.horizontal, 20)
+            .padding(.top, 40)
+            .padding(.bottom, 96)
         }
     }
 }

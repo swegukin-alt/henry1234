@@ -2,56 +2,64 @@ import SwiftUI
 
 struct SettingsPanel: View {
     @EnvironmentObject private var settings: AppSettings
-    @Environment(\.dismiss) private var dismiss
 
     /// Only the modes the camera actually reported are offered.
     var modes: [CaptureMode] = []
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Reading") {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("SETTINGS")
+                .font(.system(size: 13, weight: .medium))
+                .tracking(1.5)
+                .foregroundStyle(.white.opacity(0.36))
+
                     slider("Font size", value: $settings.fontSize, range: 24...140, step: 1)
-                    slider("Speed", value: $settings.speed, range: 10...250, step: 1)
-                    slider("Line height", value: $settings.lineHeight, range: 1.0...2.2, step: 0.05)
+                    slider("Scroll speed", value: $settings.speed, range: 10...250, step: 1)
                     slider("Text width", value: $settings.textWidth, range: 50...100, step: 1)
-                    slider("Margins", value: $settings.margin, range: 0...80, step: 1)
-                    Stepper("Countdown: \(settings.countdown)s", value: $settings.countdown, in: 0...10)
-                    Toggle("Reading highlight", isOn: $settings.readingHighlight)
-                    Toggle("Voice follow", isOn: $settings.voiceFollow)
-                }
 
-                Section("Mirror") {
-                    Toggle("Mirror horizontally", isOn: $settings.mirrorH)
-                    Toggle("Flip vertically", isOn: $settings.mirrorV)
-                }
+            HStack(spacing: 8) {
+                pill("Mirror ↔", isOn: $settings.mirrorH)
+                pill("Mirror ↕", isOn: $settings.mirrorV)
+            }
 
-                Section("Camera") {
-                    Toggle("Front camera", isOn: $settings.useFrontCamera)
-                    if modes.isEmpty {
-                        Text("Open video mode once to read this iPhone's supported recording modes.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Picker("Recording mode", selection: Binding(
-                            get: { currentModeID },
-                            set: { apply(modeID: $0) }
-                        )) {
-                            ForEach(modes) { mode in
-                                Text(mode.label).tag(mode.id)
-                            }
-                        }
+            Text("READING ASSIST")
+                .font(.system(size: 13))
+                .tracking(1.5)
+                .foregroundStyle(.white.opacity(0.36))
+            FlowLayout(spacing: 8) {
+                pill("Chunk phrases", isOn: $settings.chunking)
+                pill("Slow at punctuation", isOn: $settings.pauses)
+                pill("Reading highlight", isOn: $settings.readingHighlight)
+                pill("Voice-follow", isOn: $settings.voiceFollow)
+            }
+
+            HStack(spacing: 4) {
+                backgroundButton("Dark", value: "black")
+                backgroundButton("Light", value: "white")
+                backgroundButton("Sepia", value: "sepia")
+            }
+            .padding(4)
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+
+            Button("Reset to defaults") { settings.resetReaderDefaults() }
+                .font(.system(size: 14))
+                .foregroundStyle(.white.opacity(0.5))
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+
+            if !modes.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("CAMERA").font(.system(size: 13)).tracking(1.5).foregroundStyle(.white.opacity(0.36))
+                    Picker("Recording mode", selection: Binding(get: { currentModeID }, set: { apply(modeID: $0) })) {
+                        ForEach(modes) { mode in Text(mode.label).tag(mode.id) }
                     }
+                    Toggle("Front camera", isOn: $settings.useFrontCamera)
                     Toggle("Stabilization", isOn: $settings.stabilization)
                 }
             }
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
+        .padding(16)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var currentModeID: String {
@@ -67,7 +75,7 @@ struct SettingsPanel: View {
     }
 
     private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double) -> some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(title)
                 Spacer()
@@ -75,6 +83,46 @@ struct SettingsPanel: View {
                     .foregroundStyle(.secondary)
             }
             Slider(value: value, in: range, step: step)
+                .tint(.white)
+        }
+    }
+
+    private func pill(_ title: String, isOn: Binding<Bool>) -> some View {
+        Button { isOn.wrappedValue.toggle() } label: {
+            Text(title).font(.system(size: 14)).padding(.horizontal, 14).frame(height: 38)
+                .foregroundStyle(isOn.wrappedValue ? Color.white : Color.white.opacity(0.72))
+                .background(isOn.wrappedValue ? Theme.accent : Color.white.opacity(0.07), in: Capsule())
+        }
+    }
+
+    private func backgroundButton(_ title: String, value: String) -> some View {
+        Button { settings.background = value } label: {
+            Text(title).font(.system(size: 14)).frame(maxWidth: .infinity).frame(height: 36)
+                .foregroundStyle(settings.background == value ? Color.white : Color.white.opacity(0.55))
+                .background(settings.background == value ? Color.white.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 0
+        var x: CGFloat = 0; var y: CGFloat = 0; var row: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > width { x = 0; y += row + spacing; row = 0 }
+            x += size.width + spacing; row = max(row, size.height)
+        }
+        return CGSize(width: width, height: y + row)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX; var y = bounds.minY; var row: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + size.width > bounds.maxX { x = bounds.minX; y += row + spacing; row = 0 }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing; row = max(row, size.height)
         }
     }
 }
