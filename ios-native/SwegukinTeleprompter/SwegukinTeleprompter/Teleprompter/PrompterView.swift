@@ -25,7 +25,6 @@ struct PrompterView: View {
     @State private var errorMessage: String?
     @State private var currentTakeID: String?
     @State private var saving = false
-    @State private var isPlaying = false
     @State private var dragStartOffset: CGFloat?
     @State private var didRestorePosition = false
 
@@ -263,12 +262,7 @@ struct PrompterView: View {
                 }
                 Spacer(minLength: 0)
             }
-            Button(action: togglePlay) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-            }
+            PlayPauseButton(engine: engine, size: toolbarButtonSize, action: togglePlay)
             Spacer(minLength: 0)
             if videoMode {
                 Button {
@@ -484,7 +478,6 @@ struct PrompterView: View {
 
     private func finish() {
         engine.pause()
-        isPlaying = false
         voice.stop()
         if camera.isRecording { stopRecording() }
         camera.stop()
@@ -500,13 +493,11 @@ struct PrompterView: View {
 
     private func pause() {
         engine.pause()
-        isPlaying = false
     }
 
     private func play() {
         engine.speed = settings.speed
         engine.play()
-        isPlaying = true
     }
 
     private func togglePlay() {
@@ -626,6 +617,21 @@ private struct ScriptScrollLayer: View {
                 try? await Task.sleep(for: .milliseconds(strong ? 360 : 220))
                 engine.speedScale = 1
             }
+        }
+    }
+}
+
+private struct PlayPauseButton: View {
+    @ObservedObject var engine: TeleprompterEngine
+    let size: CGFloat
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(Theme.accent)
+                .frame(width: size, height: size)
         }
     }
 }
