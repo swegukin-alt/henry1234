@@ -1893,14 +1893,14 @@ function Prompter({
           {camError && (
               <div className="absolute inset-x-3 top-3 z-40 rounded-lg bg-black/85 p-4 text-center text-sm text-neutral-200">
               <div>
-                <div className="mb-2 font-bold text-primary">Camera unavailable</div>
+                <div className="mb-2 font-medium text-primary">Camera unavailable</div>
                 <div className="mb-3 text-neutral-300">{camError}</div>
                 {nativeApp && camDiag && (
                   <div className="mb-3 text-[11px] text-neutral-500">{camDiag}</div>
                 )}
                 <div className="flex justify-center gap-2">
-                  <button onClick={() => { setCamError(null); setCamRetry((n) => n + 1); }} className="rounded-full bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">Try again</button>
-                  <button onClick={onExit} className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-neutral-200">Back</button>
+                  <button onClick={() => { setCamError(null); setCamRetry((n) => n + 1); }} className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Try again</button>
+                  <button onClick={onExit} className="rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-neutral-200">Back</button>
                 </div>
               </div>
             </div>
@@ -2087,7 +2087,7 @@ function Prompter({
       {/* REC pill — top-left when recording */}
       {videoMode && recording && (
         <div
-          className="absolute z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-bold text-white backdrop-blur-sm"
+          className="absolute z-40 flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-sm font-medium text-white backdrop-blur-sm"
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 0.6rem)",
             left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
@@ -2105,7 +2105,7 @@ function Prompter({
         <button
           type="button"
           onClick={() => { setWriteWarn(false); setWriteWarnMsg(""); }}
-          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-left text-xs font-bold leading-snug text-white"
+          className="absolute z-40 max-w-[70vw] rounded-xl bg-red-600/90 px-3 py-2 text-left text-xs font-medium leading-snug text-white"
           style={{
             top: "calc(env(safe-area-inset-top, 0px) + 3.2rem)",
             left: "calc(env(safe-area-inset-left, 0px) + 0.6rem)",
@@ -2441,7 +2441,7 @@ function ClipsSheet({
       <div className="absolute inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-950 text-neutral-100"
         onClick={(e) => e.stopPropagation()} style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
-          <div className="text-base font-bold">All videos <span className="text-neutral-400 font-normal">({clips.length})</span></div>
+          <div className="text-base font-medium">All videos <span className="text-neutral-400 font-normal">({clips.length})</span></div>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-neutral-400 hover:text-white" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
@@ -2456,18 +2456,18 @@ function ClipsSheet({
                   <button onClick={() => openClip(c)} className="flex-1 min-w-0 text-left active:opacity-70">
                     <div className="text-sm font-semibold truncate flex items-center gap-1.5">
                       <Play className="h-3.5 w-3.5 text-primary" fill="currentColor" /> {scriptTitles[c.scriptId] || "Deleted script"}
-                      {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-300">Needs repair</span>}
+                      {broken.has(c.id) && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-300">Needs repair</span>}
                     </div>
                     <div className="text-[11px] text-neutral-400">
                       {new Date(c.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })} · {fmtDuration(c.durationMs)} · {fmtSize(c.sizeBytes)} · {c.width && c.height ? `${c.width}×${c.height}` : c.mimeType.split(";")[0]}
                     </div>
                   </button>
                   {!native && (broken.has(c.id) ? (
-                    <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-primary/60 px-3 py-1.5 text-xs font-bold text-primary disabled:opacity-50">
+                    <button onClick={() => doRepair(c)} disabled={busy === c.id} className="rounded-full border border-primary/60 px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50">
                       {busy === c.id ? "Repairing…" : "Repair"}
                     </button>
                   ) : (
-                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-bold text-emerald-300 disabled:opacity-50">
+                    <button onClick={() => doRestore(c)} disabled={busy === c.id} className="rounded-full border border-emerald-400/50 px-3 py-1.5 text-xs font-medium text-emerald-300 disabled:opacity-50">
                       {busy === c.id ? "Restoring…" : "Restore full"}
                     </button>
                   ))}
@@ -2488,7 +2488,7 @@ function ClipsSheet({
           {space && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
               <div className="flex items-baseline justify-between text-xs">
-                <span className="font-semibold text-neutral-200">Videos on this phone</span>
+                <span className="font-medium text-neutral-200">Videos on this phone</span>
                 <span className="text-neutral-400">
                   {fmtSize(space.clipBytes)} used{space.quota ? ` · ${fmtSize(Math.max(0, space.quota - space.usage))} free` : ""}
                 </span>
@@ -2601,7 +2601,7 @@ function ClipsSheet({
                 <Download className="h-5 w-5" /> {native ? "Save to camera roll" : "Save video"}
             </button>
             {!native && broken.has(playingClip.id) && (
-              <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-primary/70 bg-black/70 px-4 py-2 text-sm font-bold text-primary backdrop-blur-sm disabled:opacity-50">
+              <button onClick={() => doRepair(playingClip)} disabled={busy === playingClip.id} className="inline-flex items-center gap-1.5 rounded-full border border-primary/70 bg-black/70 px-4 py-2 text-sm font-medium text-primary backdrop-blur-sm disabled:opacity-50">
                 {busy === playingClip.id ? "Repairing…" : "Repair this take"}
               </button>
             )}

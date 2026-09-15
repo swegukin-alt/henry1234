@@ -82,7 +82,7 @@ export function SaveOverlay({
               video stuck on the phone. Big button when labelled (native:
               Share), quiet link otherwise (web: Save to Files instead). */}
           {ready && job.saveToFiles && job.secondaryLabel && (
-            <button onClick={job.saveToFiles} className="w-full rounded-2xl border border-white/25 px-6 py-4 text-lg font-bold text-white active:scale-95">
+            <button onClick={job.saveToFiles} className="w-full rounded-2xl border border-white/25 px-6 py-4 text-lg font-medium text-white active:scale-95">
               {job.secondaryLabel}
             </button>
           )}
