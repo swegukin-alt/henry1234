@@ -280,7 +280,7 @@ function Library({
   return (
     <div>
       <header className="pt-6 pb-5">
-        <h1 className="text-[26px] sm:text-3xl font-black tracking-tight leading-[1.15] bg-gradient-to-br from-primary to-primary bg-clip-text text-transparent">
+        <h1 className="text-[26px] sm:text-3xl font-semibold tracking-tight leading-[1.15] bg-gradient-to-br from-primary to-primary bg-clip-text text-transparent">
           Let's kick some ass
         </h1>
         <p className="text-[13px] text-neutral-400 mt-2 leading-snug">
@@ -288,7 +288,7 @@ function Library({
         </p>
         <button
           onClick={onCreate}
-          className="mt-5 w-full rounded-2xl bg-primary px-4 py-3.5 text-base font-bold text-black active:scale-[0.98] transition shadow-lg shadow-primary/20"
+          className="mt-5 w-full rounded-2xl bg-primary px-4 py-3.5 text-base font-bold text-primary-foreground active:scale-[0.98] transition"
         >
           Let's go
         </button>
@@ -359,7 +359,7 @@ function Editor({
           <button
             onClick={onPlay}
             disabled={disabled}
-            className="rounded-full bg-primary px-5 py-2 text-sm font-bold text-black disabled:opacity-40 active:scale-95 transition"
+            className="rounded-full bg-primary px-5 py-2 text-sm font-bold text-primary-foreground disabled:opacity-40 active:scale-95 transition"
           >
             ▶ Play
           </button>
@@ -1897,7 +1897,7 @@ function Prompter({
                   <div className="mb-3 text-[11px] text-neutral-500">{camDiag}</div>
                 )}
                 <div className="flex justify-center gap-2">
-                  <button onClick={() => { setCamError(null); setCamRetry((n) => n + 1); }} className="rounded-full bg-primary px-4 py-2 text-sm font-bold text-black">Try again</button>
+                  <button onClick={() => { setCamError(null); setCamRetry((n) => n + 1); }} className="rounded-full bg-primary px-4 py-2 text-sm font-bold text-primary-foreground">Try again</button>
                   <button onClick={onExit} className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-neutral-200">Back</button>
                 </div>
               </div>
@@ -2125,7 +2125,7 @@ function Prompter({
             transform: mirrorV ? "scaleY(-1)" : undefined,
           }}
         >
-          <div className="text-sm font-black text-white">
+          <div className="text-sm font-semibold text-white">
             {finalizing.phase === "error" ? "Saving had trouble" : finalizing.phase === "assembling" ? "Finishing the video…" : "Saving to your phone…"}
           </div>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/15">
@@ -2595,7 +2595,7 @@ function ClipsSheet({
               paddingRight: "calc(env(safe-area-inset-right, 0px) + 0.75rem)",
             }}
           >
-              <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-base font-black text-black shadow-lg active:scale-95">
+              <button onClick={() => onExport(playingClip)} className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-base font-semibold text-primary-foreground active:scale-95">
                 <Download className="h-5 w-5" /> {native ? "Save to camera roll" : "Save video"}
             </button>
             {!native && broken.has(playingClip.id) && (

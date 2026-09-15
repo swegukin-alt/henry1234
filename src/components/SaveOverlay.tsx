@@ -50,13 +50,13 @@ export function SaveOverlay({
             />
           </svg>
           {!working && (
-            <div className={`absolute inset-0 grid place-items-center text-2xl font-black ${error ? "text-red-400" : "text-primary"}`}>
+            <div className={`absolute inset-0 grid place-items-center text-2xl font-semibold ${error ? "text-red-400" : "text-primary"}`}>
               {error ? "!" : "✓"}
             </div>
           )}
         </div>
 
-        <div className="text-lg font-black text-white">{job.title}</div>
+        <div className="text-lg font-semibold text-white">{job.title}</div>
         <div className="text-sm leading-snug text-neutral-300">{job.detail}</div>
         {working && (
           <div className="text-xs text-neutral-400">{secs}s · long takes need a moment — keep this screen open</div>
@@ -68,13 +68,13 @@ export function SaveOverlay({
           {ready && job.runPrimary && (
             <button
               onClick={job.runPrimary}
-              className="w-full rounded-2xl bg-primary px-6 py-4 text-lg font-black text-black active:scale-95"
+              className="w-full rounded-2xl bg-primary px-6 py-4 text-lg font-semibold text-primary-foreground active:scale-95"
             >
               {job.actionLabel || "Share"}
             </button>
           )}
           {error && job.file && (
-            <button onClick={onFallback} className="w-full rounded-2xl bg-primary px-6 py-4 text-lg font-black text-black active:scale-95">
+            <button onClick={onFallback} className="w-full rounded-2xl bg-primary px-6 py-4 text-lg font-semibold text-primary-foreground active:scale-95">
               Save to Files
             </button>
           )}
