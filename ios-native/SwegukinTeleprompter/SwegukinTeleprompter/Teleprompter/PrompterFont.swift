@@ -13,8 +13,24 @@ enum PrompterFont {
     /// OpenType `wght` axis identifier.
     private static let weightAxis = 0x77676874  // 'wght'
     private static let targetWeight = 500.0
+    private static let registration: Void = {
+        guard let url = Bundle.main.url(forResource: "PretendardVariable", withExtension: "ttf") else {
+            assertionFailure("PretendardVariable.ttf is missing from the app bundle")
+            return
+        }
+        var error: Unmanaged<CFError>?
+        let registered = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+        if !registered {
+            let code = error?.takeRetainedValue().code
+            // Already registered is harmless; UIFont can resolve it below.
+            if code != CTFontManagerError.alreadyRegistered.rawValue {
+                assertionFailure("Pretendard registration failed")
+            }
+        }
+    }()
 
     static func uiFont(size: CGFloat) -> UIFont {
+        _ = registration
         guard let base = UIFont(name: "Pretendard Variable", size: size) else {
             return UIFont.systemFont(ofSize: size, weight: .medium)
         }

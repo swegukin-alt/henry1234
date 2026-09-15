@@ -181,6 +181,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone records your voice with the video and powers voice follow.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Saves your finished takes to your camera roll.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition lets the script follow along as you speak.";
+				INFOPLIST_KEY_UIAppFonts = PretendardVariable.ttf;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
@@ -214,6 +215,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone records your voice with the video and powers voice follow.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Saves your finished takes to your camera roll.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speech recognition lets the script follow along as you speak.";
+				INFOPLIST_KEY_UIAppFonts = PretendardVariable.ttf;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
