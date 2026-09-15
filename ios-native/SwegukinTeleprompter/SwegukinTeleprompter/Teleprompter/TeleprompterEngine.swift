@@ -23,6 +23,7 @@ final class TeleprompterEngine: ObservableObject {
     private var link: CADisplayLink?
     private var lastTimestamp: CFTimeInterval = 0
     private var dragOrigin: CGFloat?
+    private var dragTarget: CGFloat = 0
     private var glideVelocity: CGFloat = 0
 
     nonisolated init() {}
@@ -85,16 +86,24 @@ final class TeleprompterEngine: ObservableObject {
     /// release uses iOS's normal deceleration rate and can coexist with playback.
     func drag(translation: CGFloat) {
         if dragOrigin == nil {
-            dragOrigin = offset
+            // The gesture only reports after a small activation distance; folding
+            // that first translation into the origin avoids an initial jump.
+            dragOrigin = offset + translation
+            dragTarget = offset
             glideVelocity = 0
+            ensureDisplayLink()
         }
         guard let dragOrigin else { return }
-        seek(to: dragOrigin - translation)
+        // Touches arrive at their own rate; the display link eases the text to
+        // this target so finger scrolling never stutters between frames.
+        dragTarget = min(max(0, dragOrigin - translation), maxOffset)
     }
 
     func endDrag(velocity: CGFloat) {
+        if dragOrigin != nil { offset = dragTarget }
         dragOrigin = nil
-        glideVelocity = -velocity
+        // Clamp the projected flick so a fast swipe glides instead of snapping.
+        glideVelocity = -max(-6_000, min(6_000, velocity))
         if abs(glideVelocity) >= 5 { ensureDisplayLink() }
     }
 
