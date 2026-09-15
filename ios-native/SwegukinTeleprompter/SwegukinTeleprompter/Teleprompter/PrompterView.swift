@@ -164,31 +164,39 @@ struct PrompterView: View {
 
     private func overlayChips(geo: GeometryProxy) -> some View {
         VStack {
-            HStack(alignment: .top) {
-                if videoMode {
-                    if camera.isRecording {
-                        HStack(spacing: 8) {
-                            Circle().fill(.white).frame(width: 10, height: 10)
-                            Text("REC \(Format.duration(camera.elapsed))")
-                                .font(.system(size: 14, weight: .medium).monospacedDigit())
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Color.red.opacity(0.9), in: Capsule())
-                    } else {
-                        Button { showClips = true } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "film").foregroundStyle(Theme.accent)
-                                Text("Clips").font(.system(size: 14, weight: .semibold))
+            ZStack(alignment: .top) {
+                HStack(alignment: .top) {
+                    if videoMode {
+                        if camera.isRecording {
+                            HStack(spacing: 8) {
+                                Circle().fill(.white).frame(width: 10, height: 10)
+                                Text("REC \(Format.duration(camera.elapsed))")
+                                    .font(.system(size: 14, weight: .medium).monospacedDigit())
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(.black.opacity(0.6), in: Capsule())
+                            .background(Color.red.opacity(0.9), in: Capsule())
+                        } else {
+                            Button { showClips = true } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "film").foregroundStyle(Theme.accent)
+                                    Text("Clips").font(.system(size: 14, weight: .semibold))
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(.black.opacity(0.6), in: Capsule())
+                            }
                         }
                     }
-                }
 
-                Spacer(minLength: 8)
+                    Spacer(minLength: 8)
+
+                    Text("\(remaining)% left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(.black.opacity(0.6), in: Capsule())
+                }
 
                 if videoMode && camera.isReady && controlsVisible {
                     HStack(spacing: 6) {
@@ -200,15 +208,8 @@ struct PrompterView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(.black.opacity(0.6), in: Capsule())
-
-                    Spacer(minLength: 8)
+                    .frame(maxWidth: geo.size.width * 0.60)
                 }
-
-                Text("\(remaining)% left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.black.opacity(0.6), in: Capsule())
             }
             .padding(.horizontal, 10)
             .padding(.top, 10)
