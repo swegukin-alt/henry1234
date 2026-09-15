@@ -32,7 +32,7 @@ final class AppSettings: ObservableObject {
     @Published var useFrontCamera: Bool { didSet { write(useFrontCamera, "useFrontCamera") } }
     @Published var cinematicMode: Bool { didSet { write(cinematicMode, "cinematicMode") } }
     @Published var simulatedAperture: Double { didSet { write(simulatedAperture, "simulatedAperture") } }
-    @Published var appleLog: Bool { didSet { write(appleLog, "appleLog") } }
+    
     @Published var lastActiveScriptID: String? { didSet { defaults.set(lastActiveScriptID, forKey: "lastActiveScriptID") } }
 
     init() {
@@ -70,7 +70,7 @@ final class AppSettings: ObservableObject {
         useFrontCamera = b("useFrontCamera", true)
         cinematicMode = b("cinematicMode", false)
         simulatedAperture = d("simulatedAperture", 2.8)
-        appleLog = b("appleLog", false)
+        
         lastActiveScriptID = defaults.string(forKey: "lastActiveScriptID")
     }
 
