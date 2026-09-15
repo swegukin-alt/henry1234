@@ -447,7 +447,7 @@ struct PrompterView: View {
                                     .tint(Theme.accent)
                                     .disabled(camera.isRecording || !camera.cinematicSupported)
                                 if !camera.cinematicSupported {
-                                    Text("Requires Apple's Cinematic capture pipeline.")
+                                    Text(camera.cinematicReason)
                                         .font(.caption2)
                                         .foregroundStyle(.white.opacity(0.45))
                                 } else if settings.cinematicMode {
