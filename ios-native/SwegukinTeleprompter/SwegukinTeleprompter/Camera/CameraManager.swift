@@ -42,6 +42,9 @@ final class CameraManager: NSObject, ObservableObject {
     private let movieOutput = AVCaptureMovieFileOutput()
     private var device: AVCaptureDevice? { videoInput?.device }
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    /// Format the camera used before Apple Log was switched on.
+    private var preAppleLogFormat: AVCaptureDevice.Format?
+
     private weak var attachedPreviewLayer: AVCaptureVideoPreviewLayer?
     private var timer: Timer?
     private var startedAt: Date?
@@ -401,26 +404,48 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
 
-    /// Switches the capture color space to Apple Log and restores the normal
-    /// one when turned off. Incompatible HDR is dropped for the session.
+    /// Apple Log is a capture colour space. A device only accepts it while an
+    /// Apple Log capable format is active, so the format is switched first and
+    /// the previous format/colour space is restored when the toggle goes off.
     func applyAppleLog(_ enabled: Bool) {
         guard #available(iOS 17.2, *) else { return }
         guard !isRecording, let device else { return }
-        sessionQueue.async {
+        let session = self.session
+        sessionQueue.async { [weak self] in
+            session.beginConfiguration()
+            defer { session.commitConfiguration() }
             guard (try? device.lockForConfiguration()) != nil else { return }
-            let spaces = device.activeFormat.supportedColorSpaces
-            if enabled, spaces.contains(.appleLog) {
+            defer { device.unlockForConfiguration() }
+
+            if enabled {
+                if !device.activeFormat.supportedColorSpaces.contains(.appleLog) {
+                    let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+                    let logFormats = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
+                    let match = logFormats.first { format in
+                        let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                        return d.width == dims.width && d.height == dims.height
+                    } ?? logFormats.first
+                    guard let match else { return }
+                    self?.preAppleLogFormat = device.activeFormat
+                    device.activeFormat = match
+                }
+                // Apple Log and HDR are mutually exclusive on these formats.
                 if device.activeFormat.isVideoHDRSupported, device.isVideoHDREnabled {
                     device.automaticallyAdjustsVideoHDREnabled = false
                     device.isVideoHDREnabled = false
                 }
                 device.activeColorSpace = .appleLog
-            } else if device.activeColorSpace == .appleLog {
+            } else {
+                if let previous = self?.preAppleLogFormat {
+                    device.activeFormat = previous
+                    self?.preAppleLogFormat = nil
+                }
+                let spaces = device.activeFormat.supportedColorSpaces
                 device.activeColorSpace = spaces.contains(.P3_D65) ? .P3_D65 : .sRGB
             }
-            device.unlockForConfiguration()
         }
     }
+
 
     // MARK: - Controls
 

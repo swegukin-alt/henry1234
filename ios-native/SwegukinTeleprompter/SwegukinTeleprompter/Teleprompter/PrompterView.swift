@@ -442,24 +442,30 @@ struct PrompterView: View {
                                     .tint(Theme.accent)
                                     .disabled(camera.isRecording)
 
-                                if camera.cinematicSupported {
-                                    Toggle("Cinematic mode", isOn: $settings.cinematicMode)
-                                        .tint(Theme.accent)
-                                        .disabled(camera.isRecording)
-                                    if settings.cinematicMode {
-                                        popRow("Aperture", Format.aperture(settings.simulatedAperture)) {
-                                            Slider(value: $settings.simulatedAperture,
-                                                   in: camera.apertureRange, step: 0.1)
-                                                .disabled(camera.isRecording)
-                                        }
+                                Toggle("Cinematic mode", isOn: $settings.cinematicMode)
+                                    .tint(Theme.accent)
+                                    .disabled(camera.isRecording || !camera.cinematicSupported)
+                                if !camera.cinematicSupported {
+                                    Text("Requires Apple's Cinematic capture pipeline.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.45))
+                                } else if settings.cinematicMode {
+                                    popRow("Aperture", Format.aperture(settings.simulatedAperture)) {
+                                        Slider(value: $settings.simulatedAperture,
+                                               in: camera.apertureRange, step: 0.1)
+                                            .disabled(camera.isRecording)
                                     }
                                 }
 
-                                if camera.appleLogSupported {
-                                    Toggle("Apple Log", isOn: $settings.appleLog)
-                                        .tint(Theme.accent)
-                                        .disabled(camera.isRecording)
+                                Toggle("Apple Log", isOn: $settings.appleLog)
+                                    .tint(Theme.accent)
+                                    .disabled(camera.isRecording || !camera.appleLogSupported)
+                                if !camera.appleLogSupported {
+                                    Text("Apple Log not supported on this camera.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.45))
                                 }
+
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -563,11 +569,16 @@ struct PrompterView: View {
         guard videoMode, camera.isReady else { return }
         if camera.cinematicSupported {
             camera.applyCinematic(enabled: settings.cinematicMode, aperture: settings.simulatedAperture)
+        } else if settings.cinematicMode {
+            settings.cinematicMode = false
         }
         if camera.appleLogSupported {
             camera.applyAppleLog(settings.appleLog)
+        } else if settings.appleLog {
+            settings.appleLog = false
         }
     }
+
 
     private func finish() {
         guard !didFinish else { return }
