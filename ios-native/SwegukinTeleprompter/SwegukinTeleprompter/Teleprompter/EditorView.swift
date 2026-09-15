@@ -22,8 +22,9 @@ struct EditorView: View {
     }
 
     var body: some View {
-        ScrollView {
-        VStack(spacing: 0) {
+        GeometryReader { geometry in
+            ScrollView {
+            VStack(spacing: 0) {
             HStack {
                 Button(action: saveAndGoBack) { Text("‹ Scripts") }
                 Spacer()
@@ -55,15 +56,19 @@ struct EditorView: View {
                 .font(.system(size: 16))
                 .lineSpacing(5)
                 .scrollContentBackground(.hidden)
-                .frame(minHeight: 360)
+                // Match the web editor's 40vh box. The editor scrolls its own
+                // contents instead of growing to the full height of a pasted
+                // script and pushing settings thousands of points down-screen.
+                .frame(height: max(260, geometry.size.height * 0.40))
                 .padding(10)
                 .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
 
             SettingsPanel()
                 .padding(.top, 32)
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 40)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
+            }
         }
         .onChange(of: draft) { _, next in
             saveTask?.cancel()

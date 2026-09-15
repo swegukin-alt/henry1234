@@ -123,9 +123,24 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     func refreshRotation() {
-        guard let coordinator = rotationCoordinator else { return }
-        let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+        let angle = Self.interfaceRotationAngle()
         if angle != previewRotationAngle { previewRotationAngle = angle }
+    }
+
+    /// Use the window's settled interface orientation rather than the raw
+    /// device orientation. The latter briefly reports face-up/unknown while an
+    /// iPhone is being turned and left the preview sideways inside a portrait
+    /// frame, which looked like an extreme digital zoom.
+    private static func interfaceRotationAngle() -> CGFloat {
+        let orientation = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }
+            .first
+        switch orientation {
+        case .landscapeLeft: return 0
+        case .landscapeRight: return 180
+        case .portraitUpsideDown: return 270
+        default: return 90
+        }
     }
 
     // MARK: - Configuration
@@ -149,6 +164,13 @@ final class CameraManager: NSObject, ObservableObject {
         }
         session.addInput(input)
         videoInput = input
+
+        // Always begin at the physical 1× field of view. A zoom value can be
+        // retained by AVFoundation across format changes on multi-camera phones.
+        if (try? camera.lockForConfiguration()) != nil {
+            camera.videoZoomFactor = max(camera.minAvailableVideoZoomFactor, 1)
+            camera.unlockForConfiguration()
+        }
 
         // A preset the hardware is guaranteed to support keeps the preview alive
         // even when the requested mode is not offered by this camera.
@@ -211,9 +233,13 @@ final class CameraManager: NSObject, ObservableObject {
             if hdr { return format.isVideoHDRSupported }
             return true
         }
-        guard let format = candidates.first else { return }
+        // Several formats can have identical dimensions and frame rates but a
+        // different field of view. Choose the widest one to match the web
+        // camera and avoid an apparently zoomed-in preview.
+        guard let format = candidates.max(by: { $0.videoFieldOfView < $1.videoFieldOfView }) else { return }
         guard (try? camera.lockForConfiguration()) != nil else { return }
         camera.activeFormat = format
+        camera.videoZoomFactor = max(camera.minAvailableVideoZoomFactor, 1)
         let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
         camera.activeVideoMinFrameDuration = frameDuration
         camera.activeVideoMaxFrameDuration = frameDuration
@@ -272,7 +298,11 @@ final class CameraManager: NSObject, ObservableObject {
             ? [.builtInWideAngleCamera, .builtInTrueDepthCamera]
             : [.builtInWideAngleCamera, .builtInDualWideCamera, .builtInTripleCamera]
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: position)
-        return discovery.devices.first
+        return discovery.devices.max(by: { lhs, rhs in
+            let lhsFOV = lhs.formats.map(\.videoFieldOfView).max() ?? 0
+            let rhsFOV = rhs.formats.map(\.videoFieldOfView).max() ?? 0
+            return lhsFOV < rhsFOV
+        })
             ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
             ?? AVCaptureDevice.default(for: .video)
     }
@@ -330,7 +360,7 @@ final class CameraManager: NSObject, ObservableObject {
         guard !movieOutput.isRecording else { throw CameraError.alreadyRecording }
 
         if let connection = movieOutput.connection(with: .video) {
-            let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
+            let angle = Self.interfaceRotationAngle()
             if connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }

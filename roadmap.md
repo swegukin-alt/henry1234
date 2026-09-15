@@ -5,3 +5,6 @@
 - [x] Match native prompter typography, scrolling, controls, settings, and video treatment to the web app.
 - [x] Match the clips presentation while retaining Save to camera roll and Share.
 - [x] Validate all native Swift sources available in this environment.
+- [x] Correct native camera field of view and portrait/landscape rotation.
+- [x] Keep long pasted scripts inside a fixed-height scrolling editor.
+- [x] Reduce long-script redraw work during teleprompter scrolling.
