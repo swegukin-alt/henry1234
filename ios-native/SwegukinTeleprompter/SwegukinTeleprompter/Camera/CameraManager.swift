@@ -135,7 +135,57 @@ final class CameraManager: NSObject, ObservableObject {
     func refreshRotation() {
         let angle = Self.interfaceRotationAngle()
         if angle != previewRotationAngle { previewRotationAngle = angle }
+        applyAssistRotation()
     }
+
+    // MARK: - Apple Log view assist (monitoring only)
+
+    /// Live frames for the Rec. 709 monitoring preview. The recording pipeline
+    /// is untouched: the movie file keeps the camera's pure Apple Log signal.
+    let assistFrames = LogAssistFrameSource()
+    private let assistOutput = AVCaptureVideoDataOutput()
+    private let assistQueue = DispatchQueue(label: "camera.viewassist")
+    private var assistActive = false
+
+    func setViewAssist(_ on: Bool) {
+        guard on != assistActive else { return }
+        assistActive = on
+        let session = self.session
+        let output = assistOutput
+        let delegate = assistFrames
+        let queue = assistQueue
+        let angle = previewRotationAngle
+        sessionQueue.async {
+            session.beginConfiguration()
+            if on {
+                output.alwaysDiscardsLateVideoFrames = true
+                output.setSampleBufferDelegate(delegate, queue: queue)
+                if !session.outputs.contains(output), session.canAddOutput(output) {
+                    session.addOutput(output)
+                }
+                if let connection = output.connection(with: .video),
+                   connection.isVideoRotationAngleSupported(angle) {
+                    connection.videoRotationAngle = angle
+                }
+            } else {
+                output.setSampleBufferDelegate(nil, queue: nil)
+                if session.outputs.contains(output) { session.removeOutput(output) }
+            }
+            session.commitConfiguration()
+        }
+    }
+
+    private func applyAssistRotation() {
+        guard assistActive else { return }
+        let output = assistOutput
+        let angle = previewRotationAngle
+        sessionQueue.async {
+            guard let connection = output.connection(with: .video),
+                  connection.isVideoRotationAngleSupported(angle) else { return }
+            connection.videoRotationAngle = angle
+        }
+    }
+
 
     /// Use the window's settled interface orientation rather than the raw
     /// device orientation. The latter briefly reports face-up/unknown while an
