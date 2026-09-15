@@ -87,6 +87,7 @@ struct PrompterView: View {
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
                     textWidth: settings.textWidth,
+                    viewportWidth: geo.size.width,
                     viewportHeight: geo.size.height,
                     foreground: videoMode || settings.background == "black" ? .white : .black,
                     highlightEnabled: settings.readingHighlight,
@@ -567,6 +568,7 @@ private struct ScriptScrollLayer: View {
     let fontSize: Double
     let lineHeight: Double
     let textWidth: Double
+    let viewportWidth: CGFloat
     let viewportHeight: CGFloat
     let foreground: Color
     let highlightEnabled: Bool
@@ -595,7 +597,7 @@ private struct ScriptScrollLayer: View {
             foreground: foreground
         )
         .tracking(-0.015 * fontSize)
-        .frame(width: UIScreen.main.bounds.width * textWidth / 100, alignment: .leading)
+        .frame(width: viewportWidth * textWidth / 100, alignment: .leading)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
