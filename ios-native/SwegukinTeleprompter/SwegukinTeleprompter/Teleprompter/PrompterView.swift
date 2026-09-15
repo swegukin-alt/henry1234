@@ -124,6 +124,7 @@ struct PrompterView: View {
                     )
 
                 overlayChips(geo: geo)
+                    .zIndex(20)
 
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
@@ -131,8 +132,9 @@ struct PrompterView: View {
                     bottomToolbar
                 }
                 .ignoresSafeArea(edges: .bottom)
+                .zIndex(30)
 
-                if let panel { popover(for: panel) }
+                if let panel { popover(for: panel).zIndex(40) }
 
                 RemoteKeyCatcher(onAction: handle(action:))
                     .frame(width: 1, height: 1)
@@ -396,6 +398,10 @@ struct PrompterView: View {
                                 }
                             }
                         }
+
+                        Toggle("Stabilization", isOn: $settings.stabilization)
+                            .tint(Theme.accent)
+                            .disabled(camera.isRecording)
                     }
 
                     Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -611,7 +617,12 @@ private struct ScriptScrollLayer: View {
         )
         .onPreferenceChange(ContentHeightKey.self) { height in onContentHeight(height) }
         // Web spacer: 20vh of clear space above the first line.
-        .offset(y: viewportHeight * 0.20 - engine.offset)
+        // A render transform matches the browser's translated text layer and
+        // avoids invalidating the long script's SwiftUI layout every frame.
+        .transformEffect(CGAffineTransform(
+            translationX: 0,
+            y: viewportHeight * 0.20 - engine.offset
+        ))
         .scaleEffect(x: mirrorH ? -1 : 1, y: flip)
         .frame(maxWidth: .infinity, alignment: .top)
         .allowsHitTesting(false)

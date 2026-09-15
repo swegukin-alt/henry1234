@@ -51,7 +51,8 @@ struct RootView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: screen)
+        // Never animate the full camera/teleprompter hierarchy. That transition
+        // competes with capture startup and can temporarily hide its controls.
     }
 }
 
