@@ -329,14 +329,33 @@ final class CameraManager: NSObject, ObservableObject {
     /// True only when this iPhone and this iOS version genuinely report Apple's
     /// Cinematic video capture for the selected camera.
     static func cinematicSupported(front: Bool) -> Bool {
+        cinematicStatus(front: front).supported
+    }
+
+    /// Support plus a plain-language reason when it is unavailable, so the UI
+    /// can say *why* the row is disabled instead of a generic message.
+    static func cinematicStatus(front: Bool) -> (supported: Bool, reason: String) {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            guard let device = pickCamera(front: front) else { return false }
-            return device.formats.contains { $0.isCinematicVideoCaptureSupported }
+            guard let device = pickCamera(front: front) else {
+                return (false, "No camera available.")
+            }
+            if device.formats.contains(where: { $0.isCinematicVideoCaptureSupported }) {
+                return (true, "")
+            }
+            if let other = pickCamera(front: !front),
+               other.formats.contains(where: { $0.isCinematicVideoCaptureSupported }) {
+                return (false, front ? "Only available on the back camera."
+                                     : "Only available on the front camera.")
+            }
+            return (false, "This camera doesn't offer Cinematic capture.")
         }
+        return (false, "Cinematic capture needs iOS 26 or later.")
+        #else
+        return (false, "Build with the iOS 26 SDK to enable Cinematic capture.")
         #endif
-        return false
     }
+
 
     /// Apple Log is only offered when a capture format lists it.
     static func appleLogSupported(front: Bool) -> Bool {
