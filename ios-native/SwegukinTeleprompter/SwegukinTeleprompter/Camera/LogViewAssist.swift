@@ -129,8 +129,11 @@ final class LogAssistMTKView: MTKView, MTKViewDelegate {
         super.init(frame: .zero, device: mtlDevice)
         self.source = source
         self.framebufferOnly = false
-        self.isOpaque = true
-        self.backgroundColor = .black
+        // Transparent until the first frame lands, so a stalled assist shows
+        // the untouched log preview underneath rather than a black screen.
+        self.isOpaque = false
+        self.backgroundColor = .clear
+        self.layer.isOpaque = false
         self.enableSetNeedsDisplay = false
         self.isPaused = false
         self.preferredFramesPerSecond = 30
