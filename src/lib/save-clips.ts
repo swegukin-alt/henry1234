@@ -131,8 +131,10 @@ export function startSave(
 
       const clean = (complete.mimeType || "video/mp4").split(";")[0].trim();
       const type = clean === "video/webm" ? "video/webm" : "video/mp4";
-      const stamp = new Date(complete.createdAt).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const name = `${base}-${stamp}.${type === "video/mp4" ? "mp4" : "webm"}`;
+      const d = new Date(complete.createdAt);
+      const p = (n: number) => String(n).padStart(2, "0");
+      const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+      const name = `Swegukin_${stamp}.${type === "video/mp4" ? "mp4" : "webm"}`;
       const file = new File([complete.blob], name, { type });
       const totalBytes = complete.sizeBytes || complete.blob.size;
 
