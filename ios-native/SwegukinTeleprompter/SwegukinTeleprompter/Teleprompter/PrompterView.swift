@@ -646,6 +646,7 @@ struct PrompterView: View {
                     errorMessage = error.localizedDescription
                 }
                 currentTakeID = nil
+                camera.onInvoluntaryFinish = nil
                 if stopCameraWhenFinished { camera.stop() }
             }
         }
