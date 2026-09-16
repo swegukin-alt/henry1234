@@ -503,7 +503,8 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             self.startedAt = nil
 
             let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
-            let size = (try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)[.size] as? Int) ?? 0
+            let attributes = try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)
+            let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
             // AVFoundation flags a stopped-early recording but still leaves a
             // playable file on disk — keep it rather than losing the take.
             let result: Result<URL, Error>
