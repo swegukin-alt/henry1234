@@ -327,7 +327,7 @@ function Library({
             <div className="flex items-stretch">
               <button onClick={() => onSelect(s.id)} className="min-w-0 flex-1 px-4 py-3.5 text-left active:opacity-60">
                 <div className={`truncate text-[16px] ${activeId === s.id ? "text-primary" : "text-white"}`}>
-                  {s.title || "Untitled"}
+                  {scriptTitle(s)}
                 </div>
                 <div className="mt-0.5 line-clamp-1 text-[13px] text-neutral-500">
                   {s.body.trim().slice(0, 80) || "Empty script"}
