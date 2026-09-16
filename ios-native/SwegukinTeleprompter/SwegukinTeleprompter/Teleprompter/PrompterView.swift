@@ -199,7 +199,14 @@ struct PrompterView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            if camera.isRecording { stopRecording() } else { pause() }
+            // Pulling down Notification Center / Control Center, a banner or an
+            // alarm must never end a take. Only the record button stops it.
+            if !camera.isRecording { pause() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            // iOS shuts the camera down once the app truly leaves the screen.
+            // Close the file so everything filmed so far is kept.
+            if camera.isRecording { camera.finalizeIfRecording() } else { pause() }
         }
         .sheet(isPresented: $showClips) {
             ClipsView(scriptID: script.id, onBack: { showClips = false })
