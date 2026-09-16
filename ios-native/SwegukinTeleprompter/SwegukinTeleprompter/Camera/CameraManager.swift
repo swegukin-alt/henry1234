@@ -414,7 +414,15 @@ final class CameraManager: NSObject, ObservableObject {
 
     func startRecording(to url: URL) throws {
         guard session.isRunning else { throw CameraError.notReady }
-        guard !movieOutput.isRecording else { throw CameraError.alreadyRecording }
+        guard !movieOutput.isRecording, !isRecording else { throw CameraError.alreadyRecording }
+        // A previous take is still being closed: starting now would drop it.
+        guard !isFinishing else { throw CameraError.busy }
+        guard movieOutput.connection(with: .video) != nil else { throw CameraError.notReady }
+        guard Self.hasRoomToRecord() else { throw CameraError.noSpace }
+
+        let folder = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        guard FileManager.default.fileExists(atPath: folder.path) else { throw CameraError.notReady }
 
         if let connection = movieOutput.connection(with: .video) {
             let angle = Self.interfaceRotationAngle()
