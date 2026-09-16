@@ -2230,7 +2230,7 @@ function Prompter({
       {videoMode && clipsOpen && (
         <ClipsSheet
           clips={clips}
-          scriptTitles={{ [script.id]: script.title || "Untitled script" }}
+          scriptTitles={{ [script.id]: scriptTitle(script) }}
           onClose={() => setClipsOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { await deleteAllForScript(script.id); setClips([]); }}
