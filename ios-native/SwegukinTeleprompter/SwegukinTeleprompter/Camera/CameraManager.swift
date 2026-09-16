@@ -58,7 +58,7 @@ final class CameraManager: NSObject, ObservableObject {
     var onInvoluntaryFinish: ((Result<URL, Error>) -> Void)?
 
     enum CameraError: LocalizedError {
-        case noDevice, notReady, alreadyRecording, permissionDenied
+        case noDevice, notReady, alreadyRecording, permissionDenied, busy, noSpace
 
         var errorDescription: String? {
             switch self {
@@ -66,6 +66,8 @@ final class CameraManager: NSObject, ObservableObject {
             case .notReady: return "The camera is not running yet."
             case .alreadyRecording: return "Already recording."
             case .permissionDenied: return "Camera access is turned off. Enable it in Settings."
+            case .busy: return "Saving the last take — try again in a moment."
+            case .noSpace: return "Not enough free space to record. Free up storage and try again."
             }
         }
     }
