@@ -64,7 +64,7 @@ final class ScriptStore: ObservableObject {
 
     @discardableResult
     func create() -> Script {
-        let script = Script(title: "Untitled", body: "", updatedAt: Date())
+        let script = Script(title: "", body: "", updatedAt: Date())
         scripts.insert(script, at: 0)
         persist()
         return script
