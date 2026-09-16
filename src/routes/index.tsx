@@ -260,7 +260,7 @@ function Index() {
       {allVideosOpen && (
         <ClipsSheet
           clips={allClips}
-          scriptTitles={Object.fromEntries(scripts.map((s) => [s.id, s.title || "Untitled script"]))}
+          scriptTitles={Object.fromEntries(scripts.map((s) => [s.id, scriptTitle(s)]))}
           onClose={() => setAllVideosOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setAllClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { for (const c of allClips) await deleteClip(c.id); setAllClips([]); }}
