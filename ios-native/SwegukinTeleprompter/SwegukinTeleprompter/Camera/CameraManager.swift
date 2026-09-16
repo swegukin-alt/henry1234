@@ -516,6 +516,9 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             self.timer?.invalidate()
             self.timer = nil
             self.isRecording = false
+            self.isFinishing = false
+            self.stopWatchdog?.invalidate()
+            self.stopWatchdog = nil
             self.startedAt = nil
 
             let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
