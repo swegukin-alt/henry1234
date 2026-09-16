@@ -199,7 +199,14 @@ struct PrompterView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            if camera.isRecording { stopRecording() } else { pause() }
+            // Pulling down Notification Center / Control Center, a banner or an
+            // alarm must never end a take. Only the record button stops it.
+            if !camera.isRecording { pause() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            // iOS shuts the camera down once the app truly leaves the screen.
+            // Close the file so everything filmed so far is kept.
+            if camera.isRecording { camera.finalizeIfRecording() } else { pause() }
         }
         .sheet(isPresented: $showClips) {
             ClipsView(scriptID: script.id, onBack: { showClips = false })
@@ -594,6 +601,24 @@ struct PrompterView: View {
         let id = UUID().uuidString
         let url = recordings.newRecordingURL(id: id)
         do {
+            // If the system ends the take (call, alarm, backgrounding, camera
+            // error) the footage already on disk is still saved to the clips.
+            camera.onInvoluntaryFinish = { result in
+                Task { @MainActor in
+                    saving = false
+                    switch result {
+                    case .success(let finishedURL):
+                        recordings.register(id: id, url: finishedURL, title: script.title, scriptID: script.id)
+                        recordings.refreshMetadata(id: id)
+                    case .failure(let error):
+                        errorMessage = error.localizedDescription
+                    }
+                    currentTakeID = nil
+                    controlsVisible = true
+                    engine.pause()
+                    camera.onInvoluntaryFinish = nil
+                }
+            }
             try camera.startRecording(to: url)
             currentTakeID = id
             play()
@@ -621,6 +646,7 @@ struct PrompterView: View {
                     errorMessage = error.localizedDescription
                 }
                 currentTakeID = nil
+                camera.onInvoluntaryFinish = nil
                 if stopCameraWhenFinished { camera.stop() }
             }
         }

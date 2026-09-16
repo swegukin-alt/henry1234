@@ -48,6 +48,11 @@ final class CameraManager: NSObject, ObservableObject {
     private var pendingCompletion: ((Result<URL, Error>) -> Void)?
     private var observing = false
 
+    /// Called when a take ends without the user pressing stop (system
+    /// interruption, backgrounding, capture error). The footage already written
+    /// to disk is handed over so it is always kept.
+    var onInvoluntaryFinish: ((Result<URL, Error>) -> Void)?
+
     enum CameraError: LocalizedError {
         case noDevice, notReady, alreadyRecording, permissionDenied
 
@@ -81,6 +86,14 @@ final class CameraManager: NSObject, ObservableObject {
         AudioSessionManager.shared.activateForCapture()
         AudioSessionManager.shared.onRouteChange = { [weak self] name in
             self?.micName = name
+        }
+        // An alarm or phone call takes the microphone for a moment. Bring the
+        // capture audio session straight back instead of ending the take.
+        AudioSessionManager.shared.onInterruptionEnded = { [weak self] in
+            Task { @MainActor in
+                AudioSessionManager.shared.activateForCapture()
+                self?.micName = AudioSessionManager.shared.currentInputName
+            }
         }
         micName = AudioSessionManager.shared.currentInputName
         usingFront = front
@@ -446,6 +459,7 @@ final class CameraManager: NSObject, ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.status = "Camera error — restarting"
+                self.finalizeIfRecording()
                 self.sessionQueue.async {
                     if !self.session.isRunning { self.session.startRunning() }
                     Task { @MainActor in
@@ -456,11 +470,32 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         center.addObserver(forName: .AVCaptureSessionWasInterrupted, object: session, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.status = "Camera interrupted" }
+            Task { @MainActor in
+                guard let self else { return }
+                self.status = "Camera interrupted"
+                // A call, alarm or the camera being taken away ends capture at
+                // the hardware level. Close the file cleanly so the take that
+                // was already written to disk is never lost.
+                self.finalizeIfRecording()
+            }
         }
         center.addObserver(forName: .AVCaptureSessionInterruptionEnded, object: session, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.status = "" }
+            Task { @MainActor in
+                guard let self else { return }
+                self.status = ""
+                self.sessionQueue.async {
+                    if !self.session.isRunning { self.session.startRunning() }
+                    Task { @MainActor in self.isReady = self.session.isRunning }
+                }
+            }
         }
+    }
+
+    /// Closes an in-flight take without the user pressing stop. The delegate
+    /// hands the finished file to `onInvoluntaryFinish` so it is saved.
+    func finalizeIfRecording() {
+        guard movieOutput.isRecording else { return }
+        movieOutput.stopRecording()
     }
 }
 
@@ -476,17 +511,28 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             self.startedAt = nil
 
             let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)
+            let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
             // AVFoundation flags a stopped-early recording but still leaves a
             // playable file on disk — keep it rather than losing the take.
-            if let error, !fileExists {
+            let result: Result<URL, Error>
+            if let error, !fileExists || size == 0 {
                 Haptics.failure()
                 self.status = error.localizedDescription
-                self.pendingCompletion?(.failure(error))
+                result = .failure(error)
             } else {
                 Haptics.success()
-                self.pendingCompletion?(.success(outputFileURL))
+                result = .success(outputFileURL)
             }
-            self.pendingCompletion = nil
+
+            if let completion = self.pendingCompletion {
+                self.pendingCompletion = nil
+                completion(result)
+            } else {
+                // Nobody asked for this stop: the system ended the take. Hand
+                // the footage over so it still lands in the clip list.
+                self.onInvoluntaryFinish?(result)
+            }
         }
     }
 }
