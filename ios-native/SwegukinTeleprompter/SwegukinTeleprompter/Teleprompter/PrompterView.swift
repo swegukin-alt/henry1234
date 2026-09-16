@@ -602,8 +602,8 @@ struct PrompterView: View {
         // Rapid double taps, or a tap while the previous take is still being
         // written, must never reach the capture pipeline.
         guard !saving, !camera.recordingRequested, currentTakeID == nil else { return }
-        let id = UUID().uuidString
-        let url = recordings.newRecordingURL(id: id)
+        let url = recordings.newRecordingURL(id: UUID().uuidString)
+        let id = Self.recordingID(for: url)
         do {
             camera.setContinuationURLProvider {
                 recordings.newRecordingURL(id: UUID().uuidString)
