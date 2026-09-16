@@ -5,6 +5,42 @@ struct Script: Identifiable, Codable, Equatable {
     var title: String = ""
     var body: String = ""
     var updatedAt: Date = Date()
+
+    /// What the library and the clips show when nobody typed a title.
+    var displayTitle: String {
+        let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty && typed.lowercased() != "untitled" { return typed }
+        return ScriptTitle.suggest(from: body)
+    }
+}
+
+/// Builds a short, human title out of the first meaningful words of a script.
+enum ScriptTitle {
+    static func suggest(from body: String) -> String {
+        let firstLine = body
+            .split(whereSeparator: \.isNewline)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map(String.init) ?? ""
+        let cleaned = firstLine
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "#*-–—•\"'“”‘’"))
+            .trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return "New script" }
+
+        var title = ""
+        for word in cleaned.split(separator: " ") {
+            if title.isEmpty {
+                title = String(word)
+            } else if title.count + word.count + 1 <= 42 {
+                title += " " + word
+            } else {
+                title += "…"
+                break
+            }
+        }
+        if title.count > 48 { title = String(title.prefix(46)) + "…" }
+        return title.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?")) 
+    }
 }
 
 /// Scripts are tiny text records, so a single JSON file in Application Support
