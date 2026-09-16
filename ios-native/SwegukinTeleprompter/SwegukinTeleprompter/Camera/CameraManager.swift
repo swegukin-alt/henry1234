@@ -435,6 +435,8 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         try? FileManager.default.removeItem(at: url)
+        currentFileURL = url
+        isFinishing = false
         startedAt = Date()
         elapsed = 0
         movieOutput.startRecording(to: url, recordingDelegate: self)
