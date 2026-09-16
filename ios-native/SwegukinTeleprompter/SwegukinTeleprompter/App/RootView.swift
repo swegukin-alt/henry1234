@@ -94,7 +94,7 @@ struct LibraryView: View {
                 ForEach(Array(scripts.scripts.enumerated()), id: \.element.id) { index, script in
                     Button { onOpen(script.id) } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(script.title.isEmpty ? "Untitled" : script.title)
+                            Text(script.displayTitle)
                                 .font(.headline)
                                 .foregroundStyle(.white)
                             Text(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty script" : String(script.body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)))

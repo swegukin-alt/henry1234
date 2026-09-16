@@ -101,6 +101,27 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// A readable title taken from the opening words of the script itself.
+function suggestTitle(body: string) {
+  const line = (body || "").split(/\r?\n/).find((l) => l.trim().length > 0) || "";
+  const cleaned = line.trim().replace(/^[#*\-–—•"'“”‘’\s]+/, "").trim();
+  if (!cleaned) return "New script";
+  let out = "";
+  for (const word of cleaned.split(/\s+/)) {
+    if (!out) out = word;
+    else if (out.length + word.length + 1 <= 42) out += " " + word;
+    else { out += "…"; break; }
+  }
+  if (out.length > 48) out = out.slice(0, 46) + "…";
+  return out.replace(/[.,;:!?]+$/, "");
+}
+
+function scriptTitle(s: { title?: string; body?: string }) {
+  const typed = (s.title || "").trim();
+  if (typed && typed.toLowerCase() !== "untitled" && typed.toLowerCase() !== "untitled script") return typed;
+  return suggestTitle(s.body || "");
+}
+
 // Unified landscape entry — same call from both Play and Video buttons.
 // Both calls reach the device APIs synchronously inside the user gesture,
 // which is what iOS requires for fullscreen.
@@ -176,7 +197,7 @@ function Index() {
     setScripts((arr) => arr.map((s) => (s.id === activeId ? { ...s, ...patch, updatedAt: Date.now() } : s)));
   };
   const createScript = () => {
-    const s: Script = { id: uid(), title: "Untitled script", body: "", updatedAt: Date.now() };
+    const s: Script = { id: uid(), title: "", body: "", updatedAt: Date.now() };
     setScripts((a) => [s, ...a]);
     setActiveId(s.id);
     setMode("edit");
@@ -239,7 +260,7 @@ function Index() {
       {allVideosOpen && (
         <ClipsSheet
           clips={allClips}
-          scriptTitles={Object.fromEntries(scripts.map((s) => [s.id, s.title || "Untitled script"]))}
+          scriptTitles={Object.fromEntries(scripts.map((s) => [s.id, scriptTitle(s)]))}
           onClose={() => setAllVideosOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setAllClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { for (const c of allClips) await deleteClip(c.id); setAllClips([]); }}
@@ -306,7 +327,7 @@ function Library({
             <div className="flex items-stretch">
               <button onClick={() => onSelect(s.id)} className="min-w-0 flex-1 px-4 py-3.5 text-left active:opacity-60">
                 <div className={`truncate text-[16px] ${activeId === s.id ? "text-primary" : "text-white"}`}>
-                  {s.title || "Untitled"}
+                  {scriptTitle(s)}
                 </div>
                 <div className="mt-0.5 line-clamp-1 text-[13px] text-neutral-500">
                   {s.body.trim().slice(0, 80) || "Empty script"}
@@ -1435,8 +1456,8 @@ function Prompter({
   // time, and only when share() is reached inside the tap that triggered it —
   // so no awaits before the call, no codec parameters, no multi-file batches.
   const exportClip = useCallback((clip: ClipMeta) => {
-    startSave(clip, script.title, setSaveJob);
-  }, [script.title]);
+    startSave(clip, scriptTitle(script), setSaveJob);
+  }, [script.title, script.body]);
 
 
 
@@ -2209,7 +2230,7 @@ function Prompter({
       {videoMode && clipsOpen && (
         <ClipsSheet
           clips={clips}
-          scriptTitles={{ [script.id]: script.title || "Untitled script" }}
+          scriptTitles={{ [script.id]: scriptTitle(script) }}
           onClose={() => setClipsOpen(false)}
           onDelete={async (id) => { await deleteClip(id); setClips((cs) => cs.filter((c) => c.id !== id)); }}
           onDeleteAll={async () => { await deleteAllForScript(script.id); setClips([]); }}
