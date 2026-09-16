@@ -1457,7 +1457,7 @@ function Prompter({
   // so no awaits before the call, no codec parameters, no multi-file batches.
   const exportClip = useCallback((clip: ClipMeta) => {
     startSave(clip, scriptTitle(script), setSaveJob);
-  }, [script.title]);
+  }, [script.title, script.body]);
 
 
 
