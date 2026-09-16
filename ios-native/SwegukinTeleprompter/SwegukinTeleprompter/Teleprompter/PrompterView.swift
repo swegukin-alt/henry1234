@@ -204,9 +204,10 @@ struct PrompterView: View {
             if !camera.isRecording { pause() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            // iOS shuts the camera down once the app truly leaves the screen.
-            // Close the file so everything filmed so far is kept.
-            if camera.isRecording { camera.finalizeIfRecording() } else { pause() }
+            // Never translate a system overlay or app-state transition into a
+            // recording stop. If iOS closes capture itself, CameraManager's
+            // delegate preserves the file that was already written to disk.
+            if !camera.isRecording { pause() }
         }
         .sheet(isPresented: $showClips) {
             ClipsView(scriptID: script.id, onBack: { showClips = false })
