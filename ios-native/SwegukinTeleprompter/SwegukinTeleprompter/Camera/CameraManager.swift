@@ -502,8 +502,16 @@ final class CameraManager: NSObject, ObservableObject {
     /// Closes an in-flight take without the user pressing stop. The delegate
     /// hands the finished file to `onInvoluntaryFinish` so it is saved.
     func finalizeIfRecording() {
-        guard movieOutput.isRecording else { return }
+        guard movieOutput.isRecording, !isFinishing else { return }
+        isFinishing = true
         movieOutput.stopRecording()
+    }
+
+    /// Refuses to start a take that the disk cannot hold.
+    private static func hasRoomToRecord() -> Bool {
+        let values = try? AppPaths.recordings.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let free = values?.volumeAvailableCapacityForImportantUsage else { return true }
+        return free > 300_000_000
     }
 }
 
