@@ -47,6 +47,10 @@ final class CameraManager: NSObject, ObservableObject {
     private var startedAt: Date?
     private var pendingCompletion: ((Result<URL, Error>) -> Void)?
     private var observing = false
+    /// True between asking the file to close and the delegate confirming it.
+    private var isFinishing = false
+    private var stopWatchdog: Timer?
+    private var currentFileURL: URL?
 
     /// Called when a take ends without the user pressing stop (system
     /// interruption, backgrounding, capture error). The footage already written
@@ -54,7 +58,7 @@ final class CameraManager: NSObject, ObservableObject {
     var onInvoluntaryFinish: ((Result<URL, Error>) -> Void)?
 
     enum CameraError: LocalizedError {
-        case noDevice, notReady, alreadyRecording, permissionDenied
+        case noDevice, notReady, alreadyRecording, permissionDenied, busy, noSpace
 
         var errorDescription: String? {
             switch self {
@@ -62,6 +66,8 @@ final class CameraManager: NSObject, ObservableObject {
             case .notReady: return "The camera is not running yet."
             case .alreadyRecording: return "Already recording."
             case .permissionDenied: return "Camera access is turned off. Enable it in Settings."
+            case .busy: return "Saving the last take — try again in a moment."
+            case .noSpace: return "Not enough free space to record. Free up storage and try again."
             }
         }
     }
@@ -414,7 +420,15 @@ final class CameraManager: NSObject, ObservableObject {
 
     func startRecording(to url: URL) throws {
         guard session.isRunning else { throw CameraError.notReady }
-        guard !movieOutput.isRecording else { throw CameraError.alreadyRecording }
+        guard !movieOutput.isRecording, !isRecording else { throw CameraError.alreadyRecording }
+        // A previous take is still being closed: starting now would drop it.
+        guard !isFinishing else { throw CameraError.busy }
+        guard movieOutput.connection(with: .video) != nil else { throw CameraError.notReady }
+        guard Self.hasRoomToRecord() else { throw CameraError.noSpace }
+
+        let folder = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        guard FileManager.default.fileExists(atPath: folder.path) else { throw CameraError.notReady }
 
         if let connection = movieOutput.connection(with: .video) {
             let angle = Self.interfaceRotationAngle()
@@ -427,6 +441,8 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         try? FileManager.default.removeItem(at: url)
+        currentFileURL = url
+        isFinishing = false
         startedAt = Date()
         elapsed = 0
         movieOutput.startRecording(to: url, recordingDelegate: self)
@@ -442,11 +458,39 @@ final class CameraManager: NSObject, ObservableObject {
 
     func stopRecording(completion: @escaping (Result<URL, Error>) -> Void) {
         guard movieOutput.isRecording else {
-            completion(.failure(CameraError.notReady))
+            // The system already closed the file (interruption, error). Hand
+            // back whatever finished writing instead of reporting a failure.
+            if let url = currentFileURL, FileManager.default.fileExists(atPath: url.path) {
+                completion(.success(url))
+            } else {
+                completion(.failure(CameraError.notReady))
+            }
             return
         }
+        // A second press while the file is closing must never start a new stop.
+        if isFinishing, pendingCompletion != nil { return }
         pendingCompletion = completion
+        isFinishing = true
         movieOutput.stopRecording()
+
+        // Safety net: if AVFoundation never calls back, keep the footage and
+        // free the UI instead of leaving the app stuck in "saving".
+        stopWatchdog?.invalidate()
+        stopWatchdog = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let completion = self.pendingCompletion else { return }
+                self.pendingCompletion = nil
+                self.isFinishing = false
+                self.isRecording = false
+                self.timer?.invalidate()
+                self.timer = nil
+                if let url = self.currentFileURL, FileManager.default.fileExists(atPath: url.path) {
+                    completion(.success(url))
+                } else {
+                    completion(.failure(CameraError.notReady))
+                }
+            }
+        }
     }
 
     // MARK: - Session health
@@ -494,8 +538,16 @@ final class CameraManager: NSObject, ObservableObject {
     /// Closes an in-flight take without the user pressing stop. The delegate
     /// hands the finished file to `onInvoluntaryFinish` so it is saved.
     func finalizeIfRecording() {
-        guard movieOutput.isRecording else { return }
+        guard movieOutput.isRecording, !isFinishing else { return }
+        isFinishing = true
         movieOutput.stopRecording()
+    }
+
+    /// Refuses to start a take that the disk cannot hold.
+    private static func hasRoomToRecord() -> Bool {
+        let values = try? AppPaths.recordings.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let free = values?.volumeAvailableCapacityForImportantUsage else { return true }
+        return free > 300_000_000
     }
 }
 
@@ -508,6 +560,9 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             self.timer?.invalidate()
             self.timer = nil
             self.isRecording = false
+            self.isFinishing = false
+            self.stopWatchdog?.invalidate()
+            self.stopWatchdog = nil
             self.startedAt = nil
 
             let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)

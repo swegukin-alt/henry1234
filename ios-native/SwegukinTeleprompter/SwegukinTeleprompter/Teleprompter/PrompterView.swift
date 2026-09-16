@@ -598,6 +598,9 @@ struct PrompterView: View {
     }
 
     private func startRecording() {
+        // Rapid double taps, or a tap while the previous take is still being
+        // written, must never reach the capture pipeline.
+        guard !saving, !camera.isRecording, currentTakeID == nil else { return }
         let id = UUID().uuidString
         let url = recordings.newRecordingURL(id: id)
         do {
@@ -630,7 +633,7 @@ struct PrompterView: View {
     }
 
     private func stopRecording(stopCameraWhenFinished: Bool = false) {
-        guard camera.isRecording else { return }
+        guard camera.isRecording, !saving else { return }
         saving = true
         pause()
         controlsVisible = true
