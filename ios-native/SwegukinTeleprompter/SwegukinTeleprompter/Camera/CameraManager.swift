@@ -508,7 +508,7 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             // AVFoundation flags a stopped-early recording but still leaves a
             // playable file on disk — keep it rather than losing the take.
             let result: Result<URL, Error>
-            if let error, !fileExists || (size ?? 0) == 0 {
+            if let error, !fileExists || size == 0 {
                 Haptics.failure()
                 self.status = error.localizedDescription
                 result = .failure(error)
