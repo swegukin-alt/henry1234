@@ -52,6 +52,7 @@ final class CameraManager: NSObject, ObservableObject {
     private var isFinishing = false
     private var stopWatchdog: Timer?
     private var currentFileURL: URL?
+    private var sessionInterrupted = false
     /// This is the record button's state. Temporary AVFoundation interruptions
     /// may close one segment, but only the button is allowed to clear this flag.
     @Published private(set) var recordingRequested = false
@@ -548,6 +549,7 @@ final class CameraManager: NSObject, ObservableObject {
         center.addObserver(forName: .AVCaptureSessionWasInterrupted, object: session, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.sessionInterrupted = true
                 self.status = "Camera interrupted"
                 // Control Center, Notification Center and temporary system
                 // overlays must not ask the movie output to stop. If iOS itself
@@ -558,6 +560,7 @@ final class CameraManager: NSObject, ObservableObject {
         center.addObserver(forName: .AVCaptureSessionInterruptionEnded, object: session, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.sessionInterrupted = false
                 self.status = ""
                 self.sessionQueue.async {
                     if !self.session.isRunning { self.session.startRunning() }
@@ -571,7 +574,7 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     private func resumeRequestedRecordingIfPossible() {
-        guard recordingRequested, session.isRunning, !movieOutput.isRecording,
+        guard recordingRequested, !sessionInterrupted, session.isRunning, !movieOutput.isRecording,
               !isRecording, !isFinishing, let continuationURLProvider else { return }
         do {
             try startRecordingSegment(to: continuationURLProvider(), userInitiated: false)
