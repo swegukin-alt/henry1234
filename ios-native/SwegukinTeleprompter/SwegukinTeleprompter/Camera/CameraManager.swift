@@ -47,6 +47,10 @@ final class CameraManager: NSObject, ObservableObject {
     private var startedAt: Date?
     private var pendingCompletion: ((Result<URL, Error>) -> Void)?
     private var observing = false
+    /// True between asking the file to close and the delegate confirming it.
+    private var isFinishing = false
+    private var stopWatchdog: Timer?
+    private var currentFileURL: URL?
 
     /// Called when a take ends without the user pressing stop (system
     /// interruption, backgrounding, capture error). The footage already written
