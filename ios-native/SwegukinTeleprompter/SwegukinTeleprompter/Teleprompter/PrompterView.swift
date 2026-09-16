@@ -651,7 +651,7 @@ struct PrompterView: View {
                 switch result {
                 case .success(let url):
                     let finishedID = Self.recordingID(for: url)
-                    recordings.register(id: finishedID, url: url, title: script.title, scriptID: script.id)
+                    recordings.register(id: finishedID, url: url, title: script.displayTitle, scriptID: script.id)
                     recordings.refreshMetadata(id: finishedID)
                 case .failure(let error):
                     errorMessage = error.localizedDescription
