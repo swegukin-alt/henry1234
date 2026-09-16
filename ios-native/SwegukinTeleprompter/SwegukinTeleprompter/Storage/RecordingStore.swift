@@ -29,7 +29,17 @@ final class RecordingStore: ObservableObject {
     /// A destination for a brand new take. The file is written by AVFoundation
     /// directly — no copying afterwards.
     func newRecordingURL(id: String) -> URL {
-        AppPaths.recordings.appendingPathComponent("take-\(id).mov")
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        let stamp = formatter.string(from: Date())
+        var candidate = AppPaths.recordings.appendingPathComponent("Swegukin_\(stamp).mov")
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = AppPaths.recordings.appendingPathComponent("Swegukin_\(stamp)-\(suffix).mov")
+            suffix += 1
+        }
+        return candidate
     }
 
     func register(id: String, url: URL, title: String, scriptID: String?) {
