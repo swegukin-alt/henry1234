@@ -583,7 +583,6 @@ final class CameraManager: NSObject, ObservableObject {
                 self?.resumeRequestedRecordingIfPossible()
             }
         } catch {
-            recordingRequested = false
             AudioSessionManager.shared.isRecording = false
             status = error.localizedDescription
         }
