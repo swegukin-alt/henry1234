@@ -450,11 +450,39 @@ final class CameraManager: NSObject, ObservableObject {
 
     func stopRecording(completion: @escaping (Result<URL, Error>) -> Void) {
         guard movieOutput.isRecording else {
-            completion(.failure(CameraError.notReady))
+            // The system already closed the file (interruption, error). Hand
+            // back whatever finished writing instead of reporting a failure.
+            if let url = currentFileURL, FileManager.default.fileExists(atPath: url.path) {
+                completion(.success(url))
+            } else {
+                completion(.failure(CameraError.notReady))
+            }
             return
         }
+        // A second press while the file is closing must never start a new stop.
+        if isFinishing, pendingCompletion != nil { return }
         pendingCompletion = completion
+        isFinishing = true
         movieOutput.stopRecording()
+
+        // Safety net: if AVFoundation never calls back, keep the footage and
+        // free the UI instead of leaving the app stuck in "saving".
+        stopWatchdog?.invalidate()
+        stopWatchdog = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let completion = self.pendingCompletion else { return }
+                self.pendingCompletion = nil
+                self.isFinishing = false
+                self.isRecording = false
+                self.timer?.invalidate()
+                self.timer = nil
+                if let url = self.currentFileURL, FileManager.default.fileExists(atPath: url.path) {
+                    completion(.success(url))
+                } else {
+                    completion(.failure(CameraError.notReady))
+                }
+            }
+        }
     }
 
     // MARK: - Session health
