@@ -48,6 +48,11 @@ final class CameraManager: NSObject, ObservableObject {
     private var pendingCompletion: ((Result<URL, Error>) -> Void)?
     private var observing = false
 
+    /// Called when a take ends without the user pressing stop (system
+    /// interruption, backgrounding, capture error). The footage already written
+    /// to disk is handed over so it is always kept.
+    var onInvoluntaryFinish: ((Result<URL, Error>) -> Void)?
+
     enum CameraError: LocalizedError {
         case noDevice, notReady, alreadyRecording, permissionDenied
 
