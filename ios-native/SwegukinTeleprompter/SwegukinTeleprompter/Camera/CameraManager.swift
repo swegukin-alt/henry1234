@@ -45,6 +45,7 @@ final class CameraManager: NSObject, ObservableObject {
     private weak var attachedPreviewLayer: AVCaptureVideoPreviewLayer?
     private var timer: Timer?
     private var startedAt: Date?
+    private var elapsedBeforeCurrentSegment: Double = 0
     private var pendingCompletion: ((Result<URL, Error>) -> Void)?
     private var observing = false
     /// True between asking the file to close and the delegate confirming it.
@@ -465,8 +466,11 @@ final class CameraManager: NSObject, ObservableObject {
         try? FileManager.default.removeItem(at: url)
         currentFileURL = url
         isFinishing = false
+        if userInitiated {
+            elapsedBeforeCurrentSegment = 0
+            elapsed = 0
+        }
         startedAt = Date()
-        elapsed = 0
         movieOutput.startRecording(to: url, recordingDelegate: self)
         isRecording = true
         AudioSessionManager.shared.isRecording = true
@@ -474,7 +478,7 @@ final class CameraManager: NSObject, ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let startedAt = self.startedAt else { return }
-                self.elapsed = Date().timeIntervalSince(startedAt)
+                self.elapsed = self.elapsedBeforeCurrentSegment + Date().timeIntervalSince(startedAt)
             }
         }
     }
@@ -507,6 +511,7 @@ final class CameraManager: NSObject, ObservableObject {
                 self.pendingCompletion = nil
                 self.isFinishing = false
                 self.isRecording = false
+                AudioSessionManager.shared.isRecording = false
                 self.timer?.invalidate()
                 self.timer = nil
                 if let url = self.currentFileURL, FileManager.default.fileExists(atPath: url.path) {
@@ -571,12 +576,16 @@ final class CameraManager: NSObject, ObservableObject {
         do {
             try startRecordingSegment(to: continuationURLProvider(), userInitiated: false)
             status = ""
-        } catch {
+        } catch CameraError.notReady, CameraError.busy {
             status = "Camera interrupted — resuming"
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(500))
                 self?.resumeRequestedRecordingIfPossible()
             }
+        } catch {
+            recordingRequested = false
+            AudioSessionManager.shared.isRecording = false
+            status = error.localizedDescription
         }
     }
 
@@ -599,6 +608,9 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             self.isRecording = false
             self.isFinishing = false
             AudioSessionManager.shared.isRecording = false
+            if self.recordingRequested, let startedAt = self.startedAt {
+                self.elapsedBeforeCurrentSegment += Date().timeIntervalSince(startedAt)
+            }
             self.stopWatchdog?.invalidate()
             self.stopWatchdog = nil
             self.startedAt = nil

@@ -86,7 +86,7 @@ final class AudioSessionManager {
         center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] note in
             guard let self else { return }
             let rawReason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-            let reason = rawReason.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            let reason = rawReason.flatMap { AVAudioSession.RouteChangeReason(rawValue: $0) }
             let physicalInputChanged = reason == .newDeviceAvailable || reason == .oldDeviceUnavailable
             if physicalInputChanged, !self.isRecording {
                 try? self.preferBestInput()

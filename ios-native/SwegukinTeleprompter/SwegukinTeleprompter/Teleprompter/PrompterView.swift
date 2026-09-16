@@ -425,7 +425,7 @@ struct PrompterView: View {
                                     Text(camera.usingFront ? "Front camera" : "Back camera").frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(OutlineButtonStyle(active: camera.usingFront))
-                                .disabled(camera.isRecording)
+                                .disabled(camera.recordingRequested)
 
                                 if !camera.modes.isEmpty {
                                     Text("Resolution").font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -443,14 +443,14 @@ struct PrompterView: View {
                                                     .frame(maxWidth: .infinity)
                                             }
                                             .buttonStyle(OutlineButtonStyle(active: active))
-                                            .disabled(camera.isRecording)
+                                            .disabled(camera.recordingRequested)
                                         }
                                     }
                                 }
 
                                 Toggle("Stabilization", isOn: $settings.stabilization)
                                     .tint(Theme.accent)
-                                    .disabled(camera.isRecording)
+                                    .disabled(camera.recordingRequested)
 
                                 Toggle("Cinematic mode", isOn: .constant(false))
                                     .tint(Theme.accent)
@@ -601,7 +601,7 @@ struct PrompterView: View {
     private func startRecording() {
         // Rapid double taps, or a tap while the previous take is still being
         // written, must never reach the capture pipeline.
-        guard !saving, !camera.isRecording, currentTakeID == nil else { return }
+        guard !saving, !camera.recordingRequested, currentTakeID == nil else { return }
         let id = UUID().uuidString
         let url = recordings.newRecordingURL(id: id)
         do {
