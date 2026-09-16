@@ -101,6 +101,27 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// A readable title taken from the opening words of the script itself.
+function suggestTitle(body: string) {
+  const line = (body || "").split(/\r?\n/).find((l) => l.trim().length > 0) || "";
+  const cleaned = line.trim().replace(/^[#*\-–—•"'“”‘’\s]+/, "").trim();
+  if (!cleaned) return "New script";
+  let out = "";
+  for (const word of cleaned.split(/\s+/)) {
+    if (!out) out = word;
+    else if (out.length + word.length + 1 <= 42) out += " " + word;
+    else { out += "…"; break; }
+  }
+  if (out.length > 48) out = out.slice(0, 46) + "…";
+  return out.replace(/[.,;:!?]+$/, "");
+}
+
+function scriptTitle(s: { title?: string; body?: string }) {
+  const typed = (s.title || "").trim();
+  if (typed && typed.toLowerCase() !== "untitled" && typed.toLowerCase() !== "untitled script") return typed;
+  return suggestTitle(s.body || "");
+}
+
 // Unified landscape entry — same call from both Play and Video buttons.
 // Both calls reach the device APIs synchronously inside the user gesture,
 // which is what iOS requires for fullscreen.
