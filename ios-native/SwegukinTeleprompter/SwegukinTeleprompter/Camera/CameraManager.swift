@@ -451,6 +451,7 @@ final class CameraManager: NSObject, ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.status = "Camera error — restarting"
+                self.finalizeIfRecording()
                 self.sessionQueue.async {
                     if !self.session.isRunning { self.session.startRunning() }
                     Task { @MainActor in
@@ -461,11 +462,32 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         center.addObserver(forName: .AVCaptureSessionWasInterrupted, object: session, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.status = "Camera interrupted" }
+            Task { @MainActor in
+                guard let self else { return }
+                self.status = "Camera interrupted"
+                // A call, alarm or the camera being taken away ends capture at
+                // the hardware level. Close the file cleanly so the take that
+                // was already written to disk is never lost.
+                self.finalizeIfRecording()
+            }
         }
         center.addObserver(forName: .AVCaptureSessionInterruptionEnded, object: session, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.status = "" }
+            Task { @MainActor in
+                guard let self else { return }
+                self.status = ""
+                self.sessionQueue.async {
+                    if !self.session.isRunning { self.session.startRunning() }
+                    Task { @MainActor in self.isReady = self.session.isRunning }
+                }
+            }
         }
+    }
+
+    /// Closes an in-flight take without the user pressing stop. The delegate
+    /// hands the finished file to `onInvoluntaryFinish` so it is saved.
+    func finalizeIfRecording() {
+        guard movieOutput.isRecording else { return }
+        movieOutput.stopRecording()
     }
 }
 
