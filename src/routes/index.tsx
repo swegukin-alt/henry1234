@@ -197,7 +197,7 @@ function Index() {
     setScripts((arr) => arr.map((s) => (s.id === activeId ? { ...s, ...patch, updatedAt: Date.now() } : s)));
   };
   const createScript = () => {
-    const s: Script = { id: uid(), title: "Untitled script", body: "", updatedAt: Date.now() };
+    const s: Script = { id: uid(), title: "", body: "", updatedAt: Date.now() };
     setScripts((a) => [s, ...a]);
     setActiveId(s.id);
     setMode("edit");
