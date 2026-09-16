@@ -1456,7 +1456,7 @@ function Prompter({
   // time, and only when share() is reached inside the tap that triggered it —
   // so no awaits before the call, no codec parameters, no multi-file batches.
   const exportClip = useCallback((clip: ClipMeta) => {
-    startSave(clip, script.title, setSaveJob);
+    startSave(clip, scriptTitle(script), setSaveJob);
   }, [script.title]);
 
 
