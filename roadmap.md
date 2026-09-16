@@ -12,3 +12,4 @@
 - [x] Remove front-camera crop, reset zoom, and enable continuous focus/exposure.
 - [x] Keep video controls above the camera and reduce per-frame text composition work.
 - [x] Lock native reading geometry, chunk spacing, font features, and tap-to-hide controls to web behavior.
+- [x] Keep native recording active through Control Center and other temporary system overlays.
