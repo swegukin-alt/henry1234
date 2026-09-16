@@ -9,6 +9,10 @@ final class AudioSessionManager {
     private let session = AVAudioSession.sharedInstance()
     private var observing = false
 
+    /// Re-selecting an input while AVCaptureMovieFileOutput is writing forces
+    /// an audio-route renegotiation and can make AVFoundation end the file.
+    var isRecording = false
+
     var onInterruptionBegan: (() -> Void)?
     var onInterruptionEnded: (() -> Void)?
     var onRouteChange: ((String) -> Void)?
@@ -79,9 +83,14 @@ final class AudioSessionManager {
                 self?.onInterruptionEnded?()
             }
         }
-        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] _ in
+        center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] note in
             guard let self else { return }
-            try? self.preferBestInput()
+            let rawReason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            let reason = rawReason.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            let physicalInputChanged = reason == .newDeviceAvailable || reason == .oldDeviceUnavailable
+            if physicalInputChanged, !self.isRecording {
+                try? self.preferBestInput()
+            }
             self.onRouteChange?(self.currentInputName)
         }
     }

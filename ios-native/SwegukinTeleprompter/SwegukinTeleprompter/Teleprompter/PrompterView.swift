@@ -201,13 +201,13 @@ struct PrompterView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             // Pulling down Notification Center / Control Center, a banner or an
             // alarm must never end a take. Only the record button stops it.
-            if !camera.isRecording { pause() }
+            if !camera.recordingRequested { pause() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             // Never translate a system overlay or app-state transition into a
             // recording stop. If iOS closes capture itself, CameraManager's
             // delegate preserves the file that was already written to disk.
-            if !camera.isRecording { pause() }
+            if !camera.recordingRequested { pause() }
         }
         .sheet(isPresented: $showClips) {
             ClipsView(scriptID: script.id, onBack: { showClips = false })
@@ -228,7 +228,7 @@ struct PrompterView: View {
             ZStack(alignment: .top) {
                 HStack(alignment: .top) {
                     if videoMode {
-                        if camera.isRecording {
+                        if camera.recordingRequested {
                             HStack(spacing: 8) {
                                 Circle().fill(.white).frame(width: 10, height: 10)
                                 Text("REC \(Format.duration(camera.elapsed))")
@@ -312,16 +312,16 @@ struct PrompterView: View {
             Spacer(minLength: 0)
             if videoMode {
                 Button {
-                    camera.isRecording ? stopRecording() : startRecording()
+                    camera.recordingRequested ? stopRecording() : startRecording()
                 } label: {
                     ZStack {
                         Circle()
                             .stroke(.white.opacity(0.85), lineWidth: 2)
                             .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                        RoundedRectangle(cornerRadius: camera.isRecording ? 4 : toolbarButtonSize / 2, style: .continuous)
+                        RoundedRectangle(cornerRadius: camera.recordingRequested ? 4 : toolbarButtonSize / 2, style: .continuous)
                             .fill(Color.red)
-                            .frame(width: camera.isRecording ? 18 : toolbarButtonSize - 10,
-                                   height: camera.isRecording ? 18 : toolbarButtonSize - 10)
+                            .frame(width: camera.recordingRequested ? 18 : toolbarButtonSize - 10,
+                                   height: camera.recordingRequested ? 18 : toolbarButtonSize - 10)
                     }
                     .frame(width: toolbarButtonSize, height: toolbarButtonSize)
                 }
@@ -562,7 +562,7 @@ struct PrompterView: View {
         didFinish = true
         engine.pause()
         voice.stop()
-        if camera.isRecording {
+        if camera.recordingRequested {
             stopRecording(stopCameraWhenFinished: true)
         } else {
             camera.stop()
@@ -572,7 +572,7 @@ struct PrompterView: View {
     }
 
     private func exit() {
-        guard !camera.isRecording else { return }
+        guard !camera.recordingRequested else { return }
         finish()
         onExit()
     }
@@ -605,6 +605,9 @@ struct PrompterView: View {
         let id = UUID().uuidString
         let url = recordings.newRecordingURL(id: id)
         do {
+            camera.setContinuationURLProvider {
+                recordings.newRecordingURL(id: UUID().uuidString)
+            }
             // If the system ends the take (call, alarm, backgrounding, camera
             // error) the footage already on disk is still saved to the clips.
             camera.onInvoluntaryFinish = { result in
@@ -612,15 +615,18 @@ struct PrompterView: View {
                     saving = false
                     switch result {
                     case .success(let finishedURL):
-                        recordings.register(id: id, url: finishedURL, title: script.title, scriptID: script.id)
-                        recordings.refreshMetadata(id: id)
+                        let segmentID = Self.recordingID(for: finishedURL)
+                        recordings.register(id: segmentID, url: finishedURL, title: script.title, scriptID: script.id)
+                        recordings.refreshMetadata(id: segmentID)
                     case .failure(let error):
                         errorMessage = error.localizedDescription
                     }
-                    currentTakeID = nil
-                    controlsVisible = true
-                    engine.pause()
-                    camera.onInvoluntaryFinish = nil
+                    if !camera.recordingRequested {
+                        currentTakeID = nil
+                        controlsVisible = true
+                        engine.pause()
+                        camera.onInvoluntaryFinish = nil
+                    }
                 }
             }
             try camera.startRecording(to: url)
@@ -634,7 +640,7 @@ struct PrompterView: View {
     }
 
     private func stopRecording(stopCameraWhenFinished: Bool = false) {
-        guard camera.isRecording, !saving else { return }
+        guard camera.recordingRequested, !saving else { return }
         saving = true
         pause()
         controlsVisible = true
@@ -644,8 +650,9 @@ struct PrompterView: View {
                 saving = false
                 switch result {
                 case .success(let url):
-                    recordings.register(id: id, url: url, title: script.title, scriptID: script.id)
-                    recordings.refreshMetadata(id: id)
+                    let finishedID = Self.recordingID(for: url)
+                    recordings.register(id: finishedID, url: url, title: script.title, scriptID: script.id)
+                    recordings.refreshMetadata(id: finishedID)
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                 }
@@ -669,8 +676,13 @@ struct PrompterView: View {
         case .exit: exit()
         case .toggleRecord:
             guard videoMode else { return }
-            camera.isRecording ? stopRecording() : startRecording()
+            camera.recordingRequested ? stopRecording() : startRecording()
         }
+    }
+
+    private static func recordingID(for url: URL) -> String {
+        let name = url.deletingPathExtension().lastPathComponent
+        return name.hasPrefix("take-") ? String(name.dropFirst(5)) : name
     }
 }
 

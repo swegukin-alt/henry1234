@@ -51,6 +51,10 @@ final class CameraManager: NSObject, ObservableObject {
     private var isFinishing = false
     private var stopWatchdog: Timer?
     private var currentFileURL: URL?
+    /// This is the record button's state. Temporary AVFoundation interruptions
+    /// may close one segment, but only the button is allowed to clear this flag.
+    @Published private(set) var recordingRequested = false
+    private var continuationURLProvider: (() -> URL)?
 
     /// Called when a take ends without the user pressing stop (system
     /// interruption, backgrounding, capture error). The footage already written
@@ -97,8 +101,12 @@ final class CameraManager: NSObject, ObservableObject {
         // capture audio session straight back instead of ending the take.
         AudioSessionManager.shared.onInterruptionEnded = { [weak self] in
             Task { @MainActor in
-                AudioSessionManager.shared.activateForCapture()
-                self?.micName = AudioSessionManager.shared.currentInputName
+                guard let self else { return }
+                if !self.recordingRequested {
+                    AudioSessionManager.shared.activateForCapture()
+                }
+                self.micName = AudioSessionManager.shared.currentInputName
+                self.resumeRequestedRecordingIfPossible()
             }
         }
         micName = AudioSessionManager.shared.currentInputName
@@ -418,7 +426,21 @@ final class CameraManager: NSObject, ObservableObject {
 
     // MARK: - Recording
 
+    func setContinuationURLProvider(_ provider: @escaping () -> URL) {
+        continuationURLProvider = provider
+    }
+
     func startRecording(to url: URL) throws {
+        recordingRequested = true
+        do {
+            try startRecordingSegment(to: url, userInitiated: true)
+        } catch {
+            recordingRequested = false
+            throw error
+        }
+    }
+
+    private func startRecordingSegment(to url: URL, userInitiated: Bool) throws {
         guard session.isRunning else { throw CameraError.notReady }
         guard !movieOutput.isRecording, !isRecording else { throw CameraError.alreadyRecording }
         // A previous take is still being closed: starting now would drop it.
@@ -447,7 +469,8 @@ final class CameraManager: NSObject, ObservableObject {
         elapsed = 0
         movieOutput.startRecording(to: url, recordingDelegate: self)
         isRecording = true
-        Haptics.strong()
+        AudioSessionManager.shared.isRecording = true
+        if userInitiated { Haptics.strong() }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let startedAt = self.startedAt else { return }
@@ -457,6 +480,8 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     func stopRecording(completion: @escaping (Result<URL, Error>) -> Void) {
+        recordingRequested = false
+        AudioSessionManager.shared.isRecording = false
         guard movieOutput.isRecording else {
             // The system already closed the file (interruption, error). Hand
             // back whatever finished writing instead of reporting a failure.
@@ -507,7 +532,10 @@ final class CameraManager: NSObject, ObservableObject {
                     if !self.session.isRunning { self.session.startRunning() }
                     Task { @MainActor in
                         self.isReady = self.session.isRunning
-                        if self.isReady { self.status = "" }
+                        if self.isReady {
+                            self.status = ""
+                            self.resumeRequestedRecordingIfPossible()
+                        }
                     }
                 }
             }
@@ -528,8 +556,26 @@ final class CameraManager: NSObject, ObservableObject {
                 self.status = ""
                 self.sessionQueue.async {
                     if !self.session.isRunning { self.session.startRunning() }
-                    Task { @MainActor in self.isReady = self.session.isRunning }
+                    Task { @MainActor in
+                        self.isReady = self.session.isRunning
+                        self.resumeRequestedRecordingIfPossible()
+                    }
                 }
+            }
+        }
+    }
+
+    private func resumeRequestedRecordingIfPossible() {
+        guard recordingRequested, session.isRunning, !movieOutput.isRecording,
+              !isRecording, !isFinishing, let continuationURLProvider else { return }
+        do {
+            try startRecordingSegment(to: continuationURLProvider(), userInitiated: false)
+            status = ""
+        } catch {
+            status = "Camera interrupted — resuming"
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                self?.resumeRequestedRecordingIfPossible()
             }
         }
     }
@@ -552,6 +598,7 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             self.timer = nil
             self.isRecording = false
             self.isFinishing = false
+            AudioSessionManager.shared.isRecording = false
             self.stopWatchdog?.invalidate()
             self.stopWatchdog = nil
             self.startedAt = nil
@@ -576,8 +623,10 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
                 completion(result)
             } else {
                 // Nobody asked for this stop: the system ended the take. Hand
-                // the footage over so it still lands in the clip list.
+                // the footage over so it still lands in the clip list, then
+                // continue in a fresh file while the record button remains on.
                 self.onInvoluntaryFinish?(result)
+                self.resumeRequestedRecordingIfPossible()
             }
         }
     }
