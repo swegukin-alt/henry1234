@@ -601,6 +601,24 @@ struct PrompterView: View {
         let id = UUID().uuidString
         let url = recordings.newRecordingURL(id: id)
         do {
+            // If the system ends the take (call, alarm, backgrounding, camera
+            // error) the footage already on disk is still saved to the clips.
+            camera.onInvoluntaryFinish = { result in
+                Task { @MainActor in
+                    saving = false
+                    switch result {
+                    case .success(let finishedURL):
+                        recordings.register(id: id, url: finishedURL, title: script.title, scriptID: script.id)
+                        recordings.refreshMetadata(id: id)
+                    case .failure(let error):
+                        errorMessage = error.localizedDescription
+                    }
+                    currentTakeID = nil
+                    controlsVisible = true
+                    engine.pause()
+                    camera.onInvoluntaryFinish = nil
+                }
+            }
             try camera.startRecording(to: url)
             currentTakeID = id
             play()
