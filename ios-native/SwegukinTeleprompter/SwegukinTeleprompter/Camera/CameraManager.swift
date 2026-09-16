@@ -503,17 +503,27 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
             self.startedAt = nil
 
             let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
+            let size = (try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)[.size] as? Int) ?? 0
             // AVFoundation flags a stopped-early recording but still leaves a
             // playable file on disk — keep it rather than losing the take.
-            if let error, !fileExists {
+            let result: Result<URL, Error>
+            if let error, !fileExists || (size ?? 0) == 0 {
                 Haptics.failure()
                 self.status = error.localizedDescription
-                self.pendingCompletion?(.failure(error))
+                result = .failure(error)
             } else {
                 Haptics.success()
-                self.pendingCompletion?(.success(outputFileURL))
+                result = .success(outputFileURL)
             }
-            self.pendingCompletion = nil
+
+            if let completion = self.pendingCompletion {
+                self.pendingCompletion = nil
+                completion(result)
+            } else {
+                // Nobody asked for this stop: the system ended the take. Hand
+                // the footage over so it still lands in the clip list.
+                self.onInvoluntaryFinish?(result)
+            }
         }
     }
 }
