@@ -633,7 +633,7 @@ struct PrompterView: View {
     }
 
     private func stopRecording(stopCameraWhenFinished: Bool = false) {
-        guard camera.isRecording else { return }
+        guard camera.isRecording, !saving else { return }
         saving = true
         pause()
         controlsVisible = true
