@@ -13,3 +13,4 @@
 - [x] Keep video controls above the camera and reduce per-frame text composition work.
 - [x] Lock native reading geometry, chunk spacing, font features, and tap-to-hide controls to web behavior.
 - [x] Keep native recording active through Control Center and other temporary system overlays.
+- [x] Continue native recording in protected segments after Notification Center or system interruptions.
