@@ -2,6 +2,7 @@ import SwiftUI
 import CoreMotion
 import UIKit
 import Foundation
+import Combine
 
 /// Gravity-backed, screen-relative roll for the pre-recording camera level.
 /// Core Motion performs the accelerometer/gyroscope fusion; no camera frames or
