@@ -16,11 +16,9 @@ final class HorizonLevelMonitor: ObservableObject {
 
     func start() {
         guard !manager.isDeviceMotionActive, manager.isDeviceMotionAvailable else {
-            isAvailable = manager.isDeviceMotionAvailable
             return
         }
 
-        isAvailable = true
         manager.deviceMotionUpdateInterval = 1.0 / 30.0
         manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let motion else { return }
@@ -33,6 +31,7 @@ final class HorizonLevelMonitor: ObservableObject {
     func stop() {
         manager.stopDeviceMotionUpdates()
         hasReading = false
+        isAvailable = false
     }
 
     private func consume(gravity: CMAcceleration) {
@@ -57,6 +56,7 @@ final class HorizonLevelMonitor: ObservableObject {
             filteredRoll = measured
             hasReading = true
         }
+        isAvailable = true
         rollDegrees = normalized(filteredRoll)
     }
 
