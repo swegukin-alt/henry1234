@@ -14,3 +14,4 @@
 - [x] Lock native reading geometry, chunk spacing, font features, and tap-to-hide controls to web behavior.
 - [x] Keep native recording active through Control Center and other temporary system overlays.
 - [x] Continue native recording in protected segments after Notification Center or system interruptions.
+- [x] Add a live FX6-style native horizon gauge before recording.
