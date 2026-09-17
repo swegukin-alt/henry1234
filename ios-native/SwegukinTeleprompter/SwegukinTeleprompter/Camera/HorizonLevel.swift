@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreMotion
 import UIKit
+import Foundation
 
 /// Gravity-backed, screen-relative roll for the pre-recording camera level.
 /// Core Motion performs the accelerometer/gyroscope fusion; no camera frames or
@@ -38,9 +39,9 @@ final class HorizonLevelMonitor: ObservableObject {
         let radians: Double
         switch interfaceOrientation {
         case .landscapeLeft:
-            radians = atan2(-gravity.y, -gravity.x)
+            radians = atan2(-gravity.y, gravity.x)
         case .landscapeRight:
-            radians = atan2(gravity.y, gravity.x)
+            radians = atan2(gravity.y, -gravity.x)
         case .portraitUpsideDown:
             radians = atan2(-gravity.x, gravity.y)
         default:
