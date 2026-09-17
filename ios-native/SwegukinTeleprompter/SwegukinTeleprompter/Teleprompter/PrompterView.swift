@@ -16,6 +16,7 @@ struct PrompterView: View {
     @State private var engine = TeleprompterEngine()
     @StateObject private var camera = CameraManager()
     @StateObject private var voice = VoiceFollowEngine()
+    @StateObject private var horizon = HorizonLevelMonitor()
 
     private enum Panel { case settings, size, more }
 
@@ -130,6 +131,14 @@ struct PrompterView: View {
                 overlayChips(geo: geo)
                     .zIndex(20)
 
+                if videoMode && !camera.recordingRequested {
+                    HorizonLevelGauge(monitor: horizon)
+                        .padding(.trailing, 14 + safeHorizontal.trailing)
+                        .padding(.bottom, 74 + safeBottom)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .zIndex(25)
+                }
+
                 if controlsVisible {
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
@@ -171,6 +180,7 @@ struct PrompterView: View {
                 engine.viewportHeight = geo.size.height
                 engine.contentHeight = contentHeight + geo.size.height
                 engine.speed = settings.speed
+                if videoMode && !camera.recordingRequested { horizon.start() }
             }
             .onChange(of: geo.size) { _, size in
                 engine.viewportHeight = size.height
@@ -181,8 +191,18 @@ struct PrompterView: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .task { await begin() }
-        .onDisappear { finish() }
+        .onDisappear {
+            horizon.stop()
+            finish()
+        }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
+        .onChange(of: camera.recordingRequested) { _, recording in
+            if recording {
+                horizon.stop()
+            } else if videoMode {
+                horizon.start()
+            }
+        }
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.chunking) { _, enabled in
