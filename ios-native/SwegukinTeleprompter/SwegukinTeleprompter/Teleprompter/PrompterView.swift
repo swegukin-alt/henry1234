@@ -608,6 +608,7 @@ struct PrompterView: View {
             )
             // The gain chosen for the last take is reapplied automatically.
             if camera.micGainSupported { camera.setMicGain(settings.micGain) }
+            camera.levelMonitor.gainDb = settings.micGainDb
             camera.setMeteringPaused(camera.recordingRequested)
             // Permission prompts and capture setup can finish after Back has
             // already removed this screen. Never leave that late session alive.
