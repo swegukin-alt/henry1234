@@ -684,8 +684,15 @@ struct PrompterView: View {
                     switch result {
                     case .success(let finishedURL):
                         let segmentID = Self.recordingID(for: finishedURL)
+                        // Registered first: the take is safe before the manual
+                        // gain pass touches anything.
                         recordings.register(id: segmentID, url: finishedURL, title: script.displayTitle, scriptID: script.id)
                         recordings.refreshMetadata(id: segmentID)
+                        let trim = settings.micGainDb
+                        Task {
+                            _ = await AudioGain.apply(gainDb: trim, to: finishedURL)
+                            await MainActor.run { recordings.refreshMetadata(id: segmentID) }
+                        }
                     case .failure(let error):
                         errorMessage = error.localizedDescription
                     }
