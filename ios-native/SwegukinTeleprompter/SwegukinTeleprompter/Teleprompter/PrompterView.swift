@@ -211,6 +211,9 @@ struct PrompterView: View {
         .onChange(of: settings.micGain) { _, value in
             if camera.micGainSupported { camera.setMicGain(value) }
         }
+        .onChange(of: settings.micGainDb) { _, value in
+            camera.levelMonitor.gainDb = value
+        }
         .onChange(of: camera.micGainSupported) { _, supported in
             if supported { camera.setMicGain(settings.micGain) }
         }
