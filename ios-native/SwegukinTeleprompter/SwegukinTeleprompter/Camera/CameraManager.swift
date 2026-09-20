@@ -25,6 +25,10 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var status: String = ""
     @Published private(set) var modes: [CaptureMode] = []
     @Published private(set) var micName: String = ""
+    /// "USB-C · 48 kHz · 2 ch" — what the connected microphone is delivering.
+    @Published private(set) var micDetail: String = ""
+    /// True only when iOS exposes a hardware input-gain control for this mic.
+    @Published private(set) var micGainSupported = false
     @Published var zoom: CGFloat = 1 { didSet { applyZoom() } }
     @Published private(set) var torchOn = false
     @Published private(set) var usingFront = true
@@ -38,6 +42,10 @@ final class CameraManager: NSObject, ObservableObject {
     private var videoInput: AVCaptureDeviceInput?
     private var audioInput: AVCaptureDeviceInput?
     private let movieOutput = AVCaptureMovieFileOutput()
+    /// Pre-recording level metering only — never part of the written file.
+    let levelMonitor = AudioLevelMonitor()
+    private let audioDataOutput = AVCaptureAudioDataOutput()
+    private let audioMeterQueue = DispatchQueue(label: "camera.audio.meter")
     private var device: AVCaptureDevice? { videoInput?.device }
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     
@@ -98,6 +106,7 @@ final class CameraManager: NSObject, ObservableObject {
         AudioSessionManager.shared.activateForCapture()
         AudioSessionManager.shared.onRouteChange = { [weak self] name in
             self?.micName = name
+            self?.refreshAudioInfo()
         }
         // An alarm or phone call takes the microphone for a moment. Bring the
         // capture audio session straight back instead of ending the take.
@@ -112,6 +121,7 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         micName = AudioSessionManager.shared.currentInputName
+        refreshAudioInfo()
         usingFront = front
         status = ""
 
@@ -141,6 +151,27 @@ final class CameraManager: NSObject, ObservableObject {
         }
         isReady = false
         AudioSessionManager.shared.deactivate()
+    }
+
+    // MARK: - Microphone
+
+    /// Refresh the reported sample rate, channel count and gain capability.
+    func refreshAudioInfo() {
+        micDetail = AudioSessionManager.shared.inputSummary
+        micGainSupported = AudioSessionManager.shared.isInputGainSettable
+    }
+
+    /// Hardware input gain, 0…1. Only some microphones expose one; when they
+    /// do not, the level is set on the microphone itself.
+    var micGain: Double { Double(AudioSessionManager.shared.inputGain) }
+
+    func setMicGain(_ value: Double) {
+        AudioSessionManager.shared.setInputGain(Float(value))
+    }
+
+    /// Called by the prompter so metering runs only before a take.
+    func setMeteringPaused(_ paused: Bool) {
+        levelMonitor.isPaused = paused
     }
 
     /// Called by the preview view so rotation follows the real hardware horizon.
@@ -238,6 +269,29 @@ final class CameraManager: NSObject, ObservableObject {
             session.addOutput(movieOutput)
         }
         movieOutput.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 1)
+
+        // Metering tap. It only reads samples; the recorded file still comes
+        // from the movie output exactly as before.
+        if !session.outputs.contains(audioDataOutput), session.canAddOutput(audioDataOutput) {
+            audioDataOutput.setSampleBufferDelegate(levelMonitor, queue: audioMeterQueue)
+            session.addOutput(audioDataOutput)
+        }
+
+        // Full-rate AAC instead of AVFoundation's default: 48 kHz, every
+        // channel the microphone provides, at the top documented bitrate.
+        if let audioConnection = movieOutput.connection(with: .audio) {
+            let channels = max(1, min(2, AudioSessionManager.shared.inputChannelCount))
+            let rate = AudioSessionManager.shared.inputSampleRate > 0
+                ? AudioSessionManager.shared.inputSampleRate
+                : 48_000
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: rate,
+                AVNumberOfChannelsKey: channels,
+                AVEncoderBitRateKey: channels > 1 ? 256_000 : 128_000
+            ]
+            movieOutput.setOutputSettings(settings, for: audioConnection)
+        }
 
         if let connection = movieOutput.connection(with: .video) {
             if connection.isVideoStabilizationSupported {
@@ -475,6 +529,7 @@ final class CameraManager: NSObject, ObservableObject {
         movieOutput.startRecording(to: url, recordingDelegate: self)
         isRecording = true
         AudioSessionManager.shared.isRecording = true
+        levelMonitor.isPaused = true
         if userInitiated { Haptics.strong() }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -487,6 +542,7 @@ final class CameraManager: NSObject, ObservableObject {
     func stopRecording(completion: @escaping (Result<URL, Error>) -> Void) {
         recordingRequested = false
         AudioSessionManager.shared.isRecording = false
+        levelMonitor.isPaused = false
         guard movieOutput.isRecording else {
             // The system already closed the file (interruption, error). Hand
             // back whatever finished writing instead of reporting a failure.

@@ -32,6 +32,9 @@ final class AppSettings: ObservableObject {
     @Published var useFrontCamera: Bool { didSet { write(useFrontCamera, "useFrontCamera") } }
     @Published var cinematicMode: Bool { didSet { write(cinematicMode, "cinematicMode") } }
     @Published var simulatedAperture: Double { didSet { write(simulatedAperture, "simulatedAperture") } }
+    /// Hardware microphone gain, 0…1. Only applied when iOS reports the
+    /// connected input as gain-settable.
+    @Published var micGain: Double { didSet { write(micGain, "micGain") } }
     
     @Published var lastActiveScriptID: String? { didSet { defaults.set(lastActiveScriptID, forKey: "lastActiveScriptID") } }
 
@@ -70,6 +73,7 @@ final class AppSettings: ObservableObject {
         useFrontCamera = b("useFrontCamera", true)
         cinematicMode = b("cinematicMode", false)
         simulatedAperture = d("simulatedAperture", 2.8)
+        micGain = d("micGain", 0.7)
         
         lastActiveScriptID = defaults.string(forKey: "lastActiveScriptID")
     }

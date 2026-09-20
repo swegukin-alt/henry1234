@@ -132,11 +132,14 @@ struct PrompterView: View {
                     .zIndex(20)
 
                 if videoMode && !camera.recordingRequested {
-                    HorizonLevelGauge(monitor: horizon)
-                        .padding(.trailing, 14 + safeHorizontal.trailing)
-                        .padding(.bottom, 74 + safeBottom)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .zIndex(25)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        AudioLevelMeter(monitor: camera.levelMonitor, micName: camera.micName)
+                        HorizonLevelGauge(monitor: horizon)
+                    }
+                    .padding(.trailing, 14 + safeHorizontal.trailing)
+                    .padding(.bottom, 74 + safeBottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .zIndex(25)
                 }
 
                 if controlsVisible {
@@ -193,15 +196,23 @@ struct PrompterView: View {
         .task { await begin() }
         .onDisappear {
             horizon.stop()
+            camera.setMeteringPaused(true)
             finish()
         }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
         .onChange(of: camera.recordingRequested) { _, recording in
+            camera.setMeteringPaused(recording)
             if recording {
                 horizon.stop()
             } else if videoMode {
                 horizon.start()
             }
+        }
+        .onChange(of: settings.micGain) { _, value in
+            if camera.micGainSupported { camera.setMicGain(value) }
+        }
+        .onChange(of: camera.micGainSupported) { _, supported in
+            if supported { camera.setMicGain(settings.micGain) }
         }
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
@@ -478,6 +489,28 @@ struct PrompterView: View {
                                 Text(CameraManager.cinematicUnavailableReason)
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.45))
+
+                                Text("Audio").font(.caption).foregroundStyle(.white.opacity(0.7))
+                                HStack {
+                                    Text(camera.micName.isEmpty ? "Built-in mic" : camera.micName)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(camera.micDetail)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(Theme.accent)
+                                }
+                                if camera.micGainSupported {
+                                    popRow("Input gain", "\(Int(settings.micGain * 100))%") {
+                                        Slider(value: $settings.micGain, in: 0...1, step: 0.01)
+                                            .tint(Theme.accent)
+                                            .disabled(camera.recordingRequested)
+                                    }
+                                } else {
+                                    Text("This microphone sets its own level. Use the gain control on the microphone or its receiver, and keep the meter peaks at or below the white −12 mark.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.45))
+                                }
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -562,6 +595,9 @@ struct PrompterView: View {
                 hdr: settings.hdr,
                 stabilization: settings.stabilization
             )
+            // The gain chosen for the last take is reapplied automatically.
+            if camera.micGainSupported { camera.setMicGain(settings.micGain) }
+            camera.setMeteringPaused(camera.recordingRequested)
             // Permission prompts and capture setup can finish after Back has
             // already removed this screen. Never leave that late session alive.
             if didFinish { camera.stop() }
