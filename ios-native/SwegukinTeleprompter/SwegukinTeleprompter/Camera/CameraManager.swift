@@ -153,6 +153,27 @@ final class CameraManager: NSObject, ObservableObject {
         AudioSessionManager.shared.deactivate()
     }
 
+    // MARK: - Microphone
+
+    /// Refresh the reported sample rate, channel count and gain capability.
+    func refreshAudioInfo() {
+        micDetail = AudioSessionManager.shared.inputSummary
+        micGainSupported = AudioSessionManager.shared.isInputGainSettable
+    }
+
+    /// Hardware input gain, 0…1. Only some microphones expose one; when they
+    /// do not, the level is set on the microphone itself.
+    var micGain: Double { Double(AudioSessionManager.shared.inputGain) }
+
+    func setMicGain(_ value: Double) {
+        AudioSessionManager.shared.setInputGain(Float(value))
+    }
+
+    /// Called by the prompter so metering runs only before a take.
+    func setMeteringPaused(_ paused: Bool) {
+        levelMonitor.isPaused = paused
+    }
+
     /// Called by the preview view so rotation follows the real hardware horizon.
     func attach(previewLayer: AVCaptureVideoPreviewLayer) {
         attachedPreviewLayer = previewLayer
