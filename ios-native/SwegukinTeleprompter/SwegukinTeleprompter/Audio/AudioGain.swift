@@ -37,7 +37,8 @@ enum AudioGain {
                 try? FileManager.default.removeItem(at: temp)
                 return url
             }
-            let size = (try? FileManager.default.attributesOfItem(atPath: temp.path)[.size] as? NSNumber)??.intValue ?? 0
+            let attributes = try? FileManager.default.attributesOfItem(atPath: temp.path)
+            let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
             guard size > 0 else {
                 try? FileManager.default.removeItem(at: temp)
                 return url
