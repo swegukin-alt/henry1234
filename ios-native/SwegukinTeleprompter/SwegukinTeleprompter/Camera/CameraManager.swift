@@ -239,6 +239,13 @@ final class CameraManager: NSObject, ObservableObject {
         }
         movieOutput.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 1)
 
+        // Metering tap. It only reads samples; the recorded file still comes
+        // from the movie output exactly as before.
+        if !session.outputs.contains(audioDataOutput), session.canAddOutput(audioDataOutput) {
+            audioDataOutput.setSampleBufferDelegate(levelMonitor, queue: audioMeterQueue)
+            session.addOutput(audioDataOutput)
+        }
+
         if let connection = movieOutput.connection(with: .video) {
             if connection.isVideoStabilizationSupported {
                 connection.preferredVideoStabilizationMode = stabilization ? .auto : .off
