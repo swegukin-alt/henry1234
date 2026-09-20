@@ -196,6 +196,7 @@ struct PrompterView: View {
         .task { await begin() }
         .onDisappear {
             horizon.stop()
+            camera.setMeteringPaused(true)
             finish()
         }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
