@@ -132,11 +132,14 @@ struct PrompterView: View {
                     .zIndex(20)
 
                 if videoMode && !camera.recordingRequested {
-                    HorizonLevelGauge(monitor: horizon)
-                        .padding(.trailing, 14 + safeHorizontal.trailing)
-                        .padding(.bottom, 74 + safeBottom)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .zIndex(25)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        AudioLevelMeter(monitor: camera.levelMonitor, micName: camera.micName)
+                        HorizonLevelGauge(monitor: horizon)
+                    }
+                    .padding(.trailing, 14 + safeHorizontal.trailing)
+                    .padding(.bottom, 74 + safeBottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .zIndex(25)
                 }
 
                 if controlsVisible {
