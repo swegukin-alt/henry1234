@@ -113,10 +113,12 @@ final class AudioLevelMonitor: NSObject, ObservableObject, AVCaptureAudioDataOut
         }
 
         guard count > 0 else { return }
-        let rms = (sumSquares / Double(count)).squareRoot()
-        let peakValue = Self.decibels(peak)
+        let trim = AudioGain.factor(db: gainDb)
+        let rms = (sumSquares / Double(count)).squareRoot() * trim
+        let trimmedPeak = peak * trim
+        let peakValue = Self.decibels(trimmedPeak)
         let rmsValue = Self.decibels(rms)
-        let clipped = peak >= 0.999
+        let clipped = trimmedPeak >= 0.999
         if clipped { lastClipAt = Date() }
 
         // A meter ballistics pass: fast attack, slow release, so the bar reads
