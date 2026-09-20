@@ -29,10 +29,49 @@ final class AudioSessionManager {
             try session.setActive(true, options: [])
             try? session.setPreferredSampleRate(48_000)
             try? preferBestInput()
+            try? preferHighestChannelCount()
         } catch {
             NSLog("[Audio] activate failed: \(error.localizedDescription)")
         }
         startObserving()
+    }
+
+    /// A USB-C interface such as the DJI Mic 2 receiver can present two
+    /// channels. Ask for everything the hardware offers so nothing is folded
+    /// down to mono before it reaches the file.
+    func preferHighestChannelCount() throws {
+        let maximum = session.maximumInputNumberOfChannels
+        guard maximum > session.preferredInputNumberOfChannels else { return }
+        try session.setPreferredInputNumberOfChannels(maximum)
+    }
+
+    /// Sample rate and channel count the hardware is actually delivering.
+    var inputSampleRate: Double { session.sampleRate }
+    var inputChannelCount: Int { session.inputNumberOfChannels }
+
+    /// True only when iOS exposes a hardware gain control for this input.
+    /// Most USB-C and wireless microphones set their own level on the device.
+    var isInputGainSettable: Bool { session.isInputGainSettable }
+    var inputGain: Float { session.inputGain }
+
+    func setInputGain(_ value: Float) {
+        guard session.isInputGainSettable else { return }
+        try? session.setInputGain(min(1, max(0, value)))
+    }
+
+    /// Short, human readable connection summary: "USB-C · 48 kHz · 2 ch".
+    var inputSummary: String {
+        let port = session.currentRoute.inputs.first?.portType
+        let kind: String
+        switch port {
+        case .some(.usbAudio): kind = "USB-C"
+        case .some(.headsetMic): kind = "Wired"
+        case .some(.bluetoothHFP): kind = "Bluetooth"
+        case .some(.builtInMic): kind = "Built-in"
+        default: kind = "Mic"
+        }
+        let rate = String(format: "%.0f kHz", session.sampleRate / 1000)
+        return "\(kind) · \(rate) · \(session.inputNumberOfChannels) ch"
     }
 
     func activateForPlayback() {
