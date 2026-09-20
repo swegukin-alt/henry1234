@@ -138,7 +138,9 @@ enum AudioGain {
             writer.cancelWriting()
             return false
         }
-        await writer.finishWriting()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            writer.finishWriting { continuation.resume() }
+        }
         return writer.status == .completed
     }
 
