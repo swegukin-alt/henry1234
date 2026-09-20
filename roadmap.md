@@ -15,3 +15,6 @@
 - [x] Keep native recording active through Control Center and other temporary system overlays.
 - [x] Continue native recording in protected segments after Notification Center or system interruptions.
 - [x] Add a live FX6-style native horizon gauge before recording.
+- [ ] Record USB-C microphones at full sample rate and channel count.
+- [ ] Show accurate pre-recording audio levels with a manual gain control.
+- [ ] Remember the manual gain level between takes and app launches.
