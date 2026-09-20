@@ -529,6 +529,7 @@ final class CameraManager: NSObject, ObservableObject {
         movieOutput.startRecording(to: url, recordingDelegate: self)
         isRecording = true
         AudioSessionManager.shared.isRecording = true
+        levelMonitor.isPaused = true
         if userInitiated { Haptics.strong() }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
