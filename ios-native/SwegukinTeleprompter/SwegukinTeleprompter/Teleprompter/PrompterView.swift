@@ -200,11 +200,18 @@ struct PrompterView: View {
         }
         .onChange(of: settings.speed) { _, value in engine.speed = value }
         .onChange(of: camera.recordingRequested) { _, recording in
+            camera.setMeteringPaused(recording)
             if recording {
                 horizon.stop()
             } else if videoMode {
                 horizon.start()
             }
+        }
+        .onChange(of: settings.micGain) { _, value in
+            if camera.micGainSupported { camera.setMicGain(value) }
+        }
+        .onChange(of: camera.micGainSupported) { _, supported in
+            if supported { camera.setMicGain(settings.micGain) }
         }
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
