@@ -34,6 +34,10 @@ final class AudioLevelMonitor: NSObject, ObservableObject, AVCaptureAudioDataOut
         }
     }
 
+    /// Manual trim in dB. The meter shows the level as it will be written to
+    /// the file, so the white -12 mark stays meaningful at any gain setting.
+    var gainDb: Double = 0
+
     private var smoothedAverage = -80.0
     private var lastClipAt: Date?
     private var lastPublish = Date.distantPast
