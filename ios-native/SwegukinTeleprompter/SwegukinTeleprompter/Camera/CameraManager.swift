@@ -256,6 +256,22 @@ final class CameraManager: NSObject, ObservableObject {
             session.addOutput(audioDataOutput)
         }
 
+        // Full-rate AAC instead of AVFoundation's default: 48 kHz, every
+        // channel the microphone provides, at the top documented bitrate.
+        if let audioConnection = movieOutput.connection(with: .audio) {
+            let channels = max(1, min(2, AudioSessionManager.shared.inputChannelCount))
+            let rate = AudioSessionManager.shared.inputSampleRate > 0
+                ? AudioSessionManager.shared.inputSampleRate
+                : 48_000
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: rate,
+                AVNumberOfChannelsKey: channels,
+                AVEncoderBitRateKey: channels > 1 ? 256_000 : 128_000
+            ]
+            movieOutput.setOutputSettings(settings, for: audioConnection)
+        }
+
         if let connection = movieOutput.connection(with: .video) {
             if connection.isVideoStabilizationSupported {
                 connection.preferredVideoStabilizationMode = stabilization ? .auto : .off
