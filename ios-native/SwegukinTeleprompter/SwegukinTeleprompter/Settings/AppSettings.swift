@@ -35,6 +35,9 @@ final class AppSettings: ObservableObject {
     /// Hardware microphone gain, 0…1. Only applied when iOS reports the
     /// connected input as gain-settable.
     @Published var micGain: Double { didSet { write(micGain, "micGain") } }
+    /// Manual audio trim in dB, -20 … +20, exactly like a camera's audio gain.
+    /// Applied to the recorded sound, never automatic.
+    @Published var micGainDb: Double { didSet { write(micGainDb, "micGainDb") } }
     
     @Published var lastActiveScriptID: String? { didSet { defaults.set(lastActiveScriptID, forKey: "lastActiveScriptID") } }
 
