@@ -478,6 +478,28 @@ struct PrompterView: View {
                                 Text(CameraManager.cinematicUnavailableReason)
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.45))
+
+                                Text("Audio").font(.caption).foregroundStyle(.white.opacity(0.7))
+                                HStack {
+                                    Text(camera.micName.isEmpty ? "Built-in mic" : camera.micName)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(camera.micDetail)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(Theme.accent)
+                                }
+                                if camera.micGainSupported {
+                                    popRow("Input gain", "\(Int(settings.micGain * 100))%") {
+                                        Slider(value: $settings.micGain, in: 0...1, step: 0.01)
+                                            .tint(Theme.accent)
+                                            .disabled(camera.recordingRequested)
+                                    }
+                                } else {
+                                    Text("This microphone sets its own level. Use the gain control on the microphone or its receiver, and keep the meter peaks at or below the white −12 mark.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.white.opacity(0.45))
+                                }
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
