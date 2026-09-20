@@ -500,17 +500,25 @@ struct PrompterView: View {
                                         .font(.caption.monospaced())
                                         .foregroundStyle(Theme.accent)
                                 }
-                                if camera.micGainSupported {
-                                    popRow("Input gain", "\(Int(settings.micGain * 100))%") {
-                                        Slider(value: $settings.micGain, in: 0...1, step: 0.01)
-                                            .tint(Theme.accent)
-                                            .disabled(camera.recordingRequested)
-                                    }
-                                } else {
-                                    Text("This microphone sets its own level. Use the gain control on the microphone or its receiver, and keep the meter peaks at or below the white −12 mark.")
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.45))
+                                popRow("Gain", String(format: "%+.1f dB", settings.micGainDb)) {
+                                    Slider(value: $settings.micGainDb,
+                                           in: AudioGain.minimumDb...AudioGain.maximumDb,
+                                           step: 0.5)
+                                        .tint(Theme.accent)
+                                        .disabled(camera.recordingRequested)
                                 }
+                                HStack(spacing: 10) {
+                                    Button("−20 dB") { settings.micGainDb = -20 }
+                                    Button("0 dB") { settings.micGainDb = 0 }
+                                    Button("+20 dB") { settings.micGainDb = 20 }
+                                }
+                                .font(.caption2)
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.white.opacity(0.55))
+                                .disabled(camera.recordingRequested)
+                                Text("Manual only — nothing adjusts itself. The meter shows the level with this gain applied; keep peaks at or below the white −12 mark.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.45))
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
