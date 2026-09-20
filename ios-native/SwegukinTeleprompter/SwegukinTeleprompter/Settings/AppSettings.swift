@@ -77,6 +77,7 @@ final class AppSettings: ObservableObject {
         cinematicMode = b("cinematicMode", false)
         simulatedAperture = d("simulatedAperture", 2.8)
         micGain = d("micGain", 0.7)
+        micGainDb = max(-20, min(20, d("micGainDb", 0)))
         
         lastActiveScriptID = defaults.string(forKey: "lastActiveScriptID")
     }
