@@ -25,6 +25,10 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var status: String = ""
     @Published private(set) var modes: [CaptureMode] = []
     @Published private(set) var micName: String = ""
+    /// "USB-C · 48 kHz · 2 ch" — what the connected microphone is delivering.
+    @Published private(set) var micDetail: String = ""
+    /// True only when iOS exposes a hardware input-gain control for this mic.
+    @Published private(set) var micGainSupported = false
     @Published var zoom: CGFloat = 1 { didSet { applyZoom() } }
     @Published private(set) var torchOn = false
     @Published private(set) var usingFront = true
@@ -38,6 +42,10 @@ final class CameraManager: NSObject, ObservableObject {
     private var videoInput: AVCaptureDeviceInput?
     private var audioInput: AVCaptureDeviceInput?
     private let movieOutput = AVCaptureMovieFileOutput()
+    /// Pre-recording level metering only — never part of the written file.
+    let levelMonitor = AudioLevelMonitor()
+    private let audioDataOutput = AVCaptureAudioDataOutput()
+    private let audioMeterQueue = DispatchQueue(label: "camera.audio.meter")
     private var device: AVCaptureDevice? { videoInput?.device }
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     
