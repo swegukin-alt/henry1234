@@ -106,6 +106,7 @@ final class CameraManager: NSObject, ObservableObject {
         AudioSessionManager.shared.activateForCapture()
         AudioSessionManager.shared.onRouteChange = { [weak self] name in
             self?.micName = name
+            self?.refreshAudioInfo()
         }
         // An alarm or phone call takes the microphone for a moment. Bring the
         // capture audio session straight back instead of ending the take.
@@ -120,6 +121,7 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         micName = AudioSessionManager.shared.currentInputName
+        refreshAudioInfo()
         usingFront = front
         status = ""
 
