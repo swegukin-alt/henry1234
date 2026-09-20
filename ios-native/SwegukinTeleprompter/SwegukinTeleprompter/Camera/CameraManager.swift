@@ -542,6 +542,7 @@ final class CameraManager: NSObject, ObservableObject {
     func stopRecording(completion: @escaping (Result<URL, Error>) -> Void) {
         recordingRequested = false
         AudioSessionManager.shared.isRecording = false
+        levelMonitor.isPaused = false
         guard movieOutput.isRecording else {
             // The system already closed the file (interruption, error). Hand
             // back whatever finished writing instead of reporting a failure.
