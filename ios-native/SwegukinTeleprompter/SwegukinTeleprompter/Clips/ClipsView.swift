@@ -274,6 +274,30 @@ struct ClipsView: View {
         sharingBatch = ShareBatch(urls: urls)
     }
 
+    /// Package a whole folder as one zip and hand it to the share sheet,
+    /// so AirDrop drops a tidy folder of numbered clips on the Mac.
+    private func exportFolder(title: String, items: [RecordingItem]) {
+        guard !exporting else { return }
+        exporting = true
+        let snapshot = items
+        Task.detached(priority: .userInitiated) {
+            do {
+                let archive = try FolderExport.makeArchive(title: title, items: snapshot)
+                await MainActor.run {
+                    exporting = false
+                    Haptics.success()
+                    sharingBatch = ShareBatch(urls: [archive])
+                }
+            } catch {
+                await MainActor.run {
+                    exporting = false
+                    Haptics.failure()
+                    message = error.localizedDescription
+                }
+            }
+        }
+    }
+
     private func deleteSelected() {
         let doomed = items.filter { selected.contains($0.id) }
         guard !doomed.isEmpty else { return }
