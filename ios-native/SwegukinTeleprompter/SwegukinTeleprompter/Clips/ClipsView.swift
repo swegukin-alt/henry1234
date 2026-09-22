@@ -84,6 +84,15 @@ struct ClipsView: View {
                 Text(headerTitle).font(.system(size: 16, weight: .medium)).lineLimit(1)
                 Text("(\(showingFolders ? folders.count : items.count))").foregroundStyle(.white.opacity(0.45))
                 Spacer()
+                if !showingFolders && !items.isEmpty && !selecting {
+                    Button { exportFolder(title: headerTitle, items: items) } label: {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                            .font(.system(size: 15))
+                            .frame(width: 34, height: 36)
+                    }
+                    .foregroundStyle(Theme.accent)
+                    .disabled(exporting)
+                }
                 if !showingFolders && !items.isEmpty {
                     Button(selecting ? "Done" : "Select") {
                         if selecting { endSelection() } else { selecting = true }
