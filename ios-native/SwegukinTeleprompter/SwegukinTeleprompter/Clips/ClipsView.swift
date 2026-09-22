@@ -305,7 +305,7 @@ struct ClipsView: View {
         .sheet(item: $sharingBatch) { batch in
             ShareSheet(urls: batch.urls)
         }
-        .alert("Camera roll", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+        .alert("Videoclips", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(message ?? "")
