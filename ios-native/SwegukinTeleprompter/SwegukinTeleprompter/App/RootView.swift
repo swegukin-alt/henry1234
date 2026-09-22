@@ -171,8 +171,10 @@ struct LibraryView: View {
 }
 
 /// iOS-style swipe-to-delete for a script row: swipe left to reveal a red
-/// delete button. Horizontal drags only — vertical scrolling is unaffected,
-/// and only one row can be revealed at a time.
+/// delete button, or swipe all the way to delete in one motion — the same
+/// interaction as Apple's own lists. Attached with simultaneousGesture so the
+/// vertical ScrollView never swallows the horizontal drag, and only one row
+/// can be revealed at a time.
 struct SwipeToDeleteRow<Content: View>: View {
     let id: String
     @Binding var revealedID: String?
@@ -181,6 +183,7 @@ struct SwipeToDeleteRow<Content: View>: View {
 
     @State private var dragX: CGFloat = 0
     @State private var dragging = false
+    @State private var abandoned = false
     @State private var startOffset: CGFloat = 0
 
     private let revealWidth: CGFloat = 88
@@ -198,9 +201,9 @@ struct SwipeToDeleteRow<Content: View>: View {
                 Image(systemName: "trash.fill")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: revealWidth)
+                    .frame(minWidth: revealWidth, maxWidth: .infinity)
                     .frame(maxHeight: .infinity)
-                    .background(.red, in: RoundedRectangle(cornerRadius: 12))
+                    .background(.red)
             }
             .buttonStyle(.plain)
             .opacity(currentX < -6 ? 1 : 0)
@@ -214,32 +217,54 @@ struct SwipeToDeleteRow<Content: View>: View {
                         withAnimation(.easeOut(duration: 0.2)) { revealedID = nil }
                     }
                 }
-                .gesture(
-                    DragGesture(minimumDistance: 18)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 12)
                         .onChanged { value in
                             let h = value.translation.width
                             let v = value.translation.height
-                            guard abs(h) > abs(v) else {
-                                if dragging { dragging = false; dragX = 0 }
-                                return
-                            }
+                            guard !abandoned else { return }
                             if !dragging {
+                                // Only engage once the drag is clearly horizontal —
+                                // otherwise vertical scrolling keeps priority.
+                                guard abs(h) > abs(v), abs(h) > 4 else { return }
+                                if let open = revealedID, open != id {
+                                    withAnimation(.easeOut(duration: 0.15)) { revealedID = nil }
+                                }
                                 dragging = true
                                 startOffset = baseX
-                            }
-                            dragX = min(0, max(startOffset + h, -revealWidth - 8))
-                        }
-                        .onEnded { value in
-                            defer { dragging = false; dragX = 0; startOffset = 0 }
-                            let h = value.translation.width
-                            let v = value.translation.height
-                            guard abs(h) > abs(v) else {
-                                withAnimation(.easeOut(duration: 0.22)) { revealedID = nil }
+                            } else if abs(v) > abs(h) + 10, abs(h) < 20 {
+                                // The user turned the drag into a vertical scroll —
+                                // abandon the row drag and settle back.
+                                abandoned = true
+                                dragging = false
+                                withAnimation(.easeOut(duration: 0.2)) { dragX = 0 }
                                 return
                             }
-                            let final = startOffset + h
-                            withAnimation(.easeOut(duration: 0.22)) {
-                                revealedID = final < -48 ? id : nil
+                            let raw = startOffset + h
+                            if raw < -revealWidth {
+                                // Rubber-band resistance past the delete button.
+                                let over = -revealWidth - raw
+                                dragX = -revealWidth - min(over * 0.35, 70)
+                            } else {
+                                dragX = min(0, raw)
+                            }
+                        }
+                        .onEnded { value in
+                            defer { dragging = false; dragX = 0; startOffset = 0; abandoned = false }
+                            guard !abandoned else { return }
+                            let final = startOffset + value.translation.width
+                            let predicted = startOffset + value.predictedEndTranslation.width
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                if final < -(revealWidth + 25) || predicted < -(revealWidth + 110) {
+                                    // Full swipe: delete immediately, like Mail.
+                                    revealedID = nil
+                                    Haptics.tap()
+                                    onDelete()
+                                } else if final < -revealWidth / 2 || predicted < -revealWidth {
+                                    revealedID = id
+                                } else {
+                                    revealedID = nil
+                                }
                             }
                         }
                 )
