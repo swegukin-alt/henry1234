@@ -244,6 +244,15 @@ struct ClipsView: View {
         selected = []
     }
 
+    /// AirDrop (or Files, Messages…) several clips in one send.
+    private func shareSelected() {
+        let urls = items.filter { selected.contains($0.id) }
+            .map { $0.url }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !urls.isEmpty else { return }
+        sharingBatch = ShareBatch(urls: urls)
+    }
+
     private func deleteSelected() {
         let doomed = items.filter { selected.contains($0.id) }
         guard !doomed.isEmpty else { return }
