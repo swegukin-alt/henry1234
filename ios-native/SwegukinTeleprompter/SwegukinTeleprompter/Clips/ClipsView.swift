@@ -21,6 +21,7 @@ struct ClipsView: View {
     @State private var openFolder: String?
     @State private var selecting = false
     @State private var selected: Set<String> = []
+    @State private var exporting = false
 
     private static let otherKey = "__other"
 
@@ -84,6 +85,15 @@ struct ClipsView: View {
                 Text(headerTitle).font(.system(size: 16, weight: .medium)).lineLimit(1)
                 Text("(\(showingFolders ? folders.count : items.count))").foregroundStyle(.white.opacity(0.45))
                 Spacer()
+                if !showingFolders && !items.isEmpty && !selecting {
+                    Button { exportFolder(title: headerTitle, items: items) } label: {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                            .font(.system(size: 15))
+                            .frame(width: 34, height: 36)
+                    }
+                    .foregroundStyle(Theme.accent)
+                    .disabled(exporting)
+                }
                 if !showingFolders && !items.isEmpty {
                     Button(selecting ? "Done" : "Select") {
                         if selecting { endSelection() } else { selecting = true }
@@ -107,29 +117,40 @@ struct ClipsView: View {
                     ScrollView {
                         LazyVStack(spacing: 8) {
                             ForEach(folders) { folder in
-                                Button { openFolder = folder.id } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "folder.fill")
-                                            .font(.system(size: 15))
-                                            .foregroundStyle(Theme.accent)
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(folder.title)
-                                                .font(.system(size: 14, weight: .semibold))
-                                                .foregroundStyle(.white)
-                                                .lineLimit(1)
-                                            Text("\(folder.items.count) clip\(folder.items.count == 1 ? "" : "s")")
-                                                .font(.system(size: 11))
-                                                .foregroundStyle(.white.opacity(0.5))
+                                HStack(spacing: 6) {
+                                    Button { openFolder = folder.id } label: {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: "folder.fill")
+                                                .font(.system(size: 15))
+                                                .foregroundStyle(Theme.accent)
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(folder.title)
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundStyle(.white)
+                                                    .lineLimit(1)
+                                                Text("\(folder.items.count) clip\(folder.items.count == 1 ? "" : "s")")
+                                                    .font(.system(size: 11))
+                                                    .foregroundStyle(.white.opacity(0.5))
+                                            }
+                                            Spacer()
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.white.opacity(0.35))
                                         }
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(.white.opacity(0.35))
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(10)
-                                    .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
+                                    .buttonStyle(.plain)
+                                    Button { exportFolder(title: folder.title, items: folder.items) } label: {
+                                        Image(systemName: "square.and.arrow.up.on.square")
+                                            .font(.system(size: 15))
+                                            .frame(width: 34, height: 34)
+                                            .foregroundStyle(Theme.accent)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(exporting)
                                 }
-                                .buttonStyle(.plain)
+                                .padding(10)
+                                .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
                             }
                         }.padding(.horizontal, 12).padding(.vertical, 8)
                     }
@@ -211,6 +232,15 @@ struct ClipsView: View {
         }
         .frame(maxHeight: UIScreen.main.bounds.height * 0.85)
         .background(Color(red: 0.04, green: 0.04, blue: 0.045), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+        if exporting {
+            VStack(spacing: 10) {
+                ProgressView().tint(.white)
+                Text("Packaging folder…").font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
+            }
+            .padding(22)
+            .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 16))
+            .frame(maxHeight: .infinity)
+        }
         }
         .fullScreenCover(item: $playing) { item in
             ZStack(alignment: .topLeading) {
@@ -251,6 +281,30 @@ struct ClipsView: View {
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !urls.isEmpty else { return }
         sharingBatch = ShareBatch(urls: urls)
+    }
+
+    /// Package a whole folder as one zip and hand it to the share sheet,
+    /// so AirDrop drops a tidy folder of numbered clips on the Mac.
+    private func exportFolder(title: String, items: [RecordingItem]) {
+        guard !exporting else { return }
+        exporting = true
+        let snapshot = items
+        Task.detached(priority: .userInitiated) {
+            do {
+                let archive = try FolderExport.makeArchive(title: title, items: snapshot)
+                await MainActor.run {
+                    exporting = false
+                    Haptics.success()
+                    sharingBatch = ShareBatch(urls: [archive])
+                }
+            } catch {
+                await MainActor.run {
+                    exporting = false
+                    Haptics.failure()
+                    message = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func deleteSelected() {
