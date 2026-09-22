@@ -260,6 +260,35 @@ struct ClipsView: View {
         }
         .frame(maxHeight: UIScreen.main.bounds.height * 0.85)
         .background(Color(red: 0.04, green: 0.04, blue: 0.045), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+
+        if copying {
+            Color.black.opacity(0.65).ignoresSafeArea()
+            VStack(spacing: 10) {
+                ProgressView().tint(.white)
+                Text("Copying \(copyDone) of \(copyTotal)")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Keep the drive connected.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .padding(22)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+            .frame(maxHeight: .infinity)
+        }
+        }
+        .sheet(isPresented: $pickingDrive) {
+            DirectoryPicker(
+                onPick: { url in
+                    pickingDrive = false
+                    startCopy(to: url)
+                },
+                onCancel: {
+                    pickingDrive = false
+                    pendingDrive = nil
+                }
+            )
+            .ignoresSafeArea()
         }
         .fullScreenCover(item: $playing) { item in
             ZStack(alignment: .topLeading) {
