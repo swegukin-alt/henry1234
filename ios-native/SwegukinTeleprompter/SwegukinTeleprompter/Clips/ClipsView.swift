@@ -15,6 +15,7 @@ struct ClipsView: View {
 
     @State private var playing: RecordingItem?
     @State private var sharing: RecordingItem?
+    @State private var sharingBatch: ShareBatch?
     @State private var message: String?
     @State private var busy = false
     @State private var openFolder: String?
