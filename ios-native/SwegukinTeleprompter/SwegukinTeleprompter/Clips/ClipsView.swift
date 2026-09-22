@@ -224,6 +224,9 @@ struct ClipsView: View {
         .sheet(item: $sharing) { item in
             ShareSheet(url: item.url)
         }
+        .sheet(item: $sharingBatch) { batch in
+            ShareSheet(urls: batch.urls)
+        }
         .alert("Camera roll", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
