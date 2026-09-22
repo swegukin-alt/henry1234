@@ -122,7 +122,7 @@ enum DriveExport {
                 if existing == source {
                     skipped += 1
                     let done = index + 1
-                    await MainActor.run { progress(done) }
+                    report(done)
                     continue
                 }
                 try? fm.removeItem(at: finalURL)
@@ -146,7 +146,7 @@ enum DriveExport {
             }
 
             let done = index + 1
-            await MainActor.run { progress(done) }
+            report(done)
         }
 
         return Result(copied: copied, skipped: skipped, destination: folder.lastPathComponent)
