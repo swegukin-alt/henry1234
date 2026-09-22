@@ -21,7 +21,6 @@ struct ClipsView: View {
     @State private var openFolder: String?
     @State private var selecting = false
     @State private var selected: Set<String> = []
-    @State private var exporting = false
 
     private static let otherKey = "__other"
 
@@ -86,13 +85,12 @@ struct ClipsView: View {
                 Text("(\(showingFolders ? folders.count : items.count))").foregroundStyle(.white.opacity(0.45))
                 Spacer()
                 if !showingFolders && !items.isEmpty && !selecting {
-                    Button { exportFolder(title: headerTitle, items: items) } label: {
+                    Button { exportFolder(items: items) } label: {
                         Image(systemName: "square.and.arrow.up.on.square")
                             .font(.system(size: 15))
                             .frame(width: 34, height: 36)
                     }
                     .foregroundStyle(Theme.accent)
-                    .disabled(exporting)
                 }
                 if !showingFolders && !items.isEmpty {
                     Button(selecting ? "Done" : "Select") {
@@ -140,14 +138,13 @@ struct ClipsView: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    Button { exportFolder(title: folder.title, items: folder.items) } label: {
+                                    Button { exportFolder(items: folder.items) } label: {
                                         Image(systemName: "square.and.arrow.up.on.square")
                                             .font(.system(size: 15))
                                             .frame(width: 34, height: 34)
                                             .foregroundStyle(Theme.accent)
                                     }
                                     .buttonStyle(.plain)
-                                    .disabled(exporting)
                                 }
                                 .padding(10)
                                 .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
@@ -232,15 +229,6 @@ struct ClipsView: View {
         }
         .frame(maxHeight: UIScreen.main.bounds.height * 0.85)
         .background(Color(red: 0.04, green: 0.04, blue: 0.045), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
-        if exporting {
-            VStack(spacing: 10) {
-                ProgressView().tint(.white)
-                Text("Packaging folder…").font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
-            }
-            .padding(22)
-            .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 16))
-            .frame(maxHeight: .infinity)
-        }
         }
         .fullScreenCover(item: $playing) { item in
             ZStack(alignment: .topLeading) {
@@ -283,28 +271,15 @@ struct ClipsView: View {
         sharingBatch = ShareBatch(urls: urls)
     }
 
-    /// Package a whole folder as one zip and hand it to the share sheet,
-    /// so AirDrop drops a tidy folder of numbered clips on the Mac.
-    private func exportFolder(title: String, items: [RecordingItem]) {
-        guard !exporting else { return }
-        exporting = true
-        let snapshot = items
-        Task.detached(priority: .userInitiated) {
-            do {
-                let archive = try FolderExport.makeArchive(title: title, items: snapshot)
-                await MainActor.run {
-                    exporting = false
-                    Haptics.success()
-                    sharingBatch = ShareBatch(urls: [archive])
-                }
-            } catch {
-                await MainActor.run {
-                    exporting = false
-                    Haptics.failure()
-                    message = error.localizedDescription
-                }
-            }
-        }
+    /// Share every clip in the folder in one go — no packaging, the share
+    /// sheet simply gets all the clips, like "Select all" + Share.
+    private func exportFolder(items itemsToShare: [RecordingItem]) {
+        let urls = itemsToShare
+            .map { $0.url }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !urls.isEmpty else { return }
+        Haptics.tap()
+        sharingBatch = ShareBatch(urls: urls)
     }
 
     private func deleteSelected() {
