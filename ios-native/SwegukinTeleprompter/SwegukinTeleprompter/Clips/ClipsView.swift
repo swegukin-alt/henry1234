@@ -21,6 +21,16 @@ struct ClipsView: View {
     @State private var openFolder: String?
     @State private var selecting = false
     @State private var selected: Set<String> = []
+    @State private var pendingDrive: DriveRequest?
+    @State private var pickingDrive = false
+    @State private var copying = false
+    @State private var copyDone = 0
+    @State private var copyTotal = 0
+
+    private struct DriveRequest {
+        var title: String
+        var items: [RecordingItem]
+    }
 
     private static let otherKey = "__other"
 
@@ -85,7 +95,14 @@ struct ClipsView: View {
                 Text("(\(showingFolders ? folders.count : items.count))").foregroundStyle(.white.opacity(0.45))
                 Spacer()
                 if !showingFolders && !items.isEmpty && !selecting {
-                    Button { exportFolder(items: items) } label: {
+                    Menu {
+                        Button { exportFolder(items: items) } label: {
+                            Label("Share clips", systemImage: "square.and.arrow.up")
+                        }
+                        Button { askForDrive(title: headerTitle, items: items) } label: {
+                            Label("Copy to drive", systemImage: "externaldrive")
+                        }
+                    } label: {
                         Image(systemName: "square.and.arrow.up.on.square")
                             .font(.system(size: 15))
                             .frame(width: 34, height: 36)
@@ -138,13 +155,19 @@ struct ClipsView: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    Button { exportFolder(items: folder.items) } label: {
+                                    Menu {
+                                        Button { exportFolder(items: folder.items) } label: {
+                                            Label("Share clips", systemImage: "square.and.arrow.up")
+                                        }
+                                        Button { askForDrive(title: folder.title, items: folder.items) } label: {
+                                            Label("Copy to drive", systemImage: "externaldrive")
+                                        }
+                                    } label: {
                                         Image(systemName: "square.and.arrow.up.on.square")
                                             .font(.system(size: 15))
                                             .frame(width: 34, height: 34)
                                             .foregroundStyle(Theme.accent)
                                     }
-                                    .buttonStyle(.plain)
                                 }
                                 .padding(10)
                                 .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
@@ -205,6 +228,14 @@ struct ClipsView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.65))
                         Spacer()
+                        Button { askForDrive(title: headerTitle, items: items.filter { selected.contains($0.id) }) } label: {
+                            Image(systemName: "externaldrive")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(width: 42, height: 38)
+                                .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .disabled(selected.isEmpty)
                         Button { shareSelected() } label: {
                             Label(selected.isEmpty ? "Share" : "Share \(selected.count)", systemImage: "square.and.arrow.up")
                                 .labelStyle(.titleAndIcon)
@@ -229,6 +260,35 @@ struct ClipsView: View {
         }
         .frame(maxHeight: UIScreen.main.bounds.height * 0.85)
         .background(Color(red: 0.04, green: 0.04, blue: 0.045), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+
+        if copying {
+            Color.black.opacity(0.65).ignoresSafeArea()
+            VStack(spacing: 10) {
+                ProgressView().tint(.white)
+                Text("Copying \(copyDone) of \(copyTotal)")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Keep the drive connected.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .padding(22)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+            .frame(maxHeight: .infinity)
+        }
+        }
+        .sheet(isPresented: $pickingDrive) {
+            DirectoryPicker(
+                onPick: { url in
+                    pickingDrive = false
+                    startCopy(to: url)
+                },
+                onCancel: {
+                    pickingDrive = false
+                    pendingDrive = nil
+                }
+            )
+            .ignoresSafeArea()
         }
         .fullScreenCover(item: $playing) { item in
             ZStack(alignment: .topLeading) {
@@ -245,7 +305,7 @@ struct ClipsView: View {
         .sheet(item: $sharingBatch) { batch in
             ShareSheet(urls: batch.urls)
         }
-        .alert("Camera roll", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+        .alert("Videoclips", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(message ?? "")
@@ -280,6 +340,41 @@ struct ClipsView: View {
         guard !urls.isEmpty else { return }
         Haptics.tap()
         sharingBatch = ShareBatch(urls: urls)
+    }
+
+    /// Step one of a drive copy: ask where on the connected drive to put it.
+    private func askForDrive(title: String, items chosen: [RecordingItem]) {
+        let alive = chosen.filter { FileManager.default.fileExists(atPath: $0.url.path) }
+        guard !alive.isEmpty, !copying else { return }
+        pendingDrive = DriveRequest(title: title, items: alive)
+        Haptics.tap()
+        pickingDrive = true
+    }
+
+    /// Step two: copy the clips. Originals are only read, never moved.
+    private func startCopy(to destination: URL) {
+        guard let request = pendingDrive, !copying else { return }
+        pendingDrive = nil
+        copying = true
+        copyDone = 0
+        copyTotal = request.items.count
+        Task {
+            do {
+                let result = try await DriveExport.copy(
+                    items: request.items,
+                    folderName: request.title,
+                    to: destination,
+                    progress: { done in copyDone = done }
+                )
+                copying = false
+                Haptics.success()
+                message = "Copied \(result.copied) clip\(result.copied == 1 ? "" : "s") to “\(result.destination)” on the drive."
+            } catch {
+                copying = false
+                Haptics.failure()
+                message = error.localizedDescription
+            }
+        }
     }
 
     private func deleteSelected() {
