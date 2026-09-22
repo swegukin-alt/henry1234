@@ -85,7 +85,14 @@ struct ClipsView: View {
                 Text("(\(showingFolders ? folders.count : items.count))").foregroundStyle(.white.opacity(0.45))
                 Spacer()
                 if !showingFolders && !items.isEmpty && !selecting {
-                    Button { exportFolder(items: items) } label: {
+                    Menu {
+                        Button { exportFolder(items: items) } label: {
+                            Label("Share clips", systemImage: "square.and.arrow.up")
+                        }
+                        Button { askForDrive(title: headerTitle, items: items) } label: {
+                            Label("Copy to drive", systemImage: "externaldrive")
+                        }
+                    } label: {
                         Image(systemName: "square.and.arrow.up.on.square")
                             .font(.system(size: 15))
                             .frame(width: 34, height: 36)
