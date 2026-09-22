@@ -66,6 +66,15 @@ final class RecordingStore: ObservableObject {
         sortAndPersist()
     }
 
+    /// Removes several takes in one pass, for multi-select delete.
+    func delete(_ batch: [RecordingItem]) {
+        guard !batch.isEmpty else { return }
+        let ids = Set(batch.map { $0.id })
+        for item in batch { try? FileManager.default.removeItem(at: item.url) }
+        items.removeAll { ids.contains($0.id) }
+        sortAndPersist()
+    }
+
     /// Picks up anything AVFoundation finished writing while the app was gone
     /// (crash, force quit, battery) and drops index rows whose file vanished.
     func reconcile() {
