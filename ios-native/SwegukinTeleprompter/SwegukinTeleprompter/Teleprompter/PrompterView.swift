@@ -208,14 +208,12 @@ struct PrompterView: View {
                 horizon.start()
             }
         }
-        .onChange(of: settings.micGain) { _, value in
-            if camera.micGainSupported { camera.setMicGain(value) }
-        }
         .onChange(of: settings.micGainDb) { _, value in
             camera.levelMonitor.gainDb = value
+            if camera.micGainSupported { camera.setMicGain(AudioGain.hardwareValue(db: value)) }
         }
         .onChange(of: camera.micGainSupported) { _, supported in
-            if supported { camera.setMicGain(settings.micGain) }
+            if supported { camera.setMicGain(AudioGain.hardwareValue(db: settings.micGainDb)) }
         }
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }

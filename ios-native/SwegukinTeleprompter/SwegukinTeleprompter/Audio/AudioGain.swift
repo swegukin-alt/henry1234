@@ -20,6 +20,14 @@ enum AudioGain {
         pow(10, db / 20)
     }
 
+    /// The same manual trim expressed as the 0…1 hardware value iOS expects on
+    /// the few inputs that expose a gain control. Nothing else ever writes the
+    /// hardware gain, so no automatic level can override the chosen setting.
+    static func hardwareValue(db: Double) -> Double {
+        let clamped = max(minimumDb, min(maximumDb, db))
+        return (clamped - minimumDb) / (maximumDb - minimumDb)
+    }
+
     /// Returns the processed file, or the original when nothing was changed or
     /// anything at all went wrong.
     static func apply(gainDb: Double, to url: URL) async -> URL {
