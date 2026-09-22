@@ -491,6 +491,24 @@ struct PrompterView: View {
                                         }))
                                         .font(.system(size: 13, weight: .semibold))
                                         .disabled(!logAvailable || camera.recordingRequested)
+                                    if logAvailable && settings.appleLog {
+                                        Picker("Log codec", selection: Binding(
+                                            get: { settings.logCodec },
+                                            set: { value in
+                                                settings.logCodec = value
+                                                Task { await restartCamera() }
+                                            })) {
+                                                Text("ProRes 422").tag("prores")
+                                                Text("HEVC").tag("hevc")
+                                            }
+                                            .pickerStyle(.segmented)
+                                            .disabled(camera.recordingRequested)
+                                        Text(settings.logCodec == "prores"
+                                             ? "ProRes 422 · biggest files, maximum grading latitude"
+                                             : "HEVC · much smaller files, still Apple Log")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.white.opacity(0.5))
+                                    }
                                     if !logAvailable {
                                         Text(CameraManager.appleLogUnavailableReason)
                                             .font(.system(size: 11))
