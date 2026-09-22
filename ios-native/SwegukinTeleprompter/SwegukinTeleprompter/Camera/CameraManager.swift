@@ -306,8 +306,38 @@ final class CameraManager: NSObject, ObservableObject {
         session.commitConfiguration()
 
         // Best-effort refinement once the session is valid.
-        Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr)
+        let logOn = Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr, appleLog: appleLog)
+        applyRecordingCodec(appleLogActive: logOn)
+        let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
+        let spaces = camera.activeFormat.supportedColorSpaces.map { String(describing: $0.rawValue) }.joined(separator: ",")
+        let fpsRanges = camera.activeFormat.videoSupportedFrameRateRanges
+            .map { "\($0.minFrameRate)-\($0.maxFrameRate)" }.joined(separator: ",")
+        Self.log.info("""
+        camera=\(camera.localizedName, privacy: .public) position=\(camera.position.rawValue) \
+        format=\(dims.width)x\(dims.height) fpsRanges=\(fpsRanges, privacy: .public) \
+        supportedColorSpaces=[\(spaces, privacy: .public)] \
+        activeColorSpace=\(camera.activeColorSpace.rawValue) \
+        appleLogRequested=\(appleLog) appleLogActive=\(logOn) \
+        codec=\(self.recordingCodecName, privacy: .public)
+        """)
+        appleLogActive = logOn
+        appleLogDetail = logOn
+            ? "Apple Log active · \(recordingCodecName)"
+            : (appleLog ? Self.appleLogUnavailableReason : "")
         return true
+    }
+
+    /// ProRes is only selected when the movie output itself reports it for the
+    /// active format. Otherwise the existing default codec keeps recording.
+    private func applyRecordingCodec(appleLogActive: Bool) {
+        guard let connection = movieOutput.connection(with: .video) else { return }
+        if appleLogActive, movieOutput.availableVideoCodecTypes.contains(.proRes422) {
+            movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.proRes422], for: connection)
+            recordingCodecName = "ProRes 422"
+        } else {
+            movieOutput.setOutputSettings(nil, for: connection)
+            recordingCodecName = appleLogActive ? "device default (HEVC)" : "device default"
+        }
     }
 
     private static func preset(for quality: String) -> AVCaptureSession.Preset {
