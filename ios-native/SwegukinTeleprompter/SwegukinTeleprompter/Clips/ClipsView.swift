@@ -342,6 +342,41 @@ struct ClipsView: View {
         sharingBatch = ShareBatch(urls: urls)
     }
 
+    /// Step one of a drive copy: ask where on the connected drive to put it.
+    private func askForDrive(title: String, items chosen: [RecordingItem]) {
+        let alive = chosen.filter { FileManager.default.fileExists(atPath: $0.url.path) }
+        guard !alive.isEmpty, !copying else { return }
+        pendingDrive = DriveRequest(title: title, items: alive)
+        Haptics.tap()
+        pickingDrive = true
+    }
+
+    /// Step two: copy the clips. Originals are only read, never moved.
+    private func startCopy(to destination: URL) {
+        guard let request = pendingDrive, !copying else { return }
+        pendingDrive = nil
+        copying = true
+        copyDone = 0
+        copyTotal = request.items.count
+        Task {
+            do {
+                let result = try await DriveExport.copy(
+                    items: request.items,
+                    folderName: request.title,
+                    to: destination,
+                    progress: { done in copyDone = done }
+                )
+                copying = false
+                Haptics.success()
+                message = "Copied \(result.copied) clip\(result.copied == 1 ? "" : "s") to “\(result.destination)” on the drive."
+            } catch {
+                copying = false
+                Haptics.failure()
+                message = error.localizedDescription
+            }
+        }
+    }
+
     private func deleteSelected() {
         let doomed = items.filter { selected.contains($0.id) }
         guard !doomed.isEmpty else { return }
