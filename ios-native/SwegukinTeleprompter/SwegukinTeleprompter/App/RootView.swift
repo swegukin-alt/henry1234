@@ -85,7 +85,7 @@ struct LibraryView: View {
                 }
 
                 Button(action: onAllVideos) {
-                    Label("All videos", systemImage: "film")
+                    Label("All videoclips", systemImage: "film")
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -95,19 +95,34 @@ struct LibraryView: View {
 
                 VStack(spacing: 0) {
                 ForEach(Array(scripts.scripts.enumerated()), id: \.element.id) { index, script in
-                    Button { onOpen(script.id) } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(script.displayTitle)
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                            Text(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty script" : String(script.body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                    HStack(spacing: 10) {
+                        Button {
+                            scripts.setDone(id: script.id, !isTicked(script))
+                            Haptics.tap()
+                        } label: {
+                            Image(systemName: isTicked(script) ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 20))
+                                .foregroundStyle(isTicked(script) ? Theme.accent : .white.opacity(0.28))
+                                .frame(width: 34, height: 44)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16).padding(.vertical, 14)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isTicked(script) ? "Recorded" : "Not recorded")
+
+                        Button { onOpen(script.id) } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(script.displayTitle)
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                Text(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty script" : String(script.body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 14)
+                        }
                     }
+                    .padding(.horizontal, 12)
                     .contextMenu {
                         Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
                     }
