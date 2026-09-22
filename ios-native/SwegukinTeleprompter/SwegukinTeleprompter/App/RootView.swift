@@ -169,3 +169,80 @@ struct LibraryView: View {
         }
     }
 }
+
+/// iOS-style swipe-to-delete for a script row: swipe left to reveal a red
+/// delete button. Horizontal drags only — vertical scrolling is unaffected,
+/// and only one row can be revealed at a time.
+struct SwipeToDeleteRow<Content: View>: View {
+    let id: String
+    @Binding var revealedID: String?
+    var onDelete: () -> Void
+    @ViewBuilder var content: () -> Content
+
+    @State private var dragX: CGFloat = 0
+    @State private var dragging = false
+    @State private var startOffset: CGFloat = 0
+
+    private let revealWidth: CGFloat = 88
+
+    private var baseX: CGFloat { revealedID == id ? -revealWidth : 0 }
+    private var currentX: CGFloat { baseX + dragX }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                Haptics.tap()
+                withAnimation(.easeOut(duration: 0.2)) { revealedID = nil }
+                onDelete()
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: revealWidth)
+                    .frame(maxHeight: .infinity)
+                    .background(.red, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .opacity(currentX < -6 ? 1 : 0)
+            .disabled(currentX > -6)
+            .accessibilityLabel("Delete script")
+
+            content()
+                .offset(x: currentX)
+                .onTapGesture {
+                    if revealedID != nil {
+                        withAnimation(.easeOut(duration: 0.2)) { revealedID = nil }
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 18)
+                        .onChanged { value in
+                            let h = value.translation.width
+                            let v = value.translation.height
+                            guard abs(h) > abs(v) else {
+                                if dragging { dragging = false; dragX = 0 }
+                                return
+                            }
+                            if !dragging {
+                                dragging = true
+                                startOffset = baseX
+                            }
+                            dragX = min(0, max(startOffset + h, -revealWidth - 8))
+                        }
+                        .onEnded { value in
+                            defer { dragging = false; dragX = 0; startOffset = 0 }
+                            let h = value.translation.width
+                            let v = value.translation.height
+                            guard abs(h) > abs(v) else {
+                                withAnimation(.easeOut(duration: 0.22)) { revealedID = nil }
+                                return
+                            }
+                            let final = startOffset + h
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                revealedID = final < -48 ? id : nil
+                            }
+                        }
+                )
+        }
+    }
+}
