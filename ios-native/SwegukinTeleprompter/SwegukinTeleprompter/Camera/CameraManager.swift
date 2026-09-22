@@ -139,7 +139,8 @@ final class CameraManager: NSObject, ObservableObject {
             sessionQueue.async { [weak self] in
                 guard let self else { return continuation.resume(returning: false) }
                 let ok = self.configure(front: front, quality: quality, fps: fps, hdr: hdr,
-                                        stabilization: stabilization, appleLog: appleLog)
+                                        stabilization: stabilization, appleLog: appleLog,
+                                        logCodec: logCodec)
                 if ok, !self.session.isRunning { self.session.startRunning() }
                 continuation.resume(returning: ok && self.session.isRunning)
             }
