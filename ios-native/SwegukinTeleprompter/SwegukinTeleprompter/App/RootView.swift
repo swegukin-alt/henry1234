@@ -64,6 +64,7 @@ struct LibraryView: View {
     var onCreate: () -> Void
     var onVideo: (String) -> Void
     var onAllVideos: () -> Void
+    @State private var revealedScriptID: String?
 
     private func isTicked(_ script: Script) -> Bool {
         script.done ?? recordings.items.contains { $0.scriptID == script.id }
@@ -97,55 +98,62 @@ struct LibraryView: View {
 
                 VStack(spacing: 0) {
                 ForEach(Array(scripts.scripts.enumerated()), id: \.element.id) { index, script in
-                    HStack(spacing: 10) {
-                        Button {
-                            scripts.setDone(id: script.id, !isTicked(script))
-                            Haptics.tap()
-                        } label: {
-                            Image(systemName: isTicked(script) ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundStyle(isTicked(script) ? Theme.accent : .white.opacity(0.28))
-                                .frame(width: 34, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(isTicked(script) ? "Recorded" : "Not recorded")
-
-                        Button { onOpen(script.id) } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(script.displayTitle)
-                                    .font(.headline)
-                                    .foregroundStyle(.white)
-                                Text(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty script" : String(script.body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                    SwipeToDeleteRow(
+                        id: script.id,
+                        revealedID: $revealedScriptID,
+                        onDelete: { scripts.delete(id: script.id) }
+                    ) {
+                        HStack(spacing: 10) {
+                            Button {
+                                scripts.setDone(id: script.id, !isTicked(script))
+                                Haptics.tap()
+                            } label: {
+                                Image(systemName: isTicked(script) ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(isTicked(script) ? Theme.accent : .white.opacity(0.28))
+                                    .frame(width: 34, height: 44)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 14)
-                        }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(isTicked(script) ? "Recorded" : "Not recorded")
 
-                        Button {
-                            guard !script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                            onVideo(script.id)
-                            Haptics.tap()
-                        } label: {
-                            Image(systemName: "video.fill")
-                                .font(.system(size: 17))
-                                .foregroundStyle(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .white.opacity(0.18) : Theme.accent)
-                                .frame(width: 40, height: 44)
+                            Button { onOpen(script.id) } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(script.displayTitle)
+                                        .font(.headline)
+                                        .foregroundStyle(.white)
+                                    Text(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Empty script" : String(script.body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 14)
+                            }
+
+                            Button {
+                                guard !script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                                onVideo(script.id)
+                                Haptics.tap()
+                            } label: {
+                                Image(systemName: "video.fill")
+                                    .font(.system(size: 17))
+                                    .foregroundStyle(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .white.opacity(0.18) : Theme.accent)
+                                    .frame(width: 40, height: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .accessibilityLabel("Record video for this script")
                         }
-                        .buttonStyle(.plain)
-                        .disabled(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel("Record video for this script")
-                    }
-                    .padding(.horizontal, 12)
-                    .contextMenu {
-                        Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
+                        .padding(.horizontal, 12)
+                        .contextMenu {
+                            Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
+                        }
                     }
                     if index < scripts.scripts.count - 1 { Divider().overlay(.white.opacity(0.07)) }
                 }
                 }
                 .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
 
                 if scripts.scripts.isEmpty {
                     Text("No scripts yet. Tap Add a script to start.")
