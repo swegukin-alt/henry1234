@@ -138,13 +138,19 @@ struct ClipsView: View {
                                         .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    Button { exportFolder(items: folder.items) } label: {
+                                    Menu {
+                                        Button { exportFolder(items: folder.items) } label: {
+                                            Label("Share clips", systemImage: "square.and.arrow.up")
+                                        }
+                                        Button { askForDrive(title: folder.title, items: folder.items) } label: {
+                                            Label("Copy to drive", systemImage: "externaldrive")
+                                        }
+                                    } label: {
                                         Image(systemName: "square.and.arrow.up.on.square")
                                             .font(.system(size: 15))
                                             .frame(width: 34, height: 34)
                                             .foregroundStyle(Theme.accent)
                                     }
-                                    .buttonStyle(.plain)
                                 }
                                 .padding(10)
                                 .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
