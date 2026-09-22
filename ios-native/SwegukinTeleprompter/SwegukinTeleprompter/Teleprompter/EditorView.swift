@@ -31,6 +31,12 @@ struct EditorView: View {
                             Text("‹ Scripts")
                         }
 
+                        Button(action: saveAndStay) {
+                            Text("Save")
+                        }
+                        .opacity(isDraftEmpty ? 0.35 : 1)
+                        .disabled(isDraftEmpty)
+
                         Spacer()
 
                         HStack(spacing: 8) {
@@ -101,6 +107,19 @@ struct EditorView: View {
         .onAppear {
             settings.lastActiveScriptID = draft.id
         }
+    }
+
+    private var isDraftEmpty: Bool {
+        draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Saves the script to the library and stays in the editor, for people
+    /// who want to park the text now and shoot the video later.
+    private func saveAndStay() {
+        saveTask?.cancel()
+        scriptStore.update(draft)
+        Haptics.tap()
     }
 
     private func saveAndGoBack() {

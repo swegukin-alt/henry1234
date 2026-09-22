@@ -22,6 +22,7 @@ struct RootView: View {
                 LibraryView(
                     onOpen: { screen = .editor($0) },
                     onCreate: { screen = .editor(scripts.create().id) },
+                    onVideo: { screen = .prompter($0, true) },
                     onAllVideos: { screen = .clips(nil) }
                 )
             case .editor(let id):
@@ -61,6 +62,7 @@ struct LibraryView: View {
     @EnvironmentObject private var recordings: RecordingStore
     var onOpen: (String) -> Void
     var onCreate: () -> Void
+    var onVideo: (String) -> Void
     var onAllVideos: () -> Void
 
     private func isTicked(_ script: Script) -> Bool {
@@ -76,7 +78,7 @@ struct LibraryView: View {
 
 
                 Button(action: onCreate) {
-                    Text("Let's go")
+                    Text("Add a script")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -121,6 +123,20 @@ struct LibraryView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 14)
                         }
+
+                        Button {
+                            guard !script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                            onVideo(script.id)
+                            Haptics.tap()
+                        } label: {
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 17))
+                                .foregroundStyle(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .white.opacity(0.18) : Theme.accent)
+                                .frame(width: 40, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(script.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Record video for this script")
                     }
                     .padding(.horizontal, 12)
                     .contextMenu {
@@ -132,7 +148,7 @@ struct LibraryView: View {
                 .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
 
                 if scripts.scripts.isEmpty {
-                    Text("No scripts yet. Tap Let's go to start.")
+                    Text("No scripts yet. Tap Add a script to start.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
