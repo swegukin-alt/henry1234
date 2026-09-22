@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import OSLog
 import UIKit
 import Combine
 
@@ -33,6 +34,14 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var torchOn = false
     @Published private(set) var usingFront = true
     @Published private(set) var previewRotationAngle: CGFloat = 90
+    /// True only when the device really reports activeColorSpace == .appleLog.
+    @Published private(set) var appleLogActive = false
+    /// Plain-language state for the Apple Log row.
+    @Published private(set) var appleLogDetail: String = ""
+    /// The codec the movie output is actually writing with.
+    @Published private(set) var recordingCodecName: String = "device default"
+
+    static let log = Logger(subsystem: "com.swegukin.teleprompter", category: "capture")
 
 
 
@@ -91,7 +100,8 @@ final class CameraManager: NSObject, ObservableObject {
     /// Starting the camera never fails for a format reason. The session comes up
     /// with a preset the hardware always supports, then the requested
     /// resolution / frame rate / HDR is applied as a best effort on top.
-    func start(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) async throws {
+    func start(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
+               appleLog: Bool = false) async throws {
         if PermissionManager.cameraState() == .undetermined {
             _ = await PermissionManager.requestCamera()
         }
@@ -128,7 +138,8 @@ final class CameraManager: NSObject, ObservableObject {
         let running: Bool = await withCheckedContinuation { continuation in
             sessionQueue.async { [weak self] in
                 guard let self else { return continuation.resume(returning: false) }
-                let ok = self.configure(front: front, quality: quality, fps: fps, hdr: hdr, stabilization: stabilization)
+                let ok = self.configure(front: front, quality: quality, fps: fps, hdr: hdr,
+                                        stabilization: stabilization, appleLog: appleLog)
                 if ok, !self.session.isRunning { self.session.startRunning() }
                 continuation.resume(returning: ok && self.session.isRunning)
             }
@@ -213,10 +224,13 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// Runs on the session queue. Returns false only when there is genuinely no
     /// usable camera input.
-    private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) -> Bool {
+    private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
+                           appleLog: Bool = false) -> Bool {
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
-        session.automaticallyConfiguresCaptureDeviceForWideColor = true
+        // Must be false before activeColorSpace is set, or the session
+        // reconfigures the device and drops Apple Log.
+        session.automaticallyConfiguresCaptureDeviceForWideColor = !appleLog
 
 
         for input in session.inputs { session.removeInput(input) }
@@ -306,8 +320,38 @@ final class CameraManager: NSObject, ObservableObject {
         session.commitConfiguration()
 
         // Best-effort refinement once the session is valid.
-        Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr)
+        let logOn = Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr, appleLog: appleLog)
+        applyRecordingCodec(appleLogActive: logOn)
+        let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
+        let spaces = camera.activeFormat.supportedColorSpaces.map { String(describing: $0.rawValue) }.joined(separator: ",")
+        let fpsRanges = camera.activeFormat.videoSupportedFrameRateRanges
+            .map { "\($0.minFrameRate)-\($0.maxFrameRate)" }.joined(separator: ",")
+        Self.log.info("""
+        camera=\(camera.localizedName, privacy: .public) position=\(camera.position.rawValue) \
+        format=\(dims.width)x\(dims.height) fpsRanges=\(fpsRanges, privacy: .public) \
+        supportedColorSpaces=[\(spaces, privacy: .public)] \
+        activeColorSpace=\(camera.activeColorSpace.rawValue) \
+        appleLogRequested=\(appleLog) appleLogActive=\(logOn) \
+        codec=\(self.recordingCodecName, privacy: .public)
+        """)
+        appleLogActive = logOn
+        appleLogDetail = logOn
+            ? "Apple Log active · \(recordingCodecName)"
+            : (appleLog ? Self.appleLogUnavailableReason : "")
         return true
+    }
+
+    /// ProRes is only selected when the movie output itself reports it for the
+    /// active format. Otherwise the existing default codec keeps recording.
+    private func applyRecordingCodec(appleLogActive: Bool) {
+        guard let connection = movieOutput.connection(with: .video) else { return }
+        if appleLogActive, movieOutput.availableVideoCodecTypes.contains(.proRes422) {
+            movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.proRes422], for: connection)
+            recordingCodecName = "ProRes 422"
+        } else {
+            movieOutput.setOutputSettings(nil, for: connection)
+            recordingCodecName = appleLogActive ? "device default (HEVC)" : "device default"
+        }
     }
 
     private static func preset(for quality: String) -> AVCaptureSession.Preset {
@@ -320,22 +364,35 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// Only combinations the hardware actually reports — nothing invented, and a
     /// miss simply leaves the working preset in place.
-    private static func applyFormat(on camera: AVCaptureDevice, quality: String, fps: Int, hdr: Bool) {
+    /// Returns true only when Apple Log was requested *and* really activated.
+    @discardableResult
+    private static func applyFormat(on camera: AVCaptureDevice, quality: String, fps: Int, hdr: Bool,
+                                    appleLog: Bool = false) -> Bool {
         let target = dimensions(for: quality)
-        let candidates = camera.formats.filter { format in
+        var candidates = camera.formats.filter { format in
             let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             guard Int(dims.width) == target.width, Int(dims.height) == target.height else { return false }
             guard format.videoSupportedFrameRateRanges.contains(where: {
                 Double(fps) >= $0.minFrameRate && Double(fps) <= $0.maxFrameRate
             }) else { return false }
-            if hdr { return format.isVideoHDRSupported }
+            if hdr && !appleLog { return format.isVideoHDRSupported }
             return true
+        }
+        // Apple Log is only offered when a format for this exact resolution and
+        // frame rate lists it in supportedColorSpaces.
+        var wantLog = false
+        if appleLog {
+            let logFormats = candidates.filter { supportsAppleLogColorSpace($0) }
+            if !logFormats.isEmpty {
+                candidates = logFormats
+                wantLog = true
+            }
         }
         // Several formats can have identical dimensions and frame rates but a
         // different field of view. Choose the widest one to match the web
         // camera and avoid an apparently zoomed-in preview.
-        guard let format = candidates.max(by: { $0.videoFieldOfView < $1.videoFieldOfView }) else { return }
-        guard (try? camera.lockForConfiguration()) != nil else { return }
+        guard let format = candidates.max(by: { $0.videoFieldOfView < $1.videoFieldOfView }) else { return false }
+        guard (try? camera.lockForConfiguration()) != nil else { return false }
         camera.activeFormat = format
         camera.videoZoomFactor = max(camera.minAvailableVideoZoomFactor, 1)
         let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
@@ -343,9 +400,50 @@ final class CameraManager: NSObject, ObservableObject {
         camera.activeVideoMaxFrameDuration = frameDuration
         if format.isVideoHDRSupported {
             camera.automaticallyAdjustsVideoHDREnabled = false
-            camera.isVideoHDREnabled = hdr
+            // Log carries its own wide dynamic range; HDR is turned off for it.
+            camera.isVideoHDREnabled = wantLog ? false : hdr
+        }
+        if #available(iOS 17.0, *) {
+            if wantLog {
+                camera.activeColorSpace = .appleLog
+            } else if camera.activeColorSpace == .appleLog {
+                // Back to the ordinary picture when Log is switched off.
+                if format.supportedColorSpaces.contains(.P3_D65) {
+                    camera.activeColorSpace = .P3_D65
+                } else if format.supportedColorSpaces.contains(.sRGB) {
+                    camera.activeColorSpace = .sRGB
+                }
+            }
         }
         camera.unlockForConfiguration()
+        if #available(iOS 17.0, *) {
+            return wantLog && camera.activeColorSpace == .appleLog
+        }
+        return false
+    }
+
+    // MARK: - Apple Log
+
+    static let appleLogUnavailableReason = "Apple Log unavailable for this camera/mode"
+
+    private static func supportsAppleLogColorSpace(_ format: AVCaptureDevice.Format) -> Bool {
+        guard #available(iOS 17.0, *) else { return false }
+        return format.supportedColorSpaces.contains(.appleLog)
+    }
+
+    /// True only when this exact camera, resolution and frame rate reports
+    /// .appleLog in its supportedColorSpaces. Never inferred from the model.
+    static func appleLogAvailable(front: Bool, quality: String, fps: Int) -> Bool {
+        guard let camera = pickCamera(front: front) else { return false }
+        let target = dimensions(for: quality)
+        return camera.formats.contains { format in
+            let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            guard Int(dims.width) == target.width, Int(dims.height) == target.height else { return false }
+            guard format.videoSupportedFrameRateRanges.contains(where: {
+                Double(fps) >= $0.minFrameRate && Double(fps) <= $0.maxFrameRate
+            }) else { return false }
+            return supportsAppleLogColorSpace(format)
+        }
     }
 
     static func dimensions(for quality: String) -> (width: Int, height: Int) {
