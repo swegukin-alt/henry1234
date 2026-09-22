@@ -321,7 +321,7 @@ final class CameraManager: NSObject, ObservableObject {
 
         // Best-effort refinement once the session is valid.
         let logOn = Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr, appleLog: appleLog)
-        applyRecordingCodec(appleLogActive: logOn)
+        applyRecordingCodec(appleLogActive: logOn, logCodec: logCodec)
         let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
         let spaces = camera.activeFormat.supportedColorSpaces.map { String(describing: $0.rawValue) }.joined(separator: ",")
         let fpsRanges = camera.activeFormat.videoSupportedFrameRateRanges
