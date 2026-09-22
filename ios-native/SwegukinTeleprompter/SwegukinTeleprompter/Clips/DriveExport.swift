@@ -69,13 +69,27 @@ enum DriveExport {
 
     /// - Parameters:
     ///   - folderName: a subfolder created inside the chosen destination.
-    ///   - progress: called on the main actor with the number finished so far.
+    ///   - progress: called on the main thread with the number finished so far.
     static func copy(
         items: [RecordingItem],
         folderName: String,
         to destination: URL,
-        progress: @MainActor @escaping (Int) -> Void
+        progress: @escaping (Int) -> Void
     ) async throws -> Result {
+        let sources = items
+        return try await Task.detached(priority: .userInitiated) {
+            try perform(items: sources, folderName: folderName, to: destination, progress: progress)
+        }.value
+    }
+
+    /// The actual file work, always off the main thread.
+    private static func perform(
+        items: [RecordingItem],
+        folderName: String,
+        to destination: URL,
+        progress: @escaping (Int) -> Void
+    ) throws -> Result {
+        let report: (Int) -> Void = { done in DispatchQueue.main.async { progress(done) } }
         let fm = FileManager.default
         let sources = items.filter { fm.fileExists(atPath: $0.url.path) }
             .sorted { $0.createdAt < $1.createdAt }
