@@ -228,6 +228,14 @@ struct ClipsView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.65))
                         Spacer()
+                        Button { askForDrive(title: headerTitle, items: items.filter { selected.contains($0.id) }) } label: {
+                            Image(systemName: "externaldrive")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(width: 42, height: 38)
+                                .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .disabled(selected.isEmpty)
                         Button { shareSelected() } label: {
                             Label(selected.isEmpty ? "Share" : "Share \(selected.count)", systemImage: "square.and.arrow.up")
                                 .labelStyle(.titleAndIcon)
