@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import OSLog
 import UIKit
 import Combine
 
@@ -33,6 +34,14 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var torchOn = false
     @Published private(set) var usingFront = true
     @Published private(set) var previewRotationAngle: CGFloat = 90
+    /// True only when the device really reports activeColorSpace == .appleLog.
+    @Published private(set) var appleLogActive = false
+    /// Plain-language state for the Apple Log row.
+    @Published private(set) var appleLogDetail: String = ""
+    /// The codec the movie output is actually writing with.
+    @Published private(set) var recordingCodecName: String = "device default"
+
+    static let log = Logger(subsystem: "com.swegukin.teleprompter", category: "capture")
 
 
 
@@ -91,7 +100,8 @@ final class CameraManager: NSObject, ObservableObject {
     /// Starting the camera never fails for a format reason. The session comes up
     /// with a preset the hardware always supports, then the requested
     /// resolution / frame rate / HDR is applied as a best effort on top.
-    func start(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) async throws {
+    func start(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
+               appleLog: Bool = false) async throws {
         if PermissionManager.cameraState() == .undetermined {
             _ = await PermissionManager.requestCamera()
         }
@@ -128,7 +138,8 @@ final class CameraManager: NSObject, ObservableObject {
         let running: Bool = await withCheckedContinuation { continuation in
             sessionQueue.async { [weak self] in
                 guard let self else { return continuation.resume(returning: false) }
-                let ok = self.configure(front: front, quality: quality, fps: fps, hdr: hdr, stabilization: stabilization)
+                let ok = self.configure(front: front, quality: quality, fps: fps, hdr: hdr,
+                                        stabilization: stabilization, appleLog: appleLog)
                 if ok, !self.session.isRunning { self.session.startRunning() }
                 continuation.resume(returning: ok && self.session.isRunning)
             }
@@ -213,10 +224,13 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// Runs on the session queue. Returns false only when there is genuinely no
     /// usable camera input.
-    private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool) -> Bool {
+    private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
+                           appleLog: Bool = false) -> Bool {
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
-        session.automaticallyConfiguresCaptureDeviceForWideColor = true
+        // Must be false before activeColorSpace is set, or the session
+        // reconfigures the device and drops Apple Log.
+        session.automaticallyConfiguresCaptureDeviceForWideColor = !appleLog
 
 
         for input in session.inputs { session.removeInput(input) }
