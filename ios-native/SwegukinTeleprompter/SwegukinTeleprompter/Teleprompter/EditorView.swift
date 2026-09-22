@@ -109,6 +109,19 @@ struct EditorView: View {
         }
     }
 
+    private var isDraftEmpty: Bool {
+        draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Saves the script to the library and stays in the editor, for people
+    /// who want to park the text now and shoot the video later.
+    private func saveAndStay() {
+        saveTask?.cancel()
+        scriptStore.update(draft)
+        Haptics.tap()
+    }
+
     private func saveAndGoBack() {
         saveTask?.cancel()
         scriptStore.update(draft)

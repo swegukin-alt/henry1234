@@ -148,7 +148,7 @@ struct LibraryView: View {
                 .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
 
                 if scripts.scripts.isEmpty {
-                    Text("No scripts yet. Tap Let's go to start.")
+                    Text("No scripts yet. Tap Add a script to start.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
