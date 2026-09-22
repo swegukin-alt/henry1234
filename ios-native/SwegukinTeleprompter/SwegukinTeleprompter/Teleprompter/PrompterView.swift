@@ -643,7 +643,8 @@ struct PrompterView: View {
                 fps: settings.frameRate,
                 hdr: settings.hdr,
                 stabilization: settings.stabilization,
-                appleLog: settings.appleLog
+                appleLog: settings.appleLog,
+                logCodec: settings.logCodec
             )
             // The gain chosen for the last take is reapplied automatically.
             if camera.micGainSupported { camera.setMicGain(AudioGain.hardwareValue(db: settings.micGainDb)) }
