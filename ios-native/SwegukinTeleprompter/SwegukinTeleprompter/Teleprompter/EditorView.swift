@@ -31,6 +31,12 @@ struct EditorView: View {
                             Text("‹ Scripts")
                         }
 
+                        Button(action: saveAndStay) {
+                            Text("Save")
+                        }
+                        .opacity(isDraftEmpty ? 0.35 : 1)
+                        .disabled(isDraftEmpty)
+
                         Spacer()
 
                         HStack(spacing: 8) {
