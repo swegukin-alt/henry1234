@@ -21,6 +21,7 @@ struct ClipsView: View {
     @State private var openFolder: String?
     @State private var selecting = false
     @State private var selected: Set<String> = []
+    @State private var exporting = false
 
     private static let otherKey = "__other"
 
