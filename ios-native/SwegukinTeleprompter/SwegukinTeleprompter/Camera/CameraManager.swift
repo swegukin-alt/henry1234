@@ -101,7 +101,7 @@ final class CameraManager: NSObject, ObservableObject {
     /// with a preset the hardware always supports, then the requested
     /// resolution / frame rate / HDR is applied as a best effort on top.
     func start(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
-               appleLog: Bool = false) async throws {
+               appleLog: Bool = false, logCodec: String = "prores") async throws {
         if PermissionManager.cameraState() == .undetermined {
             _ = await PermissionManager.requestCamera()
         }
@@ -139,7 +139,8 @@ final class CameraManager: NSObject, ObservableObject {
             sessionQueue.async { [weak self] in
                 guard let self else { return continuation.resume(returning: false) }
                 let ok = self.configure(front: front, quality: quality, fps: fps, hdr: hdr,
-                                        stabilization: stabilization, appleLog: appleLog)
+                                        stabilization: stabilization, appleLog: appleLog,
+                                        logCodec: logCodec)
                 if ok, !self.session.isRunning { self.session.startRunning() }
                 continuation.resume(returning: ok && self.session.isRunning)
             }
@@ -225,7 +226,7 @@ final class CameraManager: NSObject, ObservableObject {
     /// Runs on the session queue. Returns false only when there is genuinely no
     /// usable camera input.
     private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
-                           appleLog: Bool = false) -> Bool {
+                           appleLog: Bool = false, logCodec: String = "prores") -> Bool {
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
         // Must be false before activeColorSpace is set, or the session
@@ -321,7 +322,7 @@ final class CameraManager: NSObject, ObservableObject {
 
         // Best-effort refinement once the session is valid.
         let logOn = Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr, appleLog: appleLog)
-        applyRecordingCodec(appleLogActive: logOn)
+        applyRecordingCodec(appleLogActive: logOn, logCodec: logCodec)
         let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
         let spaces = camera.activeFormat.supportedColorSpaces.map { String(describing: $0.rawValue) }.joined(separator: ",")
         let fpsRanges = camera.activeFormat.videoSupportedFrameRateRanges
@@ -341,16 +342,21 @@ final class CameraManager: NSObject, ObservableObject {
         return true
     }
 
-    /// ProRes is only selected when the movie output itself reports it for the
+    /// A codec is only selected when the movie output itself reports it for the
     /// active format. Otherwise the existing default codec keeps recording.
-    private func applyRecordingCodec(appleLogActive: Bool) {
+    /// `logCodec` is the user's choice while Apple Log is on: "prores" or "hevc".
+    private func applyRecordingCodec(appleLogActive: Bool, logCodec: String) {
         guard let connection = movieOutput.connection(with: .video) else { return }
-        if appleLogActive, movieOutput.availableVideoCodecTypes.contains(.proRes422) {
+        let available = movieOutput.availableVideoCodecTypes
+        if appleLogActive, logCodec == "prores", available.contains(.proRes422) {
             movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.proRes422], for: connection)
             recordingCodecName = "ProRes 422"
+        } else if appleLogActive, logCodec == "hevc", available.contains(.hevc) {
+            movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
+            recordingCodecName = "HEVC"
         } else {
             movieOutput.setOutputSettings(nil, for: connection)
-            recordingCodecName = appleLogActive ? "device default (HEVC)" : "device default"
+            recordingCodecName = appleLogActive ? "device default" : "device default"
         }
     }
 

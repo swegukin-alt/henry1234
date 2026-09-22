@@ -34,6 +34,9 @@ final class AppSettings: ObservableObject {
     /// Apple Log capture. Only honoured when the selected camera format
     /// actually reports .appleLog in supportedColorSpaces.
     @Published var appleLog: Bool { didSet { write(appleLog, "appleLog") } }
+    /// Codec used while Apple Log is on: "prores" (large, maximum latitude) or
+    /// "hevc" (much smaller files). Only applied when the movie output reports it.
+    @Published var logCodec: String { didSet { write(logCodec, "logCodec") } }
     @Published var simulatedAperture: Double { didSet { write(simulatedAperture, "simulatedAperture") } }
     /// Hardware microphone gain, 0…1. Only applied when iOS reports the
     /// connected input as gain-settable.
@@ -79,6 +82,7 @@ final class AppSettings: ObservableObject {
         useFrontCamera = b("useFrontCamera", true)
         cinematicMode = b("cinematicMode", false)
         appleLog = b("appleLog", false)
+        logCodec = defaults.string(forKey: "logCodec") ?? "prores"
         simulatedAperture = d("simulatedAperture", 2.8)
         micGain = d("micGain", 0.7)
         micGainDb = max(-20, min(20, d("micGainDb", 0)))
