@@ -107,29 +107,40 @@ struct ClipsView: View {
                     ScrollView {
                         LazyVStack(spacing: 8) {
                             ForEach(folders) { folder in
-                                Button { openFolder = folder.id } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "folder.fill")
-                                            .font(.system(size: 15))
-                                            .foregroundStyle(Theme.accent)
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(folder.title)
-                                                .font(.system(size: 14, weight: .semibold))
-                                                .foregroundStyle(.white)
-                                                .lineLimit(1)
-                                            Text("\(folder.items.count) clip\(folder.items.count == 1 ? "" : "s")")
-                                                .font(.system(size: 11))
-                                                .foregroundStyle(.white.opacity(0.5))
+                                HStack(spacing: 6) {
+                                    Button { openFolder = folder.id } label: {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: "folder.fill")
+                                                .font(.system(size: 15))
+                                                .foregroundStyle(Theme.accent)
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(folder.title)
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundStyle(.white)
+                                                    .lineLimit(1)
+                                                Text("\(folder.items.count) clip\(folder.items.count == 1 ? "" : "s")")
+                                                    .font(.system(size: 11))
+                                                    .foregroundStyle(.white.opacity(0.5))
+                                            }
+                                            Spacer()
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.white.opacity(0.35))
                                         }
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(.white.opacity(0.35))
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(10)
-                                    .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
+                                    .buttonStyle(.plain)
+                                    Button { exportFolder(title: folder.title, items: folder.items) } label: {
+                                        Image(systemName: "square.and.arrow.up.on.square")
+                                            .font(.system(size: 15))
+                                            .frame(width: 34, height: 34)
+                                            .foregroundStyle(Theme.accent)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(exporting)
                                 }
-                                .buttonStyle(.plain)
+                                .padding(10)
+                                .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
                             }
                         }.padding(.horizontal, 12).padding(.vertical, 8)
                     }
