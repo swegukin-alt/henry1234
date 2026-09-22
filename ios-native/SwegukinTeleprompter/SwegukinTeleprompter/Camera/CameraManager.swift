@@ -101,7 +101,7 @@ final class CameraManager: NSObject, ObservableObject {
     /// with a preset the hardware always supports, then the requested
     /// resolution / frame rate / HDR is applied as a best effort on top.
     func start(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
-               appleLog: Bool = false) async throws {
+               appleLog: Bool = false, logCodec: String = "prores") async throws {
         if PermissionManager.cameraState() == .undetermined {
             _ = await PermissionManager.requestCamera()
         }
