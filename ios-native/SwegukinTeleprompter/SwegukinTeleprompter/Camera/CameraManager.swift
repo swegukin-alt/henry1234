@@ -225,7 +225,7 @@ final class CameraManager: NSObject, ObservableObject {
     /// Runs on the session queue. Returns false only when there is genuinely no
     /// usable camera input.
     private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
-                           appleLog: Bool = false) -> Bool {
+                           appleLog: Bool = false, logCodec: String = "prores") -> Bool {
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
         // Must be false before activeColorSpace is set, or the session
