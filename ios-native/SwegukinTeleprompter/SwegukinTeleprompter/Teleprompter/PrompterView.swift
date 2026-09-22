@@ -478,6 +478,28 @@ struct PrompterView: View {
                                             .disabled(camera.recordingRequested)
                                         }
                                     }
+
+                                    let logAvailable = CameraManager.appleLogAvailable(
+                                        front: settings.useFrontCamera,
+                                        quality: settings.quality,
+                                        fps: settings.frameRate)
+                                    Toggle("Apple Log", isOn: Binding(
+                                        get: { settings.appleLog && logAvailable },
+                                        set: { on in
+                                            settings.appleLog = on
+                                            Task { await restartCamera() }
+                                        }))
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .disabled(!logAvailable || camera.recordingRequested)
+                                    if !logAvailable {
+                                        Text(CameraManager.appleLogUnavailableReason)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.white.opacity(0.5))
+                                    } else if !camera.appleLogDetail.isEmpty {
+                                        Text(camera.appleLogDetail)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.white.opacity(0.5))
+                                    }
                                 }
 
                                 Toggle("Stabilization", isOn: $settings.stabilization)
@@ -602,7 +624,8 @@ struct PrompterView: View {
                 quality: settings.quality,
                 fps: settings.frameRate,
                 hdr: settings.hdr,
-                stabilization: settings.stabilization
+                stabilization: settings.stabilization,
+                appleLog: settings.appleLog
             )
             // The gain chosen for the last take is reapplied automatically.
             if camera.micGainSupported { camera.setMicGain(AudioGain.hardwareValue(db: settings.micGainDb)) }

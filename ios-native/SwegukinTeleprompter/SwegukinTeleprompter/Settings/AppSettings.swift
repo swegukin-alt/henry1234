@@ -31,6 +31,9 @@ final class AppSettings: ObservableObject {
     @Published var stabilization: Bool { didSet { write(stabilization, "stabilization") } }
     @Published var useFrontCamera: Bool { didSet { write(useFrontCamera, "useFrontCamera") } }
     @Published var cinematicMode: Bool { didSet { write(cinematicMode, "cinematicMode") } }
+    /// Apple Log capture. Only honoured when the selected camera format
+    /// actually reports .appleLog in supportedColorSpaces.
+    @Published var appleLog: Bool { didSet { write(appleLog, "appleLog") } }
     @Published var simulatedAperture: Double { didSet { write(simulatedAperture, "simulatedAperture") } }
     /// Hardware microphone gain, 0…1. Only applied when iOS reports the
     /// connected input as gain-settable.
@@ -75,6 +78,7 @@ final class AppSettings: ObservableObject {
         stabilization = b("stabilization", true)
         useFrontCamera = b("useFrontCamera", true)
         cinematicMode = b("cinematicMode", false)
+        appleLog = b("appleLog", false)
         simulatedAperture = d("simulatedAperture", 2.8)
         micGain = d("micGain", 0.7)
         micGainDb = max(-20, min(20, d("micGainDb", 0)))
