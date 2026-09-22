@@ -21,6 +21,16 @@ struct ClipsView: View {
     @State private var openFolder: String?
     @State private var selecting = false
     @State private var selected: Set<String> = []
+    @State private var pendingDrive: DriveRequest?
+    @State private var pickingDrive = false
+    @State private var copying = false
+    @State private var copyDone = 0
+    @State private var copyTotal = 0
+
+    private struct DriveRequest {
+        var title: String
+        var items: [RecordingItem]
+    }
 
     private static let otherKey = "__other"
 
