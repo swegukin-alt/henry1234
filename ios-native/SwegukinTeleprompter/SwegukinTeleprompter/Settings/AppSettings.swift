@@ -82,6 +82,7 @@ final class AppSettings: ObservableObject {
         useFrontCamera = b("useFrontCamera", true)
         cinematicMode = b("cinematicMode", false)
         appleLog = b("appleLog", false)
+        logCodec = defaults.string(forKey: "logCodec") ?? "prores"
         simulatedAperture = d("simulatedAperture", 2.8)
         micGain = d("micGain", 0.7)
         micGainDb = max(-20, min(20, d("micGainDb", 0)))
