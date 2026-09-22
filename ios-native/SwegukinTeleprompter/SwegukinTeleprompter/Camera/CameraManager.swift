@@ -341,16 +341,21 @@ final class CameraManager: NSObject, ObservableObject {
         return true
     }
 
-    /// ProRes is only selected when the movie output itself reports it for the
+    /// A codec is only selected when the movie output itself reports it for the
     /// active format. Otherwise the existing default codec keeps recording.
-    private func applyRecordingCodec(appleLogActive: Bool) {
+    /// `logCodec` is the user's choice while Apple Log is on: "prores" or "hevc".
+    private func applyRecordingCodec(appleLogActive: Bool, logCodec: String) {
         guard let connection = movieOutput.connection(with: .video) else { return }
-        if appleLogActive, movieOutput.availableVideoCodecTypes.contains(.proRes422) {
+        let available = movieOutput.availableVideoCodecTypes
+        if appleLogActive, logCodec == "prores", available.contains(.proRes422) {
             movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.proRes422], for: connection)
             recordingCodecName = "ProRes 422"
+        } else if appleLogActive, logCodec == "hevc", available.contains(.hevc) {
+            movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
+            recordingCodecName = "HEVC"
         } else {
             movieOutput.setOutputSettings(nil, for: connection)
-            recordingCodecName = appleLogActive ? "device default (HEVC)" : "device default"
+            recordingCodecName = appleLogActive ? "device default" : "device default"
         }
     }
 
