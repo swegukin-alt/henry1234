@@ -58,19 +58,22 @@ struct RootView: View {
 
 struct LibraryView: View {
     @EnvironmentObject private var scripts: ScriptStore
+    @EnvironmentObject private var recordings: RecordingStore
     var onOpen: (String) -> Void
     var onCreate: () -> Void
     var onAllVideos: () -> Void
 
+    private func isTicked(_ script: Script) -> Bool {
+        script.done ?? recordings.items.contains { $0.scriptID == script.id }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Let's kick some ass")
+                Text("Swegukin Teleprompter")
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Never give up. Remember where you came from.")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.36))
+
 
                 Button(action: onCreate) {
                     Text("Let's go")
