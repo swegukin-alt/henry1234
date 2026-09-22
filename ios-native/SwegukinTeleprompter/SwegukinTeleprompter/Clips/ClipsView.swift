@@ -232,6 +232,15 @@ struct ClipsView: View {
         }
         .frame(maxHeight: UIScreen.main.bounds.height * 0.85)
         .background(Color(red: 0.04, green: 0.04, blue: 0.045), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+        if exporting {
+            VStack(spacing: 10) {
+                ProgressView().tint(.white)
+                Text("Packaging folder…").font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
+            }
+            .padding(22)
+            .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 16))
+            .frame(maxHeight: .infinity)
+        }
         }
         .fullScreenCover(item: $playing) { item in
             ZStack(alignment: .topLeading) {
