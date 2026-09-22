@@ -5,6 +5,9 @@ struct Script: Identifiable, Codable, Equatable {
     var title: String = ""
     var body: String = ""
     var updatedAt: Date = Date()
+    /// Manual "recorded" tick in the library. Optional so older saved scripts
+    /// keep decoding unchanged.
+    var done: Bool? = nil
 
     /// What the library and the clips show when nobody typed a title.
     var displayTitle: String {
@@ -78,6 +81,13 @@ final class ScriptStore: ObservableObject {
         } else {
             scripts.insert(next, at: 0)
         }
+        persist()
+    }
+
+    /// Ticks or unticks a script in the library without touching its text.
+    func setDone(id: String, _ value: Bool) {
+        guard let index = scripts.firstIndex(where: { $0.id == id }) else { return }
+        scripts[index].done = value
         persist()
     }
 
