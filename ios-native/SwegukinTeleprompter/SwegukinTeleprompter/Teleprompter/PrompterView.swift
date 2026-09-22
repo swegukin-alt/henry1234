@@ -605,7 +605,7 @@ struct PrompterView: View {
                 stabilization: settings.stabilization
             )
             // The gain chosen for the last take is reapplied automatically.
-            if camera.micGainSupported { camera.setMicGain(settings.micGain) }
+            if camera.micGainSupported { camera.setMicGain(AudioGain.hardwareValue(db: settings.micGainDb)) }
             camera.levelMonitor.gainDb = settings.micGainDb
             camera.setMeteringPaused(camera.recordingRequested)
             // Permission prompts and capture setup can finish after Back has
