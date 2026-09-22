@@ -187,6 +187,15 @@ struct ClipsView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.65))
                         Spacer()
+                        Button { shareSelected() } label: {
+                            Label(selected.isEmpty ? "Share" : "Share \(selected.count)", systemImage: "square.and.arrow.up")
+                                .labelStyle(.titleAndIcon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .padding(.horizontal, 14).padding(.vertical, 10)
+                                .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .disabled(selected.isEmpty)
                         Button(role: .destructive) { deleteSelected() } label: {
                             Text(selected.isEmpty ? "Delete" : "Delete \(selected.count)")
                                 .font(.system(size: 14, weight: .semibold))
