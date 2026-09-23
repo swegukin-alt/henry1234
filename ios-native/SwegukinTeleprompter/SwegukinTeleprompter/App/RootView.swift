@@ -205,6 +205,12 @@ struct LibraryView: View {
     }
 
     private func folderContents(_ folder: ScriptFolder) -> some View {
+        folderContentsBody(folder)
+            .contentShape(Rectangle())
+            .swipeBack { openFolderID = nil }
+    }
+
+    private func folderContentsBody(_ folder: ScriptFolder) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 Button {
@@ -409,7 +415,7 @@ private struct ScriptClipFolderTile: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 28) {
+            HStack(spacing: 12) {
                 Button(action: onVideo) {
                     Image(systemName: "video.fill")
                         .font(.system(size: 34, weight: .semibold))
