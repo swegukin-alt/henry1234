@@ -61,12 +61,19 @@ struct ClipsView: View {
 
     /// Clips currently listed: a single script, or the opened folder.
     private var items: [RecordingItem] {
-        if scriptID != nil { return allItems }
-        guard let openFolder else { return [] }
-        return folders.first { $0.id == openFolder }?.items ?? []
+        let listed: [RecordingItem]
+        if scriptID != nil {
+            listed = allItems
+        } else if let openFolder {
+            listed = folders.first { $0.id == openFolder }?.items ?? []
+        } else {
+            listed = []
+        }
+        return listed.sorted { $0.createdAt < $1.createdAt }
     }
 
     private var showingFolders: Bool { scriptID == nil && openFolder == nil }
+    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
     private var headerTitle: String {
         if let openFolder, scriptID == nil {
@@ -128,49 +135,39 @@ struct ClipsView: View {
                     Spacer()
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 8) {
+                        LazyVGrid(columns: gridColumns, alignment: .center, spacing: 20) {
                             ForEach(folders) { folder in
-                                HStack(spacing: 6) {
-                                    Button { openFolder = folder.id } label: {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: "folder.fill")
-                                                .font(.system(size: 15))
-                                                .foregroundStyle(Theme.accent)
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                Text(folder.title)
-                                                    .font(.system(size: 14, weight: .semibold))
-                                                    .foregroundStyle(.white)
-                                                    .lineLimit(1)
-                                                Text("\(folder.items.count) clip\(folder.items.count == 1 ? "" : "s")")
-                                                    .font(.system(size: 11))
-                                                    .foregroundStyle(.white.opacity(0.5))
-                                            }
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 12))
-                                                .foregroundStyle(.white.opacity(0.35))
-                                        }
-                                        .contentShape(Rectangle())
+                                Button { openFolder = folder.id } label: {
+                                    VStack(spacing: 7) {
+                                        Image(systemName: "folder.fill")
+                                            .resizable()
+                                            .scaledToFit()
+                                            .symbolRenderingMode(.hierarchical)
+                                            .foregroundStyle(Theme.accent)
+                                            .frame(height: 70)
+                                        Text(folder.title)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.center)
+                                            .frame(maxWidth: .infinity)
+                                        Text("\(folder.items.count) clip\(folder.items.count == 1 ? "" : "s")")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.white.opacity(0.45))
                                     }
-                                    .buttonStyle(.plain)
-                                    Menu {
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
                                         Button { exportFolder(items: folder.items) } label: {
                                             Label("Share clips", systemImage: "square.and.arrow.up")
                                         }
                                         Button { askForDrive(title: folder.title, items: folder.items) } label: {
                                             Label("Copy to drive", systemImage: "externaldrive")
                                         }
-                                    } label: {
-                                        Image(systemName: "square.and.arrow.up.on.square")
-                                            .font(.system(size: 15))
-                                            .frame(width: 34, height: 34)
-                                            .foregroundStyle(Theme.accent)
-                                    }
                                 }
-                                .padding(10)
-                                .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
                             }
-                        }.padding(.horizontal, 12).padding(.vertical, 8)
+                        }.padding(.horizontal, 16).padding(.vertical, 18)
                     }
                 }
             } else if items.isEmpty {
@@ -179,43 +176,24 @@ struct ClipsView: View {
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVGrid(columns: gridColumns, alignment: .center, spacing: 18) {
                     ForEach(items) { item in
-                        HStack(spacing: 10) {
-                            if selecting {
-                                Image(systemName: selected.contains(item.id) ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 19))
-                                    .foregroundStyle(selected.contains(item.id) ? Theme.accent : .white.opacity(0.3))
-                            }
-                            Button {
-                                if selecting { toggle(item) } else { playing = item }
-                            } label: {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 6) {
-                                        if !selecting {
-                                            Image(systemName: "play.fill").font(.system(size: 12)).foregroundStyle(Theme.accent)
-                                        }
-                                        Text(item.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                                    }
-                                    Text("\(Format.date(item.createdAt)) · \(Format.duration(item.duration)) · \(Format.size(item.fileSize))")
-                                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            if !selecting {
-                                Menu {
-                                    Button { save(item) } label: { Label("Save to camera roll", systemImage: "square.and.arrow.down") }
-                                    Button { share([item]) } label: { Label("Share", systemImage: "square.and.arrow.up") }
-                                    Button("Delete", role: .destructive) { recordings.delete(item) }
-                                } label: {
-                                    Image(systemName: "ellipsis").frame(width: 36, height: 36).foregroundStyle(Theme.accent)
-                                }
-                            }
+                        Button {
+                            if selecting { toggle(item) } else { playing = item }
+                        } label: {
+                            ClipGridCell(
+                                item: item,
+                                selected: selecting ? selected.contains(item.id) : nil
+                            )
                         }
-                        .padding(10)
-                        .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 12))
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button { save(item) } label: { Label("Save to camera roll", systemImage: "square.and.arrow.down") }
+                            Button { share([item]) } label: { Label("Share", systemImage: "square.and.arrow.up") }
+                            Button("Delete", role: .destructive) { recordings.delete(item) }
+                        }
                     }
-                    }.padding(.horizontal, 12).padding(.vertical, 8)
+                    }.padding(.horizontal, 16).padding(.vertical, 14)
                 }
 
                 if selecting {
@@ -396,6 +374,68 @@ struct ClipsView: View {
                 message = error.localizedDescription
             }
             busy = false
+        }
+    }
+}
+
+private struct ClipGridCell: View {
+    @EnvironmentObject private var recordings: RecordingStore
+    let item: RecordingItem
+    let selected: Bool?
+    @State private var thumbnail: UIImage?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if let thumbnail {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Rectangle()
+                            .fill(.white.opacity(0.07))
+                            .overlay {
+                                Image(systemName: "video.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(.white.opacity(0.32))
+                            }
+                    }
+                }
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                if let selected {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20, weight: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(selected ? Color.white : Color.white.opacity(0.85), selected ? Theme.accent : Color.black.opacity(0.45))
+                        .padding(6)
+                }
+
+                Text(Format.duration(item.duration))
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 4))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(5)
+            }
+
+            Text(item.fileName)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Text(Format.date(item.createdAt))
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.45))
+                .lineLimit(1)
+        }
+        .task(id: item.id) {
+            thumbnail = await recordings.thumbnail(for: item)
         }
     }
 }

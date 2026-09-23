@@ -20,6 +20,7 @@ final class RecordingStore: ObservableObject {
     @Published private(set) var items: [RecordingItem] = []
 
     private let indexURL = AppPaths.applicationSupport.appendingPathComponent("recordings.json")
+    private let nextFileNumberKey = "recordings.nextFileNumber"
 
     init() {
         load()
@@ -29,17 +30,19 @@ final class RecordingStore: ObservableObject {
     /// A destination for a brand new take. The file is written by AVFoundation
     /// directly — no copying afterwards.
     func newRecordingURL(id: String) -> URL {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        let stamp = formatter.string(from: Date())
-        var candidate = AppPaths.recordings.appendingPathComponent("Swegukin_\(stamp).mov")
-        var suffix = 2
+        let defaults = UserDefaults.standard
+        var number = max(1, defaults.integer(forKey: nextFileNumberKey))
+        var candidate = numberedURL(number)
         while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = AppPaths.recordings.appendingPathComponent("Swegukin_\(stamp)-\(suffix).mov")
-            suffix += 1
+            number += 1
+            candidate = numberedURL(number)
         }
+        defaults.set(number + 1, forKey: nextFileNumberKey)
         return candidate
+    }
+
+    private func numberedURL(_ number: Int) -> URL {
+        AppPaths.recordings.appendingPathComponent(String(format: "Swegukin_%06d.mov", number))
     }
 
     func register(id: String, url: URL, title: String, scriptID: String?) {
