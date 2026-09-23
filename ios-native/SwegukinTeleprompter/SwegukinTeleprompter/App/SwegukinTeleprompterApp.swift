@@ -3,6 +3,7 @@ import CoreText
 
 @main
 struct SwegukinTeleprompterApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var settings = AppSettings()
     @StateObject private var scripts = ScriptStore()
     @StateObject private var recordings = RecordingStore()

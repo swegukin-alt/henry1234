@@ -8,6 +8,9 @@ struct Script: Identifiable, Codable, Equatable {
     /// Manual "recorded" tick in the library. Optional so older saved scripts
     /// keep decoding unchanged.
     var done: Bool? = nil
+    /// How this script is shot: "landscape" (default) or "portrait".
+    /// Optional so older saved scripts keep decoding unchanged.
+    var orientation: String? = nil
 
     /// What the library and the clips show when nobody typed a title.
     var displayTitle: String {
