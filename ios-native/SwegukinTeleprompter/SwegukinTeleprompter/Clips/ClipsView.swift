@@ -73,10 +73,6 @@ struct ClipsView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.accent)
                 }
-                Button(action: onBack) {
-                    Image(systemName: "xmark").frame(width: 36, height: 36)
-                }
-                .foregroundStyle(.white.opacity(0.55))
             }
             .padding(.horizontal, 16).padding(.top, 12)
 
@@ -179,11 +175,8 @@ struct ClipsView: View {
         .fullScreenCover(item: $playing) { item in
             ZStack(alignment: .topLeading) {
                 PlayerView(url: item.url)
-                Button { playing = nil } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title)
-                }
-                .padding()
             }
+            .swipeDownToDismiss { playing = nil }
         }
         .alert("Videoclips", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK", role: .cancel) {}

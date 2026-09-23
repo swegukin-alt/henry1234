@@ -205,6 +205,12 @@ struct LibraryView: View {
     }
 
     private func folderContents(_ folder: ScriptFolder) -> some View {
+        folderContentsBody(folder)
+            .contentShape(Rectangle())
+            .swipeBack { openFolderID = nil }
+    }
+
+    private func folderContentsBody(_ folder: ScriptFolder) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 Button {
