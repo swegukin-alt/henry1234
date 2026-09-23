@@ -194,7 +194,15 @@ struct PrompterView: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .task { await begin() }
+        .onAppear {
+            // Video mode turns the phone the way this script is shot —
+            // landscape unless the script says portrait.
+            if videoMode {
+                OrientationLock.shared.lock(to: ScriptOrientation.from(script.orientation).mask)
+            }
+        }
         .onDisappear {
+            if videoMode { OrientationLock.shared.release() }
             horizon.stop()
             camera.setMeteringPaused(true)
             finish()
