@@ -160,5 +160,8 @@ struct RemoteKeyCatcher: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: KeyCommandViewController, context: Context) {
         controller.onAction = onAction
+        // SwiftUI re-renders (recording starts, panels open/close) can steal
+        // first responder — take it back so remote presses keep landing.
+        controller.assertFirstResponder()
     }
 }
