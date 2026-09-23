@@ -149,7 +149,11 @@ final class ScriptStore: ObservableObject {
         for url in [fileURL, backupURL] {
             do {
                 let data = try Data(contentsOf: url)
-                scripts = try JSONDecoder().decode([Script].self, from: data)
+                scripts = try JSONDecoder().decode([Script].self, from: data).map { saved in
+                    var refreshed = saved
+                    refreshed.title = ScriptTitle.suggest(from: saved.body)
+                    return refreshed
+                }
                 return
             } catch {
                 if FileManager.default.fileExists(atPath: url.path) {
