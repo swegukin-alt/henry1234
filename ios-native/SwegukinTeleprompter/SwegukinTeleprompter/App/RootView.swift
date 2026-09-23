@@ -13,6 +13,7 @@ struct RootView: View {
     @EnvironmentObject private var recordings: RecordingStore
 
     @State private var screen: Screen = .library
+    @State private var clipsReturnScreen: Screen = .library
 
     var body: some View {
         ZStack {
@@ -23,8 +24,14 @@ struct RootView: View {
                     onOpen: { screen = .editor($0) },
                     onCreate: { screen = .editor(scripts.create().id) },
                     onVideo: { screen = .prompter($0, true) },
-                    onClips: { screen = .clips($0) },
-                    onAllVideos: { screen = .clips(nil) }
+                    onClips: {
+                        clipsReturnScreen = .library
+                        screen = .clips($0)
+                    },
+                    onAllVideos: {
+                        clipsReturnScreen = .library
+                        screen = .clips(nil)
+                    }
                 )
             case .editor(let id):
                 if let script = scripts.script(id: id) {
@@ -33,7 +40,10 @@ struct RootView: View {
                         onBack: { screen = .library },
                         onPlay: { screen = .prompter(id, false) },
                         onVideo: { screen = .prompter(id, true) },
-                        onClips: { screen = .clips(id) }
+                        onClips: {
+                            clipsReturnScreen = .editor(id)
+                            screen = .clips(id)
+                        }
                     )
                 } else {
                     Color.clear.onAppear { screen = .library }
@@ -49,7 +59,7 @@ struct RootView: View {
                 }
             case .clips(let scriptID):
                 ClipsView(scriptID: scriptID) {
-                    screen = scriptID.map { Screen.editor($0) } ?? .library
+                    screen = clipsReturnScreen
                 }
             }
         }
@@ -215,7 +225,7 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 50, weight: .regular))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(FolderColor.color(folder.color))
                 Text(folder.name)
                     .font(.title.bold())
                     .foregroundStyle(.white)
@@ -415,10 +425,21 @@ private struct ScriptFolderTile: View {
     }
 }
 
+private struct FolderColorOption: Identifiable {
+    let key: String
+    let name: String
+    var id: String { key }
+}
+
 private enum FolderColor {
-    static let options: [(key: String, name: String)] = [
-        ("blue", "Blue"), ("green", "Green"), ("yellow", "Yellow"),
-        ("orange", "Orange"), ("red", "Red"), ("pink", "Pink"), ("purple", "Purple")
+    static let options: [FolderColorOption] = [
+        FolderColorOption(key: "blue", name: "Blue"),
+        FolderColorOption(key: "green", name: "Green"),
+        FolderColorOption(key: "yellow", name: "Yellow"),
+        FolderColorOption(key: "orange", name: "Orange"),
+        FolderColorOption(key: "red", name: "Red"),
+        FolderColorOption(key: "pink", name: "Pink"),
+        FolderColorOption(key: "purple", name: "Purple")
     ]
 
     static func color(_ key: String?) -> Color {
