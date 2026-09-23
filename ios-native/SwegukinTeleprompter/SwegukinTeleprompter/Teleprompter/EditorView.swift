@@ -48,10 +48,8 @@ struct EditorView: View {
 
                             Button(action: { saveAndOpen(onPlay) }) {
                                 Label("Play", systemImage: "play.fill")
-                                    .frame(height: 40)
-                                    .padding(.horizontal, 16)
-                                    .background(Theme.accent, in: Capsule())
-                                    .foregroundStyle(.white)
+                                    .frame(width: 88, height: 40)
+                                    .background(.white.opacity(0.07), in: Capsule())
                             }
                         }
                         .opacity(isDraftEmpty ? 0.35 : 1)
