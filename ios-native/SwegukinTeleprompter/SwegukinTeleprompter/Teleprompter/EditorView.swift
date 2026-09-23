@@ -26,24 +26,23 @@ struct EditorView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    HStack {
+                    HStack(spacing: 8) {
                         Button(action: saveAndGoBack) {
                             Text("‹ Scripts")
                         }
 
-                        Button(action: saveAndStay) {
-                            Text("Save")
-                        }
-                        .opacity(isDraftEmpty ? 0.35 : 1)
-                        .disabled(isDraftEmpty)
-
                         Spacer()
 
                         HStack(spacing: 8) {
+                            Button(action: saveAndStay) {
+                                Label("Save", systemImage: "checkmark")
+                                    .frame(width: 88, height: 40)
+                                    .background(.white.opacity(0.07), in: Capsule())
+                            }
+
                             Button(action: { saveAndOpen(onVideo) }) {
                                 Label("Video", systemImage: "video.fill")
-                                    .frame(height: 40)
-                                    .padding(.horizontal, 14)
+                                    .frame(width: 88, height: 40)
                                     .background(.white.opacity(0.07), in: Capsule())
                             }
 
@@ -55,16 +54,12 @@ struct EditorView: View {
                                     .foregroundStyle(.white)
                             }
                         }
-                        .disabled(draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .opacity(isDraftEmpty ? 0.35 : 1)
+                        .disabled(isDraftEmpty)
                     }
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.accent)
                     .padding(.vertical, 8)
-
-                    TextField("Script title", text: $draft.title)
-                        .font(.system(size: 28, weight: .semibold))
-                        .textFieldStyle(.plain)
-                        .padding(.vertical, 8)
 
                     TextEditor(text: $draft.body)
                         .font(.system(size: 16))
@@ -122,7 +117,7 @@ struct EditorView: View {
         }
         .onDisappear {
             saveTask?.cancel()
-            scriptStore.update(draft)
+            persistOrDelete()
         }
         .onAppear {
             settings.lastActiveScriptID = draft.id
@@ -131,7 +126,6 @@ struct EditorView: View {
 
     private var isDraftEmpty: Bool {
         draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Saves the script to the library and stays in the editor, for people
@@ -144,7 +138,7 @@ struct EditorView: View {
 
     private func saveAndGoBack() {
         saveTask?.cancel()
-        scriptStore.update(draft)
+        persistOrDelete()
         onBack()
     }
 
@@ -152,5 +146,13 @@ struct EditorView: View {
         saveTask?.cancel()
         scriptStore.update(draft)
         action()
+    }
+
+    private func persistOrDelete() {
+        if isDraftEmpty {
+            scriptStore.delete(id: draft.id)
+        } else {
+            scriptStore.update(draft)
+        }
     }
 }

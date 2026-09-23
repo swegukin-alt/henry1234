@@ -15,7 +15,6 @@ struct PrompterView: View {
 
     @State private var engine = TeleprompterEngine()
     @StateObject private var camera = CameraManager()
-    @StateObject private var voice = VoiceFollowEngine()
     @StateObject private var horizon = HorizonLevelMonitor()
 
     private enum Panel { case settings, size, more }
@@ -31,7 +30,6 @@ struct PrompterView: View {
     @State private var didFinish = false
 
     @State private var document: ScriptDocument
-    @State private var punctuationWordIndices: [Int: Bool]
 
     let script: Script
     let videoMode: Bool
@@ -44,15 +42,6 @@ struct PrompterView: View {
         let chunking = UserDefaults.standard.object(forKey: "chunking") as? Bool ?? true
         let document = ScriptDocument(script.body, chunking: chunking)
         _document = State(initialValue: document)
-        _punctuationWordIndices = State(initialValue: Self.punctuationIndices(in: document))
-    }
-
-    private static func punctuationIndices(in document: ScriptDocument) -> [Int: Bool] {
-        Dictionary(uniqueKeysWithValues: document.words.enumerated().compactMap { index, word in
-            if word.range(of: #"[.!?…。！？]$"#, options: .regularExpression) != nil { return (index, true) }
-            if word.range(of: #"[,;:—、，]$"#, options: .regularExpression) != nil { return (index, false) }
-            return nil
-        })
     }
 
     /// Video mode must never flip the words or interface. Beam-splitter
@@ -86,16 +75,12 @@ struct PrompterView: View {
                 ScriptScrollLayer(
                     engine: engine,
                     document: document,
-                    punctuation: punctuationWordIndices,
                     fontSize: settings.fontSize,
                     lineHeight: settings.lineHeight,
                     textWidth: settings.textWidth,
                     viewportWidth: geo.size.width,
                     viewportHeight: geo.size.height,
-                    foreground: videoMode || settings.background == "black" ? .white : .black,
-                    highlightEnabled: settings.readingHighlight,
-                    pausesEnabled: settings.pauses,
-                    voiceIndex: settings.voiceFollow ? voice.matchedIndex : nil,
+                    foreground: .white,
                     mirrorH: !videoMode && settings.mirrorH,
                     flip: interfaceFlip,
                     onContentHeight: { height in
@@ -226,9 +211,7 @@ struct PrompterView: View {
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.chunking) { _, enabled in
-            let next = ScriptDocument(script.body, chunking: enabled)
-            document = next
-            punctuationWordIndices = Self.punctuationIndices(in: next)
+            document = ScriptDocument(script.body, chunking: enabled)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             camera.refreshRotation()
@@ -432,11 +415,6 @@ struct PrompterView: View {
                             popRow("Width", "\(Int(settings.textWidth))%") {
                                 Slider(value: $settings.textWidth, in: 50...100, step: 1)
                             }
-                            HStack(spacing: 8) {
-                                backgroundButton("Dark", value: "black")
-                                backgroundButton("Light", value: "white")
-                                backgroundButton("Sepia", value: "sepia")
-                            }
                         case .size:
                             popRow("Font size", "\(Int(settings.fontSize))px") {
                                 Slider(value: $settings.fontSize, in: 24...140, step: 1)
@@ -571,10 +549,7 @@ struct PrompterView: View {
                             }
 
                             Text("Reading assist").font(.caption).foregroundStyle(.white.opacity(0.7))
-                            assistRow("Reading highlight", isOn: $settings.readingHighlight)
                             assistRow("Chunk phrases", isOn: $settings.chunking)
-                            assistRow("Slow at punctuation", isOn: $settings.pauses)
-                            assistRow("Voice-follow highlight", isOn: $settings.voiceFollow)
 
                             Text("Tap the script to play / pause. Bluetooth remotes (Desview, AirTurn) work too.")
                                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
@@ -617,30 +592,14 @@ struct PrompterView: View {
         .buttonStyle(OutlineButtonStyle(active: isOn.wrappedValue))
     }
 
-    private func backgroundButton(_ label: String, value: String) -> some View {
-        Button { settings.background = value } label: {
-            Text(label).font(.system(size: 12, weight: .semibold)).frame(maxWidth: .infinity)
-        }
-        .buttonStyle(OutlineButtonStyle(active: settings.background == value))
-    }
-
     // MARK: - Behaviour
 
-    private var readerBackground: Color {
-        switch settings.background {
-        case "white": return .white
-        case "sepia": return Color(red: 0.96, green: 0.91, blue: 0.80)
-        default: return .black
-        }
-    }
+    private var readerBackground: Color { .black }
 
     private func begin() async {
         IdleTimer.keepAwake(true)
         if videoMode { await restartCamera() }
         guard !didFinish else { return }
-        if settings.voiceFollow && !videoMode {
-            await voice.start(script: script.body)
-        }
     }
 
     private func restartCamera() async {
@@ -677,7 +636,6 @@ struct PrompterView: View {
         guard !didFinish else { return }
         didFinish = true
         engine.pause()
-        voice.stop()
         if camera.recordingRequested {
             stopRecording(stopCameraWhenFinished: true)
         } else {
@@ -823,27 +781,15 @@ private struct ScriptScrollLayer: View {
     @ObservedObject var engine: TeleprompterEngine
 
     let document: ScriptDocument
-    let punctuation: [Int: Bool]
     let fontSize: Double
     let lineHeight: Double
     let textWidth: Double
     let viewportWidth: CGFloat
     let viewportHeight: CGFloat
     let foreground: Color
-    let highlightEnabled: Bool
-    let pausesEnabled: Bool
-    let voiceIndex: Int?
     let mirrorH: Bool
     let flip: CGFloat
     let onContentHeight: (CGFloat) -> Void
-
-    private var highlightIndex: Int? {
-        if let voiceIndex { return voiceIndex }
-        guard highlightEnabled else { return nil }
-        let words = document.words.count
-        guard words > 0 else { return nil }
-        return min(words - 1, Int(engine.progress * Double(words)))
-    }
 
     var body: some View {
         // LOCKED READING TYPOGRAPHY — matches the web app: weight 500,
@@ -853,7 +799,6 @@ private struct ScriptScrollLayer: View {
                 document: document,
                 fontSize: fontSize,
                 lineHeight: lineHeight,
-                highlightIndex: highlightIndex,
                 foreground: foreground,
                 scrollOffset: engine.offset,
                 viewportHeight: viewportHeight,
@@ -865,17 +810,6 @@ private struct ScriptScrollLayer: View {
         .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
         .clipped()
         .allowsHitTesting(false)
-        .onChange(of: highlightIndex) { _, index in
-            guard pausesEnabled, let index, let strong = punctuation[index] else {
-                engine.speedScale = 1
-                return
-            }
-            engine.speedScale = strong ? 0.68 : 0.82
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(strong ? 360 : 220))
-                engine.speedScale = 1
-            }
-        }
     }
 }
 

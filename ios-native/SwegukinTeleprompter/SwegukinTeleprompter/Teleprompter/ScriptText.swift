@@ -219,7 +219,6 @@ struct ScriptText: View, Equatable {
     let document: ScriptDocument
     let fontSize: Double
     let lineHeight: Double
-    let highlightIndex: Int?
     var foreground: Color = .white
 
     static func == (lhs: ScriptText, rhs: ScriptText) -> Bool {
@@ -229,7 +228,6 @@ struct ScriptText: View, Equatable {
             && lhs.document.blocks.last?.lines.last?.text == rhs.document.blocks.last?.lines.last?.text
             && lhs.fontSize == rhs.fontSize
             && lhs.lineHeight == rhs.lineHeight
-            && lhs.highlightIndex == rhs.highlightIndex
             && lhs.foreground == rhs.foreground
     }
 
@@ -243,10 +241,9 @@ struct ScriptText: View, Equatable {
 
     @ViewBuilder
     private func blockView(_ block: ScriptBlock) -> some View {
-        let highlighted = isHighlighted(block)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(block.lines) { line in
-                lineText(line, blockHighlighted: highlighted)
+                Text(line.text).foregroundStyle(foreground)
                     .font(PrompterFont.font(size: fontSize))
                     .tracking(PrompterFont.tracking(size: fontSize))
                     .lineSpacing(extraLineLeading)
@@ -265,46 +262,12 @@ struct ScriptText: View, Equatable {
         }
     }
 
-    private func isHighlighted(_ block: ScriptBlock) -> Bool {
-        guard let highlightIndex else { return false }
-        return highlightIndex >= block.firstWordIndex && highlightIndex < block.firstWordIndex + block.wordCount
-    }
-
-    @ViewBuilder
-    private func lineText(_ line: ScriptLine, blockHighlighted: Bool) -> some View {
-        if blockHighlighted,
-           let highlightIndex,
-           highlightIndex >= line.firstWordIndex,
-           highlightIndex < line.firstWordIndex + line.wordRanges.count {
-            Text(attributed(line))
-        } else {
-            Text(line.text).foregroundStyle(foreground)
-        }
-    }
-
     private var nativeFontLineHeight: CGFloat {
         PrompterFont.lineHeight(size: fontSize)
     }
 
     private var extraLineLeading: CGFloat {
         max(0, fontSize * lineHeight - nativeFontLineHeight)
-    }
-
-    private func attributed(_ line: ScriptLine) -> AttributedString {
-        var text = AttributedString(line.text)
-        text.foregroundColor = foreground
-        guard let highlightIndex else { return text }
-        let localIndex = highlightIndex - line.firstWordIndex
-        guard localIndex >= 0, localIndex < line.wordRanges.count else { return text }
-        let range = line.wordRanges[localIndex]
-        if let lower = AttributedString.Index(range.lowerBound, within: text),
-           let upper = AttributedString.Index(range.upperBound, within: text) {
-            // Match the web reader: text stays white and the current word
-            // receives only a faint white wash.
-            text[lower..<upper].foregroundColor = foreground
-            text[lower..<upper].backgroundColor = Color.white.opacity(0.09)
-        }
-        return text
     }
 
     /// Word ranges, Korean-safe: splits on whitespace only, so a word is never
@@ -347,7 +310,6 @@ struct NativeScriptTextView: UIViewRepresentable {
     let document: ScriptDocument
     let fontSize: Double
     let lineHeight: Double
-    let highlightIndex: Int?
     let foreground: Color
     let scrollOffset: CGFloat
     let viewportHeight: CGFloat
@@ -355,8 +317,6 @@ struct NativeScriptTextView: UIViewRepresentable {
 
     final class Coordinator {
         var signature = ""
-        var wordRanges: [NSRange] = []
-        var highlightedIndex: Int?
         var reportedHeight: CGFloat = 0
     }
 
@@ -386,13 +346,9 @@ struct NativeScriptTextView: UIViewRepresentable {
 
         if context.coordinator.signature != signature {
             let rendered = renderedText()
-            context.coordinator.wordRanges = Self.wordRanges(in: rendered)
-            context.coordinator.highlightedIndex = nil
             view.attributedText = attributedText(rendered)
             context.coordinator.signature = signature
         }
-
-        updateHighlight(in: view, coordinator: context.coordinator)
 
         let inset = UIEdgeInsets(top: viewportHeight * 0.20, left: 0, bottom: viewportHeight * 0.80, right: 0)
         if view.textContainerInset != inset { view.textContainerInset = inset }
@@ -459,20 +415,4 @@ struct NativeScriptTextView: UIViewRepresentable {
         return text
     }
 
-    private func updateHighlight(in view: UITextView, coordinator: Coordinator) {
-        guard coordinator.highlightedIndex != highlightIndex else { return }
-        let storage = view.textStorage
-        if let old = coordinator.highlightedIndex, old < coordinator.wordRanges.count {
-            storage.removeAttribute(.backgroundColor, range: coordinator.wordRanges[old])
-        }
-        if let highlightIndex, highlightIndex >= 0, highlightIndex < coordinator.wordRanges.count {
-            storage.addAttribute(.backgroundColor, value: UIColor.white.withAlphaComponent(0.09), range: coordinator.wordRanges[highlightIndex])
-        }
-        coordinator.highlightedIndex = highlightIndex
-    }
-
-    private static func wordRanges(in string: String) -> [NSRange] {
-        let expression = try? NSRegularExpression(pattern: #"\S+"#)
-        return expression?.matches(in: string, range: NSRange(string.startIndex..<string.endIndex, in: string)).map(\.range) ?? []
-    }
 }

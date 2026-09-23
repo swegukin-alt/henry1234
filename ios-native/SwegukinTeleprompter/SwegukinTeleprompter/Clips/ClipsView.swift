@@ -14,8 +14,6 @@ struct ClipsView: View {
     let onBack: () -> Void
 
     @State private var playing: RecordingItem?
-    @State private var sharing: RecordingItem?
-    @State private var sharingBatch: ShareBatch?
     @State private var message: String?
     @State private var busy = false
     @State private var openFolder: String?
@@ -207,7 +205,7 @@ struct ClipsView: View {
                             if !selecting {
                                 Menu {
                                     Button { save(item) } label: { Label("Save to camera roll", systemImage: "square.and.arrow.down") }
-                                    Button { sharing = item } label: { Label("Share", systemImage: "square.and.arrow.up") }
+                                    Button { share([item]) } label: { Label("Share", systemImage: "square.and.arrow.up") }
                                     Button("Delete", role: .destructive) { recordings.delete(item) }
                                 } label: {
                                     Image(systemName: "ellipsis").frame(width: 36, height: 36).foregroundStyle(Theme.accent)
@@ -299,12 +297,6 @@ struct ClipsView: View {
                 .padding()
             }
         }
-        .sheet(item: $sharing) { item in
-            ShareSheet(url: item.url)
-        }
-        .sheet(item: $sharingBatch) { batch in
-            ShareSheet(urls: batch.urls)
-        }
         .alert("Videoclips", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -328,7 +320,7 @@ struct ClipsView: View {
             .map { $0.url }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !urls.isEmpty else { return }
-        sharingBatch = ShareBatch(urls: urls)
+        ShareSheetPresenter.present(urls: urls)
     }
 
     /// Share every clip in the folder in one go — no packaging, the share
@@ -339,7 +331,14 @@ struct ClipsView: View {
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !urls.isEmpty else { return }
         Haptics.tap()
-        sharingBatch = ShareBatch(urls: urls)
+        ShareSheetPresenter.present(urls: urls)
+    }
+
+    private func share(_ clips: [RecordingItem]) {
+        let urls = clips.map(\.url).filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !urls.isEmpty else { return }
+        Haptics.tap()
+        ShareSheetPresenter.present(urls: urls)
     }
 
     /// Step one of a drive copy: ask where on the connected drive to put it.

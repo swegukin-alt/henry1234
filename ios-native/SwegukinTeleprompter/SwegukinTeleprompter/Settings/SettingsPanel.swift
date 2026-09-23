@@ -34,18 +34,7 @@ struct SettingsPanel: View {
                 .foregroundStyle(.white.opacity(0.36))
             FlowLayout(spacing: 8) {
                 pill("Chunk phrases", isOn: $settings.chunking)
-                pill("Slow at punctuation", isOn: $settings.pauses)
-                pill("Reading highlight", isOn: $settings.readingHighlight)
-                pill("Voice-follow", isOn: $settings.voiceFollow)
             }
-
-            HStack(spacing: 4) {
-                backgroundButton("Dark", value: "black")
-                backgroundButton("Light", value: "white")
-                backgroundButton("Sepia", value: "sepia")
-            }
-            .padding(4)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
 
             Button("Reset to defaults") { settings.resetReaderDefaults() }
                 .font(.system(size: 14))
@@ -112,13 +101,6 @@ struct SettingsPanel: View {
         }
     }
 
-    private func backgroundButton(_ title: String, value: String) -> some View {
-        Button { settings.background = value } label: {
-            Text(title).font(.system(size: 14)).frame(maxWidth: .infinity).frame(height: 36)
-                .foregroundStyle(settings.background == value ? Color.white : Color.white.opacity(0.55))
-                .background(settings.background == value ? Color.white.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
 }
 
 private struct FlowLayout: Layout {

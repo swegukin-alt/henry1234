@@ -18,3 +18,4 @@
 - [x] Record USB-C microphones at full sample rate and channel count.
 - [x] Show accurate pre-recording audio levels with a manual gain control.
 - [x] Remember the manual gain level between takes and app launches.- [x] Give the microphone a manual -20…+20 dB gain that is applied to the recorded audio.
+- [x] Simplify native script creation, remove discontinued reader options, style completed scripts, and restore per-script clip sharing.

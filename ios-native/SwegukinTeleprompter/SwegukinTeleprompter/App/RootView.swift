@@ -70,6 +70,10 @@ struct LibraryView: View {
         script.done ?? recordings.items.contains { $0.scriptID == script.id }
     }
 
+    private var visibleScripts: [Script] {
+        scripts.scripts.filter { !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -97,7 +101,7 @@ struct LibraryView: View {
                 }
 
                 VStack(spacing: 0) {
-                ForEach(Array(scripts.scripts.enumerated()), id: \.element.id) { index, script in
+                ForEach(Array(visibleScripts.enumerated()), id: \.element.id) { index, script in
                     SwipeToDeleteRow(
                         id: script.id,
                         revealedID: $revealedScriptID,
@@ -145,17 +149,20 @@ struct LibraryView: View {
                             .accessibilityLabel("Record video for this script")
                         }
                         .padding(.horizontal, 12)
+                        .background(
+                            isTicked(script) ? Color.green.opacity(0.24) : Color.clear
+                        )
                         .contextMenu {
                             Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
                         }
                     }
-                    if index < scripts.scripts.count - 1 { Divider().overlay(.white.opacity(0.07)) }
+                    if index < visibleScripts.count - 1 { Divider().overlay(.white.opacity(0.07)) }
                 }
                 }
                 .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
                 .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                if scripts.scripts.isEmpty {
+                if visibleScripts.isEmpty {
                     Text("No scripts yet. Tap Add a script to start.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

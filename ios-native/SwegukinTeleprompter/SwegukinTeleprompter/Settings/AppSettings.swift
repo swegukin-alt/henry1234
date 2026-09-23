@@ -20,11 +20,7 @@ final class AppSettings: ObservableObject {
     @Published var mirrorH: Bool { didSet { write(mirrorH, "mirrorH") } }
     @Published var mirrorV: Bool { didSet { write(mirrorV, "mirrorV") } }
     @Published var countdown: Int { didSet { write(countdown, "countdown") } }
-    @Published var readingHighlight: Bool { didSet { write(readingHighlight, "readingHighlight") } }
-    @Published var voiceFollow: Bool { didSet { write(voiceFollow, "voiceFollow") } }
     @Published var chunking: Bool { didSet { write(chunking, "chunking") } }
-    @Published var pauses: Bool { didSet { write(pauses, "pauses") } }
-    @Published var background: String { didSet { write(background, "background") } }
     @Published var quality: String { didSet { write(quality, "quality") } }     // "720p" | "1080p" | "4k"
     @Published var frameRate: Int { didSet { write(frameRate, "frameRate") } }  // 30 | 60
     @Published var hdr: Bool { didSet { write(hdr, "hdr") } }
@@ -70,11 +66,7 @@ final class AppSettings: ObservableObject {
         mirrorH = b("mirrorH", false)
         mirrorV = b("mirrorV", false)
         countdown = i("countdown", 0)
-        readingHighlight = b("readingHighlight", true)
-        voiceFollow = b("voiceFollow", false)
         chunking = b("chunking", true)
-        pauses = b("pauses", true)
-        background = defaults.string(forKey: "background") ?? "black"
         quality = defaults.string(forKey: "quality") ?? "1080p"
         frameRate = i("frameRate", 30)
         hdr = b("hdr", false)
@@ -108,11 +100,7 @@ final class AppSettings: ObservableObject {
         mirrorH = false
         mirrorV = false
         countdown = 0
-        readingHighlight = true
-        voiceFollow = false
         chunking = true
-        pauses = true
-        background = "black"
     }
 
     private func write(_ value: Any, _ key: String) {
