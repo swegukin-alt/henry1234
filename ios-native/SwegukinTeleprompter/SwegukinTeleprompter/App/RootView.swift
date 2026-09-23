@@ -409,23 +409,24 @@ private struct ScriptClipFolderTile: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            ZStack {
+            HStack(spacing: 28) {
                 Button(action: onVideo) {
                     Image(systemName: "video.fill")
-                        .font(.system(size: 25, weight: .semibold))
-                        .frame(width: 52, height: 42)
+                        .font(.system(size: 34, weight: .semibold))
+                        .frame(width: 68, height: 52)
+                        .contentShape(Rectangle())
                 }
 
                 Button(action: onEdit) {
                     Image(systemName: "doc.text.fill")
-                        .font(.system(size: 18, weight: .medium))
-                        .frame(width: 42, height: 42)
+                        .font(.system(size: 26, weight: .medium))
+                        .frame(width: 52, height: 52)
+                        .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.accent)
-            .frame(maxWidth: .infinity, minHeight: 42)
+            .frame(maxWidth: .infinity, minHeight: 52)
         }
         .contextMenu {
             Button("Edit script", action: onEdit)
