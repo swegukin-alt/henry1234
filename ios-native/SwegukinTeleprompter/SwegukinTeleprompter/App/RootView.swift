@@ -77,7 +77,6 @@ struct LibraryView: View {
     var onClips: (String) -> Void
     var onAllVideos: () -> Void
 
-    @State private var revealedScriptID: String?
     @State private var openFolderID: String?
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
