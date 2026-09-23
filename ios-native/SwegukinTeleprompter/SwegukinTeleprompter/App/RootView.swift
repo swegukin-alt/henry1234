@@ -409,7 +409,7 @@ private struct ScriptClipFolderTile: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 28) {
+            HStack(spacing: 12) {
                 Button(action: onVideo) {
                     Image(systemName: "video.fill")
                         .font(.system(size: 34, weight: .semibold))
