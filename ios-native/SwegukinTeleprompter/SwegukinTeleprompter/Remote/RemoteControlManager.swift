@@ -29,12 +29,54 @@ final class RemoteControlManager: ObservableObject {
 /// A first-responder UIKit host that turns key presses into RemoteActions.
 final class KeyCommandViewController: UIViewController {
     var onAction: ((RemoteAction) -> Void)?
+    private var activeObserver: NSObjectProtocol?
+    private var keyWindowObserver: NSObjectProtocol?
 
     override var canBecomeFirstResponder: Bool { true }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // Bluetooth remotes (e.g. Desview) briefly drop and re-pair at the
+        // radio level — that part is outside the app's control. What IS in
+        // the app's control is being first responder when the keys come back:
+        // without it, the first presses after a reconnect are silently lost
+        // and the remote "feels" disconnected. Re-assert first responder
+        // whenever the app becomes active or the window becomes key.
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.assertFirstResponder()
+        }
+        keyWindowObserver = NotificationCenter.default.addObserver(
+            forName: UIWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.assertFirstResponder()
+        }
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        assertFirstResponder()
+    }
+
+    /// Grabs first responder now and once more shortly after — a reconnecting
+    /// remote often delivers keys a beat after the system focus settles.
+    func assertFirstResponder() {
+        guard !isFirstResponder, view.window != nil else { return }
         becomeFirstResponder()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, !self.isFirstResponder, self.view.window != nil else { return }
+            self.becomeFirstResponder()
+        }
+    }
+
+    deinit {
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        if let keyWindowObserver { NotificationCenter.default.removeObserver(keyWindowObserver) }
     }
 
     override var keyCommands: [UIKeyCommand]? {
@@ -118,5 +160,8 @@ struct RemoteKeyCatcher: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: KeyCommandViewController, context: Context) {
         controller.onAction = onAction
+        // SwiftUI re-renders (recording starts, panels open/close) can steal
+        // first responder — take it back so remote presses keep landing.
+        controller.assertFirstResponder()
     }
 }
