@@ -114,7 +114,7 @@ struct LibraryView: View {
                             } label: {
                                 Image(systemName: isTicked(script) ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 20))
-                                    .foregroundStyle(isTicked(script) ? Theme.accent : .white.opacity(0.28))
+                                    .foregroundStyle(isTicked(script) ? .white.opacity(0.58) : .white.opacity(0.28))
                                     .frame(width: 34, height: 44)
                             }
                             .buttonStyle(.plain)
@@ -150,8 +150,9 @@ struct LibraryView: View {
                         }
                         .padding(.horizontal, 12)
                         .background(
-                            isTicked(script) ? Color.green.opacity(0.24) : Color.clear
+                            isTicked(script) ? Color.white.opacity(0.035) : Color.clear
                         )
+                        .opacity(isTicked(script) ? 0.56 : 1)
                         .contextMenu {
                             Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
                         }
