@@ -263,7 +263,7 @@ struct PrompterView: View {
                         } else {
                             Button { showClips = true } label: {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "film").foregroundStyle(Theme.accent)
+                                    AppIcon("film").foregroundStyle(Theme.accent)
                                     Text("Clips").font(.system(size: 14, weight: .semibold))
                                 }
                                 .foregroundStyle(.white)
@@ -280,7 +280,7 @@ struct PrompterView: View {
 
                 if videoMode && camera.isReady && controlsVisible {
                     HStack(spacing: 6) {
-                        Image(systemName: "mic.fill").font(.system(size: 12))
+                        AppIcon("mic.fill").font(.system(size: 12))
                         Text(camera.micName.isEmpty ? "Built-in mic" : camera.micName)
                             .font(.system(size: 12, weight: .semibold))
                             .lineLimit(1)
@@ -301,7 +301,7 @@ struct PrompterView: View {
                     Task { await restartCamera() }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
+                        AppIcon("exclamationmark.triangle.fill")
                         Text(camera.status.isEmpty ? "Camera is starting…" : camera.status)
                             .font(.system(size: 13, weight: .semibold))
                         Text("Retry")
@@ -386,7 +386,7 @@ struct PrompterView: View {
 
     private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: name)
+            AppIcon(name)
                 .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: toolbarButtonSize, height: toolbarButtonSize)
@@ -820,7 +820,7 @@ private struct PlayPauseButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+            AppIcon(engine.isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(Theme.accent)
                 .frame(width: size, height: size)
