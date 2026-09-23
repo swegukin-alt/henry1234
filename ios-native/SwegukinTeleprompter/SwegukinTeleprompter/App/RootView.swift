@@ -14,6 +14,8 @@ struct RootView: View {
 
     @State private var screen: Screen = .library
     @State private var clipsReturnScreen: Screen = .library
+    /// Kept here so going back (button or swipe) returns to the folder you were in.
+    @State private var openFolderID: String?
 
     var body: some View {
         ZStack {
@@ -64,6 +66,7 @@ struct RootView: View {
 
     private var libraryView: some View {
         LibraryView(
+            openFolderID: $openFolderID,
             onOpen: { screen = .editor($0) },
             onCreate: { screen = .editor(scripts.create().id) },
             onVideo: { screen = .prompter($0, true) },
@@ -97,13 +100,13 @@ struct RootView: View {
 struct LibraryView: View {
     @EnvironmentObject private var scripts: ScriptStore
     @EnvironmentObject private var recordings: RecordingStore
+    @Binding var openFolderID: String?
     var onOpen: (String) -> Void
     var onCreate: () -> Void
     var onVideo: (String) -> Void
     var onClips: (String) -> Void
     var onAllVideos: () -> Void
 
-    @State private var openFolderID: String?
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
 
@@ -240,7 +243,7 @@ struct LibraryView: View {
                 Button {
                     openFolderID = nil
                 } label: {
-                    Label("Folders", systemImage: "chevron.left")
+                    Label { Text("Folders") } icon: { AppIcon("chevron.left") }
                 }
                 .foregroundStyle(Theme.accent)
 
@@ -305,7 +308,7 @@ private struct HomeActionTile: View {
                     .fill(emphasized ? Theme.accent : Color.white.opacity(0.08))
                     .aspectRatio(1, contentMode: .fit)
                     .overlay {
-                        Image(systemName: symbol)
+                        AppIcon(symbol)
                             .font(.system(size: 28, weight: .semibold))
                             .foregroundStyle(.white)
                     }
@@ -334,7 +337,7 @@ private struct ScriptFolderTile: View {
     var body: some View {
         Button(action: onOpen) {
             VStack(spacing: 7) {
-                Image(systemName: "folder.fill")
+                PhosphorMap.image("folder.fill")
                     .resizable()
                     .scaledToFit()
                     .foregroundStyle(isTargeted ? Color.green : FolderColor.color(folder.color))
@@ -419,7 +422,7 @@ private struct ScriptClipFolderTile: View {
     var body: some View {
         VStack(spacing: 8) {
             Button(action: onOpenClips) {
-                Image(systemName: "doc.text.fill")
+                PhosphorMap.image("doc.text.fill")
                     .resizable()
                     .scaledToFit()
                     .symbolRenderingMode(.hierarchical)
@@ -440,7 +443,7 @@ private struct ScriptClipFolderTile: View {
                 .foregroundStyle(.secondary)
 
             Button(action: onVideo) {
-                Image(systemName: "video.fill")
+                AppIcon("video.fill")
                     .font(.system(size: 34, weight: .semibold))
                     .frame(width: 68, height: 52)
                     .contentShape(Rectangle())
@@ -488,7 +491,7 @@ struct SwipeToDeleteRow<Content: View>: View {
                 withAnimation(.easeOut(duration: 0.2)) { revealedID = nil }
                 onDelete()
             } label: {
-                Image(systemName: "trash.fill")
+                AppIcon("trash.fill")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(minWidth: revealWidth, maxWidth: .infinity)

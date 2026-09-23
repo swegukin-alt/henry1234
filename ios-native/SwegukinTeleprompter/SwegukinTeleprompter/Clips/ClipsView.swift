@@ -60,7 +60,7 @@ struct ClipsView: View {
                             Label("Copy to drive", systemImage: "externaldrive")
                         }
                     } label: {
-                        Image(systemName: "square.and.arrow.up.on.square")
+                        AppIcon("square.and.arrow.up.on.square")
                             .font(.system(size: 15))
                             .frame(width: 34, height: 36)
                     }
@@ -111,7 +111,7 @@ struct ClipsView: View {
                         .foregroundStyle(.white.opacity(0.65))
                         Spacer()
                         Button { askForDrive(title: headerTitle, items: items.filter { selected.contains($0.id) }) } label: {
-                            Image(systemName: "externaldrive")
+                            AppIcon("externaldrive")
                                 .font(.system(size: 15, weight: .semibold))
                                 .frame(width: 42, height: 38)
                                 .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
@@ -119,7 +119,7 @@ struct ClipsView: View {
                         }
                         .disabled(selected.isEmpty)
                         Button { shareSelected() } label: {
-                            Label(selected.isEmpty ? "Share" : "Share \(selected.count)", systemImage: "square.and.arrow.up")
+                            Label { Text(selected.isEmpty ? "Share" : "Share \(selected.count)") } icon: { AppIcon("square.and.arrow.up") }
                                 .labelStyle(.titleAndIcon)
                                 .font(.system(size: 14, weight: .semibold))
                                 .padding(.horizontal, 14).padding(.vertical, 10)
@@ -299,7 +299,7 @@ private struct ClipGridCell: View {
                         Rectangle()
                             .fill(.white.opacity(0.07))
                             .overlay {
-                                Image(systemName: "video.fill")
+                                AppIcon("video.fill")
                                     .font(.system(size: 22))
                                     .foregroundStyle(.white.opacity(0.32))
                             }
@@ -311,7 +311,7 @@ private struct ClipGridCell: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 if let selected {
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    AppIcon(selected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20, weight: .semibold))
                         .symbolRenderingMode(.palette)
                         .foregroundStyle(selected ? Color.white : Color.white.opacity(0.85), selected ? Theme.accent : Color.black.opacity(0.45))

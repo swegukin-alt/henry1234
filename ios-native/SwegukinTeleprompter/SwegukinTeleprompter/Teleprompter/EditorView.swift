@@ -35,19 +35,19 @@ struct EditorView: View {
 
                         HStack(spacing: 8) {
                             Button(action: saveAndStay) {
-                                Label("Save", systemImage: "checkmark")
+                                Label { Text("Save") } icon: { AppIcon("checkmark") }
                                     .frame(width: 88, height: 40)
                                     .background(.white.opacity(0.07), in: Capsule())
                             }
 
                             Button(action: { saveAndOpen(onVideo) }) {
-                                Label("Video", systemImage: "video.fill")
+                                Label { Text("Video") } icon: { AppIcon("video.fill") }
                                     .frame(width: 88, height: 40)
                                     .background(.white.opacity(0.07), in: Capsule())
                             }
 
                             Button(action: { saveAndOpen(onPlay) }) {
-                                Label("Play", systemImage: "play.fill")
+                                Label { Text("Play") } icon: { AppIcon("play.fill") }
                                     .frame(width: 88, height: 40)
                                     .background(.white.opacity(0.07), in: Capsule())
                             }
