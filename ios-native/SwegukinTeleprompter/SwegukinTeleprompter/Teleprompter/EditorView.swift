@@ -103,7 +103,6 @@ struct EditorView: View {
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .swipeBack { saveAndGoBack() }
         .onChange(of: draft) { _, next in
             saveTask?.cancel()
             saveTask = Task {
