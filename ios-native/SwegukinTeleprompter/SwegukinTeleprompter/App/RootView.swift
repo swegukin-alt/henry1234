@@ -77,7 +77,6 @@ struct LibraryView: View {
     var onClips: (String) -> Void
     var onAllVideos: () -> Void
 
-    @State private var revealedScriptID: String?
     @State private var openFolderID: String?
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
@@ -222,33 +221,9 @@ struct LibraryView: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 50, weight: .regular))
-                    .foregroundStyle(FolderColor.color(folder.color))
-                Text(folder.name)
-                    .font(.title.bold())
-                    .foregroundStyle(.white)
-            }
-
-            if scripts.folders.count > 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ScriptDropTarget(title: "Shooting list", symbol: "list.bullet") { scriptID in
-                            scripts.moveScript(id: scriptID, to: nil)
-                        }
-                        ForEach(scripts.folders.filter { $0.id != folder.id }) { destination in
-                            ScriptDropTarget(title: destination.name, symbol: "folder.fill") { scriptID in
-                                scripts.moveScript(id: scriptID, to: destination.id)
-                            }
-                        }
-                    }
-                }
-            } else {
-                ScriptDropTarget(title: "Shooting list", symbol: "list.bullet") { scriptID in
-                    scripts.moveScript(id: scriptID, to: nil)
-                }
-            }
+            Text(folder.name)
+                .font(.title.bold())
+                .foregroundStyle(.white)
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                 ForEach(scripts(in: folder.id)) { script in
@@ -285,61 +260,6 @@ struct LibraryView: View {
         .padding(.bottom, 96)
     }
 
-    private func recentRow(_ script: Script) -> some View {
-        SwipeToDeleteRow(
-            id: script.id,
-            revealedID: $revealedScriptID,
-            onDelete: { scripts.delete(id: script.id) }
-        ) {
-            HStack(spacing: 10) {
-                Button {
-                    scripts.setDone(id: script.id, !isTicked(script))
-                    Haptics.tap()
-                } label: {
-                    Image(systemName: isTicked(script) ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 20))
-                        .foregroundStyle(isTicked(script) ? .white.opacity(0.58) : .white.opacity(0.28))
-                        .frame(width: 34, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isTicked(script) ? "Recorded" : "Not recorded")
-
-                Button { onOpen(script.id) } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(script.displayTitle)
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Text(String(script.body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80)))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 14)
-                }
-
-                Button {
-                    onVideo(script.id)
-                    Haptics.tap()
-                } label: {
-                    Image(systemName: "video.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 40, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Record video for this script")
-            }
-            .padding(.horizontal, 12)
-            .background(isTicked(script) ? Color.white.opacity(0.035) : Color.clear)
-            .opacity(isTicked(script) ? 0.56 : 1)
-            .contextMenu {
-                Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
-            }
-        }
-        .draggable(script.id)
-    }
 }
 
 private struct HomeActionTile: View {
@@ -489,53 +409,31 @@ private struct ScriptClipFolderTile: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                Button(action: onToggleDone) {
-                    Image(systemName: ticked ? "checkmark.circle.fill" : "circle")
-                }
+            ZStack {
                 Button(action: onVideo) {
                     Image(systemName: "video.fill")
+                        .font(.system(size: 25, weight: .semibold))
+                        .frame(width: 52, height: 42)
                 }
+
+                Button(action: onEdit) {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: 42, height: 42)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(ticked ? .white.opacity(0.45) : Theme.accent)
-            .font(.system(size: 16))
+            .foregroundStyle(Theme.accent)
+            .frame(maxWidth: .infinity, minHeight: 42)
         }
         .contextMenu {
             Button("Edit script", action: onEdit)
+            Button(ticked ? "Mark incomplete" : "Mark complete", action: onToggleDone)
             if let onMoveShootingList {
                 Button("Move to Shooting list", action: onMoveShootingList)
             }
             Button("Delete", role: .destructive, action: onDelete)
-        }
-    }
-}
-
-private struct ScriptDropTarget: View {
-    let title: String
-    let symbol: String
-    let onDropScript: (String) -> Void
-    @State private var isTargeted = false
-
-    var body: some View {
-        VStack(spacing: 5) {
-            Image(systemName: symbol)
-                .font(.system(size: 22, weight: .medium))
-            Text(title)
-                .font(.caption)
-                .lineLimit(1)
-        }
-        .foregroundStyle(isTargeted ? Color.green : Theme.accent)
-        .frame(width: 82, height: 64)
-        .background(.white.opacity(isTargeted ? 0.13 : 0.06), in: RoundedRectangle(cornerRadius: 12))
-        .scaleEffect(isTargeted ? 1.04 : 1)
-        .dropDestination(for: String.self) { values, _ in
-            guard let scriptID = values.first else { return false }
-            onDropScript(scriptID)
-            Haptics.tap()
-            return true
-        } isTargeted: { targeted in
-            withAnimation(.easeOut(duration: 0.16)) { isTargeted = targeted }
         }
     }
 }
