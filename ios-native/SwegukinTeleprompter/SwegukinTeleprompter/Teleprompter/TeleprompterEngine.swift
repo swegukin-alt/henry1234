@@ -14,9 +14,6 @@ final class TeleprompterEngine: ObservableObject {
     /// Points per second. Changing it never makes the text jump: the next frame
     /// simply advances by a different amount.
     var speed: CGFloat = 70
-    /// Momentary multiplier used by punctuation pauses and voice follow.
-    var speedScale: CGFloat = 1
-
     var contentHeight: CGFloat = 0
     var viewportHeight: CGFloat = 0
 
@@ -125,7 +122,7 @@ final class TeleprompterEngine: ObservableObject {
         }
 
         let seconds = CGFloat(delta)
-        let automaticVelocity = isPlaying ? speed * speedScale : 0
+        let automaticVelocity = isPlaying ? speed : 0
         let step = (automaticVelocity + glideVelocity) * seconds
         let next = offset + step
         if next >= maxOffset || next <= 0 {

@@ -145,6 +145,9 @@ struct LibraryView: View {
                             .accessibilityLabel("Record video for this script")
                         }
                         .padding(.horizontal, 12)
+                        .background(
+                            isTicked(script) ? Color.green.opacity(0.24) : Color.clear
+                        )
                         .contextMenu {
                             Button("Delete", role: .destructive) { scripts.delete(id: script.id) }
                         }
