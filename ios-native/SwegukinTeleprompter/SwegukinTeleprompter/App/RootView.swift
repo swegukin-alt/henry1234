@@ -395,7 +395,7 @@ private struct ScriptClipFolderTile: View {
     var body: some View {
         VStack(spacing: 8) {
             Button(action: onOpenClips) {
-                Image(systemName: "folder.fill")
+                Image(systemName: "doc.text.fill")
                     .resizable()
                     .scaledToFit()
                     .symbolRenderingMode(.hierarchical)
@@ -415,20 +415,11 @@ private struct ScriptClipFolderTile: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                Button(action: onVideo) {
-                    Image(systemName: "video.fill")
-                        .font(.system(size: 34, weight: .semibold))
-                        .frame(width: 68, height: 52)
-                        .contentShape(Rectangle())
-                }
-
-                Button(action: onEdit) {
-                    Image(systemName: "doc.text.fill")
-                        .font(.system(size: 26, weight: .medium))
-                        .frame(width: 52, height: 52)
-                        .contentShape(Rectangle())
-                }
+            Button(action: onVideo) {
+                Image(systemName: "video.fill")
+                    .font(.system(size: 34, weight: .semibold))
+                    .frame(width: 68, height: 52)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.accent)
