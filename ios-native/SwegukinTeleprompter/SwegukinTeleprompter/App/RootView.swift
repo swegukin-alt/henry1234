@@ -13,6 +13,7 @@ struct RootView: View {
     @EnvironmentObject private var recordings: RecordingStore
 
     @State private var screen: Screen = .library
+    @State private var clipsReturnScreen: Screen = .library
 
     var body: some View {
         ZStack {
@@ -23,7 +24,14 @@ struct RootView: View {
                     onOpen: { screen = .editor($0) },
                     onCreate: { screen = .editor(scripts.create().id) },
                     onVideo: { screen = .prompter($0, true) },
-                    onAllVideos: { screen = .clips(nil) }
+                    onClips: {
+                        clipsReturnScreen = .library
+                        screen = .clips($0)
+                    },
+                    onAllVideos: {
+                        clipsReturnScreen = .library
+                        screen = .clips(nil)
+                    }
                 )
             case .editor(let id):
                 if let script = scripts.script(id: id) {
@@ -32,7 +40,10 @@ struct RootView: View {
                         onBack: { screen = .library },
                         onPlay: { screen = .prompter(id, false) },
                         onVideo: { screen = .prompter(id, true) },
-                        onClips: { screen = .clips(id) }
+                        onClips: {
+                            clipsReturnScreen = .editor(id)
+                            screen = .clips(id)
+                        }
                     )
                 } else {
                     Color.clear.onAppear { screen = .library }
@@ -48,7 +59,7 @@ struct RootView: View {
                 }
             case .clips(let scriptID):
                 ClipsView(scriptID: scriptID) {
-                    screen = scriptID.map { Screen.editor($0) } ?? .library
+                    screen = clipsReturnScreen
                 }
             }
         }
@@ -63,6 +74,7 @@ struct LibraryView: View {
     var onOpen: (String) -> Void
     var onCreate: () -> Void
     var onVideo: (String) -> Void
+    var onClips: (String) -> Void
     var onAllVideos: () -> Void
 
     @State private var revealedScriptID: String?
@@ -82,7 +94,7 @@ struct LibraryView: View {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    private var recentScripts: [Script] {
+    private var shootingListScripts: [Script] {
         visibleScripts.filter { $0.folderID == nil }
     }
 
@@ -115,19 +127,25 @@ struct LibraryView: View {
 
     private var homeContents: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Image("SwegukinLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 104, height: 104)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .accessibilityLabel("Swegukin")
+            HStack(spacing: 9) {
+                Image("SwegukinLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 34, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text("Swegukin Prompter")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
 
             HStack(alignment: .top, spacing: 14) {
                 HomeActionTile(title: "Add a script", symbol: "plus", emphasized: true, action: onCreate)
-                HomeActionTile(title: "All videoclips", symbol: "film", action: onAllVideos)
-                HomeActionTile(title: "New folder", symbol: "folder.badge.plus") {
+                HomeActionTile(title: "New folder", symbol: "folder.badge.plus", emphasized: true) {
                     showingNewFolder = true
                 }
+                HomeActionTile(title: "All videoclips", symbol: "film", action: onAllVideos)
             }
 
             if !scripts.folders.isEmpty {
@@ -141,6 +159,7 @@ struct LibraryView: View {
                             folder: folder,
                             count: scripts(in: folder.id).count,
                             onOpen: { openFolderID = folder.id },
+                            onColor: { scripts.setFolderColor(id: folder.id, color: $0) },
                             onDelete: { scripts.deleteFolder(id: folder.id) },
                             onDropScript: { scriptID in scripts.moveScript(id: scriptID, to: folder.id) }
                         )
@@ -148,27 +167,32 @@ struct LibraryView: View {
                 }
             }
 
-            Text("Recent")
+            Text("Shooting list")
                 .font(.title2.bold())
                 .foregroundStyle(.white)
 
-            VStack(spacing: 0) {
-                ForEach(Array(recentScripts.enumerated()), id: \.element.id) { index, script in
-                    recentRow(script)
-                    if index < recentScripts.count - 1 {
-                        Divider().overlay(.white.opacity(0.07))
-                    }
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                ForEach(shootingListScripts) { script in
+                    ScriptClipFolderTile(
+                        script: script,
+                        clipCount: recordings.items.filter { $0.scriptID == script.id }.count,
+                        ticked: isTicked(script),
+                        onOpenClips: { onClips(script.id) },
+                        onEdit: { onOpen(script.id) },
+                        onToggleDone: { scripts.setDone(id: script.id, !isTicked(script)) },
+                        onVideo: { onVideo(script.id) },
+                        onDelete: { scripts.delete(id: script.id) }
+                    )
+                    .draggable(script.id)
                 }
             }
-            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
             .dropDestination(for: String.self) { values, _ in
                 guard let scriptID = values.first else { return false }
                 scripts.moveScript(id: scriptID, to: nil)
                 return true
             }
 
-            if recentScripts.isEmpty {
+            if shootingListScripts.isEmpty {
                 Text(visibleScripts.isEmpty ? "No scripts yet. Tap Add a script to start." : "All scripts are organized in folders.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -201,7 +225,7 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: 50, weight: .regular))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(FolderColor.color(folder.color))
                 Text(folder.name)
                     .font(.title.bold())
                     .foregroundStyle(.white)
@@ -210,7 +234,7 @@ struct LibraryView: View {
             if scripts.folders.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ScriptDropTarget(title: "Recent", symbol: "clock") { scriptID in
+                        ScriptDropTarget(title: "Shooting list", symbol: "list.bullet") { scriptID in
                             scripts.moveScript(id: scriptID, to: nil)
                         }
                         ForEach(scripts.folders.filter { $0.id != folder.id }) { destination in
@@ -221,20 +245,22 @@ struct LibraryView: View {
                     }
                 }
             } else {
-                ScriptDropTarget(title: "Recent", symbol: "clock") { scriptID in
+                ScriptDropTarget(title: "Shooting list", symbol: "list.bullet") { scriptID in
                     scripts.moveScript(id: scriptID, to: nil)
                 }
             }
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                 ForEach(scripts(in: folder.id)) { script in
-                    FolderScriptTile(
+                    ScriptClipFolderTile(
                         script: script,
+                        clipCount: recordings.items.filter { $0.scriptID == script.id }.count,
                         ticked: isTicked(script),
-                        onOpen: { onOpen(script.id) },
+                        onOpenClips: { onClips(script.id) },
+                        onEdit: { onOpen(script.id) },
                         onToggleDone: { scripts.setDone(id: script.id, !isTicked(script)) },
                         onVideo: { onVideo(script.id) },
-                        onMoveRecent: { scripts.moveScript(id: script.id, to: nil) },
+                        onMoveShootingList: { scripts.moveScript(id: script.id, to: nil) },
                         onDelete: { scripts.delete(id: script.id) }
                     )
                     .draggable(script.id)
@@ -247,7 +273,7 @@ struct LibraryView: View {
             }
 
             if scripts(in: folder.id).isEmpty {
-                Text("Drag scripts onto this folder from Recent.")
+                Text("Drag scripts onto this folder from Shooting list.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -350,6 +376,7 @@ private struct ScriptFolderTile: View {
     let folder: ScriptFolder
     let count: Int
     let onOpen: () -> Void
+    let onColor: (String) -> Void
     let onDelete: () -> Void
     let onDropScript: (String) -> Void
     @State private var isTargeted = false
@@ -360,7 +387,7 @@ private struct ScriptFolderTile: View {
                 Image(systemName: "folder.fill")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(isTargeted ? Color.green : Theme.accent)
+                    .foregroundStyle(isTargeted ? Color.green : FolderColor.color(folder.color))
                     .frame(height: 72)
                     .scaleEffect(isTargeted ? 1.06 : 1)
                 Text(folder.name)
@@ -384,31 +411,70 @@ private struct ScriptFolderTile: View {
             withAnimation(.easeOut(duration: 0.16)) { isTargeted = targeted }
         }
         .contextMenu {
+            Menu("Folder colour") {
+                ForEach(FolderColor.options, id: \.key) { option in
+                    Button {
+                        onColor(option.key)
+                    } label: {
+                        Label(option.name, systemImage: folder.color == option.key ? "checkmark.circle.fill" : "circle.fill")
+                    }
+                }
+            }
             Button("Delete folder", role: .destructive, action: onDelete)
         }
     }
 }
 
-private struct FolderScriptTile: View {
+private struct FolderColorOption: Identifiable {
+    let key: String
+    let name: String
+    var id: String { key }
+}
+
+private enum FolderColor {
+    static let options: [FolderColorOption] = [
+        FolderColorOption(key: "blue", name: "Blue"),
+        FolderColorOption(key: "green", name: "Green"),
+        FolderColorOption(key: "yellow", name: "Yellow"),
+        FolderColorOption(key: "orange", name: "Orange"),
+        FolderColorOption(key: "red", name: "Red"),
+        FolderColorOption(key: "pink", name: "Pink"),
+        FolderColorOption(key: "purple", name: "Purple")
+    ]
+
+    static func color(_ key: String?) -> Color {
+        switch key {
+        case "green": return .green
+        case "yellow": return .yellow
+        case "orange": return .orange
+        case "red": return .red
+        case "pink": return .pink
+        case "purple": return .purple
+        default: return Theme.accent
+        }
+    }
+}
+
+private struct ScriptClipFolderTile: View {
     let script: Script
+    let clipCount: Int
     let ticked: Bool
-    let onOpen: () -> Void
+    let onOpenClips: () -> Void
+    let onEdit: () -> Void
     let onToggleDone: () -> Void
     let onVideo: () -> Void
-    let onMoveRecent: () -> Void
+    var onMoveShootingList: (() -> Void)? = nil
     let onDelete: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
-            Button(action: onOpen) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(ticked ? 0.035 : 0.08))
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay {
-                        Image(systemName: "doc.text.fill")
-                            .font(.system(size: 30, weight: .medium))
-                            .foregroundStyle(ticked ? .white.opacity(0.38) : Theme.accent)
-                    }
+            Button(action: onOpenClips) {
+                Image(systemName: "folder.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(ticked ? Theme.accent.opacity(0.48) : Theme.accent)
+                    .frame(height: 72)
             }
             .buttonStyle(.plain)
 
@@ -418,6 +484,10 @@ private struct FolderScriptTile: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: 32, alignment: .top)
+
+            Text("\(clipCount) clip\(clipCount == 1 ? "" : "s")")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 Button(action: onToggleDone) {
@@ -432,7 +502,10 @@ private struct FolderScriptTile: View {
             .font(.system(size: 16))
         }
         .contextMenu {
-            Button("Move to Recent", action: onMoveRecent)
+            Button("Edit script", action: onEdit)
+            if let onMoveShootingList {
+                Button("Move to Shooting list", action: onMoveShootingList)
+            }
             Button("Delete", role: .destructive, action: onDelete)
         }
     }
