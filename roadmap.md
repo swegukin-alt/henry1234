@@ -21,3 +21,4 @@
 - [x] Give the microphone a manual -20…+20 dB gain that is applied to the recorded audio.
 - [x] Simplify native script creation, remove discontinued reader options, style completed scripts, and restore per-script clip sharing.
 - [x] Generate smarter local script titles, use globally numbered recording files, and show videoclips in three-column grids.
+- [x] Brand the native home screen and organize scripts with pinned folders and drag-and-drop.
