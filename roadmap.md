@@ -23,3 +23,4 @@
 - [x] Generate smarter local script titles, use globally numbered recording files, and show videoclips in three-column grids.
 - [x] Brand the native home screen and organize scripts with pinned folders and drag-and-drop.
 - [x] Refine native home branding, colour organisation folders, move script clip folders to Shooting list, and flatten All videoclips.
+- [x] Simplify organisation-folder interiors and clarify each shooting-list folder's record and edit controls.
