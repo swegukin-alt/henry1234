@@ -26,6 +26,8 @@ struct ScriptFolder: Identifiable, Codable, Equatable {
     var id: String = UUID().uuidString
     var name: String
     var createdAt: Date = Date()
+    /// Optional so folders created by earlier app versions keep decoding.
+    var color: String? = nil
 }
 
 /// Builds a short topic title locally from the whole script. Natural Language
@@ -169,6 +171,12 @@ final class ScriptStore: ObservableObject {
         }
         persistFolders()
         persist()
+    }
+
+    func setFolderColor(id: String, color: String) {
+        guard let index = folders.firstIndex(where: { $0.id == id }) else { return }
+        folders[index].color = color
+        persistFolders()
     }
 
     func moveScript(id: String, to folderID: String?) {

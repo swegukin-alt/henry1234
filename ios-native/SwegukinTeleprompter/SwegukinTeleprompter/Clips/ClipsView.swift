@@ -1,11 +1,5 @@
 import SwiftUI
 
-private struct ClipFolder: Identifiable {
-    var id: String
-    var title: String
-    var items: [RecordingItem]
-}
-
 struct ClipsView: View {
     @EnvironmentObject private var recordings: RecordingStore
     @EnvironmentObject private var scripts: ScriptStore
@@ -16,7 +10,6 @@ struct ClipsView: View {
     @State private var playing: RecordingItem?
     @State private var message: String?
     @State private var busy = false
-    @State private var openFolder: String?
     @State private var selecting = false
     @State private var selected: Set<String> = []
     @State private var pendingDrive: DriveRequest?
@@ -30,54 +23,22 @@ struct ClipsView: View {
         var items: [RecordingItem]
     }
 
-    private static let otherKey = "__other"
-
     /// Every clip that belongs to this screen.
     private var allItems: [RecordingItem] {
         guard let scriptID else { return recordings.items }
         return recordings.items.filter { $0.scriptID == scriptID }
     }
 
-    /// One folder per script, newest folder first.
-    private var folders: [ClipFolder] {
-        var order: [String] = []
-        var grouped: [String: [RecordingItem]] = [:]
-        for item in recordings.items {
-            let key = item.scriptID ?? Self.otherKey
-            if grouped[key] == nil { order.append(key) }
-            grouped[key, default: []].append(item)
-        }
-        return order.map { key in
-            let items = grouped[key] ?? []
-            let title: String
-            if key == Self.otherKey {
-                title = "Other recordings"
-            } else {
-                title = scripts.script(id: key)?.displayTitle ?? items.first?.title ?? "Script"
-            }
-            return ClipFolder(id: key, title: title, items: items)
-        }
-    }
-
-    /// Clips currently listed: a single script, or the opened folder.
+    /// Clips currently listed: one script or every recording.
     private var items: [RecordingItem] {
-        let listed: [RecordingItem]
-        if scriptID != nil {
-            listed = allItems
-        } else if let openFolder {
-            listed = folders.first { $0.id == openFolder }?.items ?? []
-        } else {
-            listed = []
-        }
-        return listed.sorted { $0.createdAt < $1.createdAt }
+        allItems.sorted { $0.createdAt < $1.createdAt }
     }
 
-    private var showingFolders: Bool { scriptID == nil && openFolder == nil }
     private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
     private var headerTitle: String {
-        if let openFolder, scriptID == nil {
-            return folders.first { $0.id == openFolder }?.title ?? "Clips"
+        if let scriptID {
+            return scripts.script(id: scriptID)?.displayTitle ?? "Clips"
         }
         return "All videoclips"
     }
@@ -87,19 +48,10 @@ struct ClipsView: View {
         Color.black.opacity(0.70).ignoresSafeArea().onTapGesture { onBack() }
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                if openFolder != nil {
-                    Button {
-                        openFolder = nil
-                        endSelection()
-                    } label: {
-                        Image(systemName: "chevron.left").frame(width: 28, height: 36)
-                    }
-                    .foregroundStyle(.white.opacity(0.6))
-                }
                 Text(headerTitle).font(.system(size: 16, weight: .medium)).lineLimit(1)
-                Text("(\(showingFolders ? folders.count : items.count))").foregroundStyle(.white.opacity(0.45))
+                Text("(\(items.count))").foregroundStyle(.white.opacity(0.45))
                 Spacer()
-                if !showingFolders && !items.isEmpty && !selecting {
+                if !items.isEmpty && !selecting {
                     Menu {
                         Button { exportFolder(items: items) } label: {
                             Label("Share clips", systemImage: "square.and.arrow.up")
@@ -114,7 +66,7 @@ struct ClipsView: View {
                     }
                     .foregroundStyle(Theme.accent)
                 }
-                if !showingFolders && !items.isEmpty {
+                if !items.isEmpty {
                     Button(selecting ? "Done" : "Select") {
                         if selecting { endSelection() } else { selecting = true }
                     }
@@ -128,49 +80,7 @@ struct ClipsView: View {
             }
             .padding(.horizontal, 16).padding(.top, 12)
 
-            if showingFolders {
-                if folders.isEmpty {
-                    Spacer()
-                    Text("No recordings yet.").foregroundStyle(.secondary)
-                    Spacer()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: gridColumns, alignment: .center, spacing: 20) {
-                            ForEach(folders) { folder in
-                                Button { openFolder = folder.id } label: {
-                                    VStack(spacing: 7) {
-                                        Image(systemName: "folder.fill")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .symbolRenderingMode(.hierarchical)
-                                            .foregroundStyle(Theme.accent)
-                                            .frame(height: 70)
-                                        Text(folder.title)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundStyle(.white)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.center)
-                                            .frame(maxWidth: .infinity)
-                                        Text("\(folder.items.count) clip\(folder.items.count == 1 ? "" : "s")")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.white.opacity(0.45))
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                        Button { exportFolder(items: folder.items) } label: {
-                                            Label("Share clips", systemImage: "square.and.arrow.up")
-                                        }
-                                        Button { askForDrive(title: folder.title, items: folder.items) } label: {
-                                            Label("Copy to drive", systemImage: "externaldrive")
-                                        }
-                                }
-                            }
-                        }.padding(.horizontal, 16).padding(.vertical, 18)
-                    }
-                }
-            } else if items.isEmpty {
+            if items.isEmpty {
                 Spacer()
                 Text("No recordings yet.").foregroundStyle(.secondary)
                 Spacer()
