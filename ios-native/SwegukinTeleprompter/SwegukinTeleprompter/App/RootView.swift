@@ -100,13 +100,13 @@ struct RootView: View {
 struct LibraryView: View {
     @EnvironmentObject private var scripts: ScriptStore
     @EnvironmentObject private var recordings: RecordingStore
+    @Binding var openFolderID: String?
     var onOpen: (String) -> Void
     var onCreate: () -> Void
     var onVideo: (String) -> Void
     var onClips: (String) -> Void
     var onAllVideos: () -> Void
 
-    @Binding var openFolderID: String?
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
 
