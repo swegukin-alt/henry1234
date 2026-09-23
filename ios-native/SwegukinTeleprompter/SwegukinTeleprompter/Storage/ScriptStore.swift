@@ -175,7 +175,6 @@ final class ScriptStore: ObservableObject {
         guard let index = scripts.firstIndex(where: { $0.id == id }) else { return }
         if let folderID, !folders.contains(where: { $0.id == folderID }) { return }
         scripts[index].folderID = folderID
-        scripts[index].updatedAt = Date()
         persist()
     }
 

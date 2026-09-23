@@ -207,6 +207,25 @@ struct LibraryView: View {
                     .foregroundStyle(.white)
             }
 
+            if scripts.folders.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ScriptDropTarget(title: "Recent", symbol: "clock") { scriptID in
+                            scripts.moveScript(id: scriptID, to: nil)
+                        }
+                        ForEach(scripts.folders.filter { $0.id != folder.id }) { destination in
+                            ScriptDropTarget(title: destination.name, symbol: "folder.fill") { scriptID in
+                                scripts.moveScript(id: scriptID, to: destination.id)
+                            }
+                        }
+                    }
+                }
+            } else {
+                ScriptDropTarget(title: "Recent", symbol: "clock") { scriptID in
+                    scripts.moveScript(id: scriptID, to: nil)
+                }
+            }
+
             LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                 ForEach(scripts(in: folder.id)) { script in
                     FolderScriptTile(
@@ -215,6 +234,7 @@ struct LibraryView: View {
                         onOpen: { onOpen(script.id) },
                         onToggleDone: { scripts.setDone(id: script.id, !isTicked(script)) },
                         onVideo: { onVideo(script.id) },
+                        onMoveRecent: { scripts.moveScript(id: script.id, to: nil) },
                         onDelete: { scripts.delete(id: script.id) }
                     )
                     .draggable(script.id)
@@ -375,6 +395,7 @@ private struct FolderScriptTile: View {
     let onOpen: () -> Void
     let onToggleDone: () -> Void
     let onVideo: () -> Void
+    let onMoveRecent: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -411,8 +432,37 @@ private struct FolderScriptTile: View {
             .font(.system(size: 16))
         }
         .contextMenu {
-            Button("Move to Recent") { }
+            Button("Move to Recent", action: onMoveRecent)
             Button("Delete", role: .destructive, action: onDelete)
+        }
+    }
+}
+
+private struct ScriptDropTarget: View {
+    let title: String
+    let symbol: String
+    let onDropScript: (String) -> Void
+    @State private var isTargeted = false
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(systemName: symbol)
+                .font(.system(size: 22, weight: .medium))
+            Text(title)
+                .font(.caption)
+                .lineLimit(1)
+        }
+        .foregroundStyle(isTargeted ? Color.green : Theme.accent)
+        .frame(width: 82, height: 64)
+        .background(.white.opacity(isTargeted ? 0.13 : 0.06), in: RoundedRectangle(cornerRadius: 12))
+        .scaleEffect(isTargeted ? 1.04 : 1)
+        .dropDestination(for: String.self) { values, _ in
+            guard let scriptID = values.first else { return false }
+            onDropScript(scriptID)
+            Haptics.tap()
+            return true
+        } isTargeted: { targeted in
+            withAnimation(.easeOut(duration: 0.16)) { isTargeted = targeted }
         }
     }
 }
