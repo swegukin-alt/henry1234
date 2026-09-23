@@ -184,6 +184,8 @@ struct ClipsView: View {
             Text(message ?? "")
         }
         .onAppear { recordings.reconcile() }
+        .swipeBack { onBack() }
+        .swipeDownToDismiss { onBack() }
     }
 
     private func toggle(_ item: RecordingItem) {
