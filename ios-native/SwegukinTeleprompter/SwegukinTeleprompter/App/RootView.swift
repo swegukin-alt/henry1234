@@ -14,6 +14,8 @@ struct RootView: View {
 
     @State private var screen: Screen = .library
     @State private var clipsReturnScreen: Screen = .library
+    /// Kept here so going back (button or swipe) returns to the folder you were in.
+    @State private var openFolderID: String?
 
     var body: some View {
         ZStack {
@@ -64,6 +66,7 @@ struct RootView: View {
 
     private var libraryView: some View {
         LibraryView(
+            openFolderID: $openFolderID,
             onOpen: { screen = .editor($0) },
             onCreate: { screen = .editor(scripts.create().id) },
             onVideo: { screen = .prompter($0, true) },
@@ -103,7 +106,7 @@ struct LibraryView: View {
     var onClips: (String) -> Void
     var onAllVideos: () -> Void
 
-    @State private var openFolderID: String?
+    @Binding var openFolderID: String?
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
 
