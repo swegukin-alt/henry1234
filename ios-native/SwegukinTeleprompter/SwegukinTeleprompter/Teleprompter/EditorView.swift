@@ -77,6 +77,26 @@ struct EditorView: View {
                         .padding(10)
                         .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
 
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("SHOOTING ORIENTATION")
+                            .font(.system(size: 13))
+                            .tracking(1.5)
+                            .foregroundStyle(.white.opacity(0.36))
+                        Picker("Shooting orientation", selection: Binding(
+                            get: { ScriptOrientation.from(draft.orientation) },
+                            set: { draft.orientation = $0.rawValue }
+                        )) {
+                            ForEach(ScriptOrientation.allCases) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        Text("The screen turns this way on its own when you shoot this script.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                    .padding(.top, 24)
+
                     SettingsPanel()
                         .padding(.top, 32)
                 }
