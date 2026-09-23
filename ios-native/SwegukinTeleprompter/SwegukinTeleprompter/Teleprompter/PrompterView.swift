@@ -799,7 +799,6 @@ private struct ScriptScrollLayer: View {
                 document: document,
                 fontSize: fontSize,
                 lineHeight: lineHeight,
-                highlightIndex: nil,
                 foreground: foreground,
                 scrollOffset: engine.offset,
                 viewportHeight: viewportHeight,

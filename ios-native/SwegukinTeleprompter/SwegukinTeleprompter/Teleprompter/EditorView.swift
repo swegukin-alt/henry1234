@@ -36,15 +36,13 @@ struct EditorView: View {
                         HStack(spacing: 8) {
                             Button(action: saveAndStay) {
                                 Label("Save", systemImage: "checkmark")
-                                    .frame(height: 40)
-                                    .padding(.horizontal, 14)
+                                    .frame(width: 88, height: 40)
                                     .background(.white.opacity(0.07), in: Capsule())
                             }
 
                             Button(action: { saveAndOpen(onVideo) }) {
                                 Label("Video", systemImage: "video.fill")
-                                    .frame(height: 40)
-                                    .padding(.horizontal, 14)
+                                    .frame(width: 88, height: 40)
                                     .background(.white.opacity(0.07), in: Capsule())
                             }
 

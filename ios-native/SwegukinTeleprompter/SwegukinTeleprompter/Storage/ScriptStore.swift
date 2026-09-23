@@ -12,11 +12,9 @@ struct Script: Identifiable, Codable, Equatable {
     /// Optional so older saved scripts keep decoding unchanged.
     var orientation: String? = nil
 
-    /// What the library and the clips show when nobody typed a title.
+    /// Titles are always generated from the script itself.
     var displayTitle: String {
-        let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !typed.isEmpty && typed.lowercased() != "untitled" { return typed }
-        return ScriptTitle.suggest(from: body)
+        ScriptTitle.suggest(from: body)
     }
 }
 
