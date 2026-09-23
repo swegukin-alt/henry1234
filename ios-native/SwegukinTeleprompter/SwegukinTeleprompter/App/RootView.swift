@@ -20,31 +20,14 @@ struct RootView: View {
             Theme.background.ignoresSafeArea()
             switch screen {
             case .library:
-                LibraryView(
-                    onOpen: { screen = .editor($0) },
-                    onCreate: { screen = .editor(scripts.create().id) },
-                    onVideo: { screen = .prompter($0, true) },
-                    onClips: {
-                        clipsReturnScreen = .library
-                        screen = .clips($0)
-                    },
-                    onAllVideos: {
-                        clipsReturnScreen = .library
-                        screen = .clips(nil)
-                    }
-                )
+                libraryView
             case .editor(let id):
-                if let script = scripts.script(id: id) {
-                    EditorView(
-                        script: script,
-                        onBack: { screen = .library },
-                        onPlay: { screen = .prompter(id, false) },
-                        onVideo: { screen = .prompter(id, true) },
-                        onClips: {
-                            clipsReturnScreen = .editor(id)
-                            screen = .clips(id)
-                        }
-                    )
+                if scripts.script(id: id) != nil {
+                    InteractiveSwipeBack(onBack: { screen = .library }) {
+                        libraryView
+                    } front: {
+                        editorView(id)
+                    }
                 } else {
                     Color.clear.onAppear { screen = .library }
                 }
@@ -58,13 +41,56 @@ struct RootView: View {
                     Color.clear.onAppear { screen = .library }
                 }
             case .clips(let scriptID):
-                ClipsView(scriptID: scriptID) {
-                    screen = clipsReturnScreen
+                InteractiveSwipeBack(onBack: { screen = clipsReturnScreen }) {
+                    clipsBackground
+                } front: {
+                    ClipsView(scriptID: scriptID) {
+                        screen = clipsReturnScreen
+                    }
                 }
             }
         }
         // Never animate the full camera/teleprompter hierarchy. That transition
         // competes with capture startup and can temporarily hide its controls.
+    }
+
+    @ViewBuilder private var clipsBackground: some View {
+        if case .editor(let id) = clipsReturnScreen, scripts.script(id: id) != nil {
+            editorView(id)
+        } else {
+            libraryView
+        }
+    }
+
+    private var libraryView: some View {
+        LibraryView(
+            onOpen: { screen = .editor($0) },
+            onCreate: { screen = .editor(scripts.create().id) },
+            onVideo: { screen = .prompter($0, true) },
+            onClips: {
+                clipsReturnScreen = .library
+                screen = .clips($0)
+            },
+            onAllVideos: {
+                clipsReturnScreen = .library
+                screen = .clips(nil)
+            }
+        )
+    }
+
+    @ViewBuilder private func editorView(_ id: String) -> some View {
+        if let script = scripts.script(id: id) {
+            EditorView(
+                script: script,
+                onBack: { screen = .library },
+                onPlay: { screen = .prompter(id, false) },
+                onVideo: { screen = .prompter(id, true) },
+                onClips: {
+                    clipsReturnScreen = .editor(id)
+                    screen = .clips(id)
+                }
+            )
+        }
     }
 }
 
@@ -102,12 +128,16 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        ScrollView {
+        Group {
             if let folderID = openFolderID,
                let folder = scripts.folders.first(where: { $0.id == folderID }) {
-                folderContents(folder)
+                InteractiveSwipeBack(onBack: { openFolderID = nil }) {
+                    ScrollView { homeContents }
+                } front: {
+                    ScrollView { folderContentsBody(folder) }
+                }
             } else {
-                homeContents
+                ScrollView { homeContents }
             }
         }
         .alert("New folder", isPresented: $showingNewFolder) {
@@ -202,12 +232,6 @@ struct LibraryView: View {
         .padding(.horizontal, 20)
         .padding(.top, 28)
         .padding(.bottom, 96)
-    }
-
-    private func folderContents(_ folder: ScriptFolder) -> some View {
-        folderContentsBody(folder)
-            .contentShape(Rectangle())
-            .swipeBack { openFolderID = nil }
     }
 
     private func folderContentsBody(_ folder: ScriptFolder) -> some View {
