@@ -12,12 +12,20 @@ struct Script: Identifiable, Codable, Equatable {
     /// How this script is shot: "landscape" (default) or "portrait".
     /// Optional so older saved scripts keep decoding unchanged.
     var orientation: String? = nil
+    /// Optional so scripts saved by older app versions remain compatible.
+    var folderID: String? = nil
 
     /// Titles are always generated from the script itself.
     var displayTitle: String {
         let stored = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return stored.isEmpty ? ScriptTitle.suggest(from: body) : stored
     }
+}
+
+struct ScriptFolder: Identifiable, Codable, Equatable {
+    var id: String = UUID().uuidString
+    var name: String
+    var createdAt: Date = Date()
 }
 
 /// Builds a short topic title locally from the whole script. Natural Language
@@ -98,14 +106,18 @@ enum ScriptTitle {
 /// is both durable and cheap.
 final class ScriptStore: ObservableObject {
     @Published private(set) var scripts: [Script] = []
+    @Published private(set) var folders: [ScriptFolder] = []
 
     private let fileURL: URL
     private let backupURL: URL
+    private let foldersURL: URL
 
     init() {
         fileURL = AppPaths.applicationSupport.appendingPathComponent("scripts.json")
         backupURL = AppPaths.applicationSupport.appendingPathComponent("scripts.backup.json")
+        foldersURL = AppPaths.applicationSupport.appendingPathComponent("script-folders.json")
         load()
+        loadFolders()
     }
 
     func script(id: String?) -> Script? {
@@ -140,6 +152,32 @@ final class ScriptStore: ObservableObject {
         persist()
     }
 
+    @discardableResult
+    func createFolder(named rawName: String) -> ScriptFolder? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        let folder = ScriptFolder(name: name)
+        folders.append(folder)
+        persistFolders()
+        return folder
+    }
+
+    func deleteFolder(id: String) {
+        folders.removeAll { $0.id == id }
+        for index in scripts.indices where scripts[index].folderID == id {
+            scripts[index].folderID = nil
+        }
+        persistFolders()
+        persist()
+    }
+
+    func moveScript(id: String, to folderID: String?) {
+        guard let index = scripts.firstIndex(where: { $0.id == id }) else { return }
+        if let folderID, !folders.contains(where: { $0.id == folderID }) { return }
+        scripts[index].folderID = folderID
+        persist()
+    }
+
     func delete(id: String) {
         scripts.removeAll { $0.id == id }
         persist()
@@ -163,6 +201,17 @@ final class ScriptStore: ObservableObject {
         }
     }
 
+    private func loadFolders() {
+        do {
+            folders = try JSONDecoder().decode([ScriptFolder].self, from: Data(contentsOf: foldersURL))
+                .sorted { $0.createdAt < $1.createdAt }
+        } catch {
+            if FileManager.default.fileExists(atPath: foldersURL.path) {
+                print("ScriptStore folder load failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func persist() {
         do {
             let data = try JSONEncoder().encode(scripts)
@@ -173,6 +222,14 @@ final class ScriptStore: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
         } catch {
             print("ScriptStore save failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func persistFolders() {
+        do {
+            try JSONEncoder().encode(folders).write(to: foldersURL, options: .atomic)
+        } catch {
+            print("ScriptStore folder save failed: \(error.localizedDescription)")
         }
     }
 }
