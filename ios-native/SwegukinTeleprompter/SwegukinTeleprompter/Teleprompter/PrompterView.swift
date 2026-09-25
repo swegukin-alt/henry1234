@@ -255,7 +255,11 @@ struct PrompterView: View {
                         if camera.recordingRequested {
                             HStack(spacing: 8) {
                                 Circle().fill(.white).frame(width: 10, height: 10)
-                                Text("REC \(Format.duration(camera.elapsed))")
+                                Text(
+                                    camera.shutterAngleOn && !camera.shutterSpeedLabel.isEmpty
+                                        ? "REC \(Format.duration(camera.elapsed)) · \(camera.shutterSpeedLabel)"
+                                        : "REC \(Format.duration(camera.elapsed))"
+                                )
                                     .font(.system(size: 14, weight: .medium).monospacedDigit())
                             }
                             .foregroundStyle(.white)
