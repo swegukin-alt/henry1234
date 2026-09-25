@@ -127,7 +127,7 @@ struct PrompterView: View {
                     .zIndex(25)
                 }
 
-                if controlsVisible {
+                if controlsVisible || camera.recordingRequested {
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
                         ProgressLine(engine: engine)
@@ -341,13 +341,13 @@ struct PrompterView: View {
                     ZStack {
                         Circle()
                             .stroke(.white.opacity(0.85), lineWidth: 2)
-                            .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                        RoundedRectangle(cornerRadius: camera.recordingRequested ? 4 : toolbarButtonSize / 2, style: .continuous)
+                            .frame(width: recordButtonSize, height: recordButtonSize)
+                        RoundedRectangle(cornerRadius: camera.recordingRequested ? 7 : recordButtonSize / 2, style: .continuous)
                             .fill(Color.red)
-                            .frame(width: camera.recordingRequested ? 18 : toolbarButtonSize - 10,
-                                   height: camera.recordingRequested ? 18 : toolbarButtonSize - 10)
+                            .frame(width: camera.recordingRequested ? 26 : recordButtonSize - 12,
+                                   height: camera.recordingRequested ? 26 : recordButtonSize - 12)
                     }
-                    .frame(width: toolbarButtonSize, height: toolbarButtonSize)
+                    .frame(width: recordButtonSize, height: recordButtonSize)
                 }
                 .disabled(saving)
                 .opacity(saving ? 0.4 : 1)
@@ -359,8 +359,8 @@ struct PrompterView: View {
             Spacer(minLength: 0)
             iconButton("ellipsis", tint: panel == .more ? Theme.accent : .white.opacity(0.75)) { toggle(.more) }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .padding(.bottom, safeBottom)
         .frame(maxWidth: .infinity)
         .background(.black.opacity(0.85))
@@ -380,15 +380,17 @@ struct PrompterView: View {
         return (insets?.left ?? 0, insets?.right ?? 0)
     }
 
-    /// One shared size for every toolbar control, exactly like the web app.
+    /// Large, consistent targets remain readable while watching the script.
     private var toolbarButtonSize: CGFloat {
-        UIScreen.main.bounds.width >= 430 ? 44 : 40
+        UIScreen.main.bounds.width >= 430 ? 58 : 54
     }
+
+    private var recordButtonSize: CGFloat { toolbarButtonSize + 10 }
 
     private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), action: @escaping () -> Void) -> some View {
         Button(action: action) {
             AppIcon(name)
-                .font(.system(size: 19, weight: .medium))
+                .font(.system(size: 25, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: toolbarButtonSize, height: toolbarButtonSize)
         }
@@ -509,7 +511,6 @@ struct PrompterView: View {
 
                                 Toggle("180° shutter angle", isOn: $settings.shutterAngle)
                                     .tint(Theme.accent)
-                                    .disabled(camera.recordingRequested)
                                 Text(settings.shutterAngle
                                      ? (camera.shutterSpeedLabel.isEmpty ? "Shutter locked to double the frame rate. ISO and white balance stay auto."
                                         : "Shutter \(camera.shutterSpeedLabel) · ISO and white balance auto")
@@ -725,7 +726,7 @@ struct PrompterView: View {
             try camera.startRecording(to: url)
             currentTakeID = id
             play()
-            controlsVisible = false
+            controlsVisible = true
             panel = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -833,7 +834,7 @@ private struct PlayPauseButton: View {
     var body: some View {
         Button(action: action) {
             AppIcon(engine.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 19, weight: .medium))
+                .font(.system(size: 25, weight: .medium))
                 .foregroundStyle(Theme.accent)
                 .frame(width: size, height: size)
         }

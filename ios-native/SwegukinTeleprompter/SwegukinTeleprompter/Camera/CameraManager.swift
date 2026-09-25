@@ -165,6 +165,10 @@ final class CameraManager: NSObject, ObservableObject {
     /// e.g. "1/60 s" — the shutter speed actually applied by the device.
     @Published private(set) var shutterSpeedLabel = ""
     private var autoISOTimer: Timer?
+    /// The exact half-frame exposure duration. Keep this value instead of
+    /// reading the device's current duration back, because metering updates
+    /// must never drift the shutter away from 180° during a take.
+    private var lockedShutterDuration: CMTime?
 
     /// 180° shutter: exposure = 1 / (2 × frame rate). Uses the documented
     /// custom exposure mode with a fixed duration; ISO is driven automatically
@@ -175,6 +179,7 @@ final class CameraManager: NSObject, ObservableObject {
         autoISOTimer = nil
         guard let device else { shutterSpeedLabel = ""; return }
         if !on {
+            lockedShutterDuration = nil
             shutterSpeedLabel = ""
             sessionQueue.async {
                 guard (try? device.lockForConfiguration()) != nil else { return }
@@ -197,6 +202,7 @@ final class CameraManager: NSObject, ObservableObject {
         if CMTimeCompare(duration, format.minExposureDuration) < 0 { duration = format.minExposureDuration }
         if CMTimeCompare(duration, format.maxExposureDuration) > 0 { duration = format.maxExposureDuration }
         let denominator = Int((1 / max(duration.seconds, 0.0001)).rounded())
+        lockedShutterDuration = duration
         shutterSpeedLabel = "1/\(denominator) s"
         sessionQueue.async {
             guard (try? device.lockForConfiguration()) != nil else { return }
@@ -214,17 +220,22 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     private func stepAutoISO() {
-        guard shutterAngleOn, let device, device.exposureMode == .custom else { return }
+        guard shutterAngleOn, let device, let duration = lockedShutterDuration else { return }
         sessionQueue.async {
             let offset = device.exposureTargetOffset
-            guard offset.isFinite, abs(offset) > 0.08 else { return }
             let format = device.activeFormat
-            let target = device.iso * powf(2, -offset * 0.5)
-            let iso = min(max(target, format.minISO), format.maxISO)
-            guard abs(iso - device.iso) > 0.5 else { return }
+            // With custom exposure AVFoundation cannot auto-adjust ISO without
+            // also owning shutter duration. Meter here instead: ISO follows the
+            // scene, while every update reapplies the exact 180° duration.
+            let targetISO = offset.isFinite ? device.iso * powf(2, -offset * 0.5) : device.iso
+            let iso = min(max(targetISO, format.minISO), format.maxISO)
+            let durationDrifted = CMTimeCompare(device.exposureDuration, duration) != 0
+            guard durationDrifted || device.exposureMode != .custom || abs(iso - device.iso) > 0.5 else { return }
             guard (try? device.lockForConfiguration()) != nil else { return }
-            device.setExposureModeCustom(duration: AVCaptureDevice.currentExposureDuration,
-                                         iso: iso, completionHandler: nil)
+            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
             device.unlockForConfiguration()
         }
     }
@@ -684,6 +695,11 @@ final class CameraManager: NSObject, ObservableObject {
         guard movieOutput.connection(with: .video) != nil else { throw CameraError.notReady }
         guard Self.hasRoomToRecord() else { throw CameraError.noSpace }
 
+        // Reassert the fixed duration immediately before every segment. This
+        // covers the first take and automatic continuation after an iOS camera
+        // interruption, without changing HDR or white-balance automation.
+        if shutterAngleOn { applyLockedShutterNow() }
+
         let folder = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         guard FileManager.default.fileExists(atPath: folder.path) else { throw CameraError.notReady }
@@ -716,6 +732,20 @@ final class CameraManager: NSObject, ObservableObject {
                 guard let self, let startedAt = self.startedAt else { return }
                 self.elapsed = self.elapsedBeforeCurrentSegment + Date().timeIntervalSince(startedAt)
             }
+        }
+    }
+
+    private func applyLockedShutterNow() {
+        guard let device, let duration = lockedShutterDuration else { return }
+        sessionQueue.async {
+            let format = device.activeFormat
+            let iso = min(max(device.iso, format.minISO), format.maxISO)
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            device.unlockForConfiguration()
         }
     }
 
