@@ -409,7 +409,7 @@ struct PrompterView: View {
     private func toolbarSymbol(for name: String) -> String {
         switch name {
         case "chevron.left": return "chevron.backward"
-        case "arrow.up.arrow.down": return "arrow.up.and.down.righttriangle.up.righttriangle.down"
+        case "arrow.up.arrow.down": return "arrow.up.and.down"
         case "slider.horizontal.3": return "camera.filters"
         case "textformat": return "textformat.size"
         case "ellipsis": return "ellipsis"
