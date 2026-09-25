@@ -219,6 +219,14 @@ struct PrompterView: View {
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.shutterAngle) { _, on in camera.setShutterAngle(on) }
+        .onChange(of: camera.shutterAngleOn) { _, active in
+            // Never leave the switch claiming 180° is active when this camera
+            // mode rejected custom exposure in order to retain native HDR.
+            if settings.shutterAngle, !active,
+               camera.shutterSpeedLabel == "Unavailable with the selected HDR mode" {
+                settings.shutterAngle = false
+            }
+        }
         .onChange(of: settings.chunking) { _, enabled in
             document = ScriptDocument(script.body, chunking: enabled)
         }
@@ -351,11 +359,12 @@ struct PrompterView: View {
                     camera.recordingRequested ? stopRecording() : startRecording()
                 } label: {
                     Image(systemName: camera.recordingRequested ? "stop.circle.fill" : "record.circle")
-                        .font(.system(size: toolbarIconSize, weight: .regular))
+                        .font(.system(size: toolbarIconSize + 4, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(Color.red)
-                        .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                        .background(.white.opacity(0.06), in: Circle())
+                        .frame(width: recordButtonSize, height: recordButtonSize)
+                        .background(.white.opacity(0.16), in: Circle())
+                        .overlay(Circle().stroke(.red.opacity(0.55), lineWidth: 1.5))
                 }
                 .disabled(saving)
                 .opacity(saving ? 0.4 : 1)
@@ -367,11 +376,13 @@ struct PrompterView: View {
             Spacer(minLength: 0)
             iconButton("ellipsis", tint: panel == .more ? Theme.accent : .white.opacity(0.75)) { toggle(.more) }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.leading, 16 + safeHorizontal.leading)
+        .padding(.trailing, 16 + safeHorizontal.trailing)
+        .padding(.vertical, 12)
         .padding(.bottom, safeBottom)
         .frame(maxWidth: .infinity)
-        .background(.black.opacity(0.85))
+        .background(.black.opacity(0.97))
+        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.16)).frame(height: 1) }
         .scaleEffect(y: interfaceFlip)
     }
 
@@ -394,15 +405,16 @@ struct PrompterView: View {
     }
 
     private var toolbarIconSize: CGFloat { 28 }
+    private var recordButtonSize: CGFloat { toolbarButtonSize + 8 }
 
-    private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), action: @escaping () -> Void) -> some View {
+    private func iconButton(_ name: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: toolbarSymbol(for: name))
-                .font(.system(size: toolbarIconSize, weight: .regular))
+                .font(.system(size: toolbarIconSize, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(tint)
                 .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                .background(.white.opacity(0.06), in: Circle())
+                .background(.white.opacity(0.14), in: Circle())
         }
     }
 
@@ -532,10 +544,12 @@ struct PrompterView: View {
 
                                 Toggle("180° shutter angle", isOn: $settings.shutterAngle)
                                     .tint(Theme.accent)
-                                Text(settings.shutterAngle
-                                     ? (camera.shutterSpeedLabel.isEmpty ? "Shutter locked to double the frame rate. ISO and white balance stay auto."
-                                        : "Shutter \(camera.shutterSpeedLabel) · ISO and white balance auto")
-                                     : "Off for outdoors. Turn on indoors for natural motion blur.")
+                                Text(!camera.shutterWarning.isEmpty
+                                     ? camera.shutterWarning
+                                     : (settings.shutterAngle
+                                        ? (camera.shutterSpeedLabel.isEmpty ? "Shutter locked to double the frame rate. ISO and white balance stay auto."
+                                           : "Shutter \(camera.shutterSpeedLabel) · ISO and white balance auto")
+                                        : "Off for outdoors. Turn on indoors for natural motion blur."))
                                     .font(.system(size: 12))
                                     .foregroundStyle(.white.opacity(0.5))
 
@@ -855,11 +869,11 @@ private struct PlayPauseButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 28, weight: .regular))
+                .font(.system(size: 28, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Theme.accent)
                 .frame(width: size, height: size)
-                .background(.white.opacity(0.06), in: Circle())
+                .background(.white.opacity(0.14), in: Circle())
         }
     }
 }

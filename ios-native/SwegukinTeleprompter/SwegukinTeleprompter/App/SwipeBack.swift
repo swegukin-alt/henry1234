@@ -13,12 +13,16 @@ struct InteractiveSwipeBack<Back: View, Front: View>: View {
     @State private var tracking = false
     @State private var finishing = false
 
-    private let edgeWidth: CGFloat = 32
+    private let edgeWidth: CGFloat = 36
 
     var body: some View {
         GeometryReader { geo in
             let width = max(geo.size.width, 1)
             let progress = min(max(offset / width, 0), 1)
+            // In landscape the visible content begins inside the notch/Dynamic
+            // Island safe area. Include that inset so the gesture remains easy
+            // to start from the phone's real left edge in either orientation.
+            let activeEdgeWidth = edgeWidth + geo.safeAreaInsets.leading
 
             ZStack {
                 if offset > 0 || tracking {
@@ -37,7 +41,7 @@ struct InteractiveSwipeBack<Back: View, Front: View>: View {
                             .onChanged { value in
                                 guard !finishing else { return }
                                 if !tracking {
-                                    guard value.startLocation.x < edgeWidth,
+                                    guard value.startLocation.x < activeEdgeWidth,
                                           value.translation.width > abs(value.translation.height) else { return }
                                     tracking = true
                                 }
