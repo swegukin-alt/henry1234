@@ -26,6 +26,8 @@ final class AppSettings: ObservableObject {
     @Published var hdr: Bool { didSet { write(hdr, "hdr") } }
     @Published var stabilization: Bool { didSet { write(stabilization, "stabilization") } }
     @Published var useFrontCamera: Bool { didSet { write(useFrontCamera, "useFrontCamera") } }
+    /// 180° shutter angle: exposure locked to 1/(2 × fps), ISO and WB stay auto.
+    @Published var shutterAngle: Bool { didSet { write(shutterAngle, "shutterAngle") } }
     @Published var cinematicMode: Bool { didSet { write(cinematicMode, "cinematicMode") } }
     /// Apple Log capture. Only honoured when the selected camera format
     /// actually reports .appleLog in supportedColorSpaces.
@@ -72,6 +74,7 @@ final class AppSettings: ObservableObject {
         hdr = b("hdr", false)
         stabilization = b("stabilization", true)
         useFrontCamera = b("useFrontCamera", true)
+        shutterAngle = b("shutterAngle", false)
         cinematicMode = b("cinematicMode", false)
         appleLog = b("appleLog", false)
         logCodec = defaults.string(forKey: "logCodec") ?? "prores"

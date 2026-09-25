@@ -31,6 +31,7 @@ enum PhosphorMap {
         "ellipsis": "ph-dots-three-bold",
         "arrow.up.arrow.down": "ph-arrows-down-up-bold",
         "plus": "ph-plus-bold",
+        "doc.on.clipboard": "ph-clipboard-text-fill",
     ]
 
     /// Full-size image for places that use `.resizable()`.

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum Screen: Equatable {
     case library
@@ -109,6 +110,7 @@ struct LibraryView: View {
 
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
+    @State private var showingEmptyClipboard = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
 
@@ -155,6 +157,24 @@ struct LibraryView: View {
         } message: {
             Text("Name the folder for these scripts.")
         }
+        .alert("Nothing to add", isPresented: $showingEmptyClipboard) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Copy some text first, then tap Quick add.")
+        }
+    }
+
+    /// Turns the text currently on the iOS clipboard into a new script in one tap.
+    private func quickAdd() {
+        let text = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            showingEmptyClipboard = true
+            return
+        }
+        var script = scripts.create()
+        script.body = text
+        scripts.update(script)
+        Haptics.tap()
     }
 
     private var homeContents: some View {
@@ -177,6 +197,7 @@ struct LibraryView: View {
                 HomeActionTile(title: "New folder", symbol: "folder.badge.plus", emphasized: true) {
                     showingNewFolder = true
                 }
+                HomeActionTile(title: "Quick add", symbol: "doc.on.clipboard", emphasized: true, action: quickAdd)
                 HomeActionTile(title: "All videoclips", symbol: "film", action: onAllVideos)
             }
 

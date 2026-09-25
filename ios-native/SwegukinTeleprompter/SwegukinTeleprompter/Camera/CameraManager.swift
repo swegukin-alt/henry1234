@@ -154,9 +154,84 @@ final class CameraManager: NSObject, ObservableObject {
         }
         modes = Self.supportedModes(for: device)
         makeRotationCoordinator()
+        // The format may have changed; re-lock the shutter to the new frame rate.
+        setShutterAngle(shutterAngleOn)
+    }
+
+    // MARK: - 180° shutter angle
+
+    /// True while the exposure duration is locked to half the frame duration.
+    @Published private(set) var shutterAngleOn = false
+    /// e.g. "1/60 s" — the shutter speed actually applied by the device.
+    @Published private(set) var shutterSpeedLabel = ""
+    private var autoISOTimer: Timer?
+
+    /// 180° shutter: exposure = 1 / (2 × frame rate). Uses the documented
+    /// custom exposure mode with a fixed duration; ISO is driven automatically
+    /// from exposureTargetOffset, and white balance stays continuous auto.
+    func setShutterAngle(_ on: Bool) {
+        shutterAngleOn = on
+        autoISOTimer?.invalidate()
+        autoISOTimer = nil
+        guard let device else { shutterSpeedLabel = ""; return }
+        if !on {
+            shutterSpeedLabel = ""
+            sessionQueue.async {
+                guard (try? device.lockForConfiguration()) != nil else { return }
+                if device.isExposureModeSupported(.continuousAutoExposure) {
+                    device.exposureMode = .continuousAutoExposure
+                }
+                device.unlockForConfiguration()
+            }
+            return
+        }
+        guard device.isExposureModeSupported(.custom) else {
+            shutterAngleOn = false
+            shutterSpeedLabel = "Not supported on this camera"
+            return
+        }
+        let format = device.activeFormat
+        var frame = device.activeVideoMinFrameDuration
+        if !frame.isValid || frame.seconds <= 0 { frame = CMTime(value: 1, timescale: 30) }
+        var duration = CMTimeMultiplyByRatio(frame, multiplier: 1, divisor: 2)
+        if CMTimeCompare(duration, format.minExposureDuration) < 0 { duration = format.minExposureDuration }
+        if CMTimeCompare(duration, format.maxExposureDuration) > 0 { duration = format.maxExposureDuration }
+        let denominator = Int((1 / max(duration.seconds, 0.0001)).rounded())
+        shutterSpeedLabel = "1/\(denominator) s"
+        sessionQueue.async {
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            let iso = min(max(device.iso, format.minISO), format.maxISO)
+            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            device.unlockForConfiguration()
+        }
+        // Auto ISO: nudge ISO toward the metered target while the shutter stays fixed.
+        autoISOTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.stepAutoISO() }
+        }
+    }
+
+    private func stepAutoISO() {
+        guard shutterAngleOn, let device, device.exposureMode == .custom else { return }
+        sessionQueue.async {
+            let offset = device.exposureTargetOffset
+            guard offset.isFinite, abs(offset) > 0.08 else { return }
+            let format = device.activeFormat
+            let target = device.iso * powf(2, -offset * 0.5)
+            let iso = min(max(target, format.minISO), format.maxISO)
+            guard abs(iso - device.iso) > 0.5 else { return }
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            device.setExposureModeCustom(duration: AVCaptureDevice.currentExposureDuration,
+                                         iso: iso, completionHandler: nil)
+            device.unlockForConfiguration()
+        }
     }
 
     func stop() {
+        autoISOTimer?.invalidate()
+        autoISOTimer = nil
         let session = self.session
         sessionQueue.async {
             if session.isRunning { session.stopRunning() }
@@ -565,7 +640,8 @@ final class CameraManager: NSObject, ObservableObject {
             }
             if device.isExposurePointOfInterestSupported {
                 device.exposurePointOfInterest = point
-                if device.isExposureModeSupported(.continuousAutoExposure) {
+                if device.exposureMode != .custom,
+                   device.isExposureModeSupported(.continuousAutoExposure) {
                     device.exposureMode = .continuousAutoExposure
                 }
             }
