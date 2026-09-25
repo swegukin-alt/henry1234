@@ -97,7 +97,15 @@ struct PrompterView: View {
 
                 Color.clear
                     .contentShape(Rectangle())
-                    .onTapGesture { togglePlay() }
+                    .onTapGesture {
+                        if videoMode && camera.recordingRequested {
+                            Haptics.tap()
+                            panel = nil
+                            controlsVisible.toggle()
+                        } else {
+                            togglePlay()
+                        }
+                    }
                     .gesture(
                         DragGesture(minimumDistance: 6)
                             .onChanged { value in
@@ -127,7 +135,7 @@ struct PrompterView: View {
                     .zIndex(25)
                 }
 
-                if controlsVisible || camera.recordingRequested {
+                if controlsVisible {
                     VStack(spacing: 0) {
                         Spacer(minLength: 0)
                         ProgressLine(engine: engine)
@@ -135,7 +143,7 @@ struct PrompterView: View {
                     }
                     .ignoresSafeArea(edges: .bottom)
                     .zIndex(30)
-                } else {
+                } else if !camera.recordingRequested {
                     Button {
                         Haptics.tap()
                         controlsVisible = true
@@ -342,16 +350,12 @@ struct PrompterView: View {
                 Button {
                     camera.recordingRequested ? stopRecording() : startRecording()
                 } label: {
-                    ZStack {
-                        Circle()
-                            .stroke(.white.opacity(0.85), lineWidth: 4)
-                            .frame(width: recordButtonSize, height: recordButtonSize)
-                        RoundedRectangle(cornerRadius: camera.recordingRequested ? 7 : recordButtonSize / 2, style: .continuous)
-                            .fill(Color.red)
-                            .frame(width: camera.recordingRequested ? 26 : recordButtonSize - 12,
-                                   height: camera.recordingRequested ? 26 : recordButtonSize - 12)
-                    }
-                    .frame(width: recordButtonSize, height: recordButtonSize)
+                    Image(systemName: camera.recordingRequested ? "stop.circle.fill" : "record.circle")
+                        .font(.system(size: toolbarIconSize, weight: .regular))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.red)
+                        .frame(width: toolbarButtonSize, height: toolbarButtonSize)
+                        .background(.white.opacity(0.06), in: Circle())
                 }
                 .disabled(saving)
                 .opacity(saving ? 0.4 : 1)
@@ -389,14 +393,27 @@ struct PrompterView: View {
         UIScreen.main.bounds.width >= 430 ? 58 : 54
     }
 
-    private var recordButtonSize: CGFloat { toolbarButtonSize + 10 }
+    private var toolbarIconSize: CGFloat { 28 }
 
     private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            AppIcon(name)
-                .font(.system(size: 25, weight: .medium))
+            Image(systemName: toolbarSymbol(for: name))
+                .font(.system(size: toolbarIconSize, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(tint)
                 .frame(width: toolbarButtonSize, height: toolbarButtonSize)
+                .background(.white.opacity(0.06), in: Circle())
+        }
+    }
+
+    private func toolbarSymbol(for name: String) -> String {
+        switch name {
+        case "chevron.left": return "chevron.backward"
+        case "arrow.up.arrow.down": return "arrow.up.and.down"
+        case "slider.horizontal.3": return "camera.filters"
+        case "textformat": return "textformat.size"
+        case "ellipsis": return "ellipsis"
+        default: return name
         }
     }
 
@@ -730,7 +747,7 @@ struct PrompterView: View {
             try camera.startRecording(to: url)
             currentTakeID = id
             play()
-            controlsVisible = true
+            controlsVisible = false
             panel = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -837,10 +854,12 @@ private struct PlayPauseButton: View {
 
     var body: some View {
         Button(action: action) {
-            AppIcon(engine.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 25, weight: .medium))
+            Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 28, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Theme.accent)
                 .frame(width: size, height: size)
+                .background(.white.opacity(0.06), in: Circle())
         }
     }
 }
