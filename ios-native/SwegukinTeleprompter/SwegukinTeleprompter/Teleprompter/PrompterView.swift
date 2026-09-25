@@ -219,6 +219,14 @@ struct PrompterView: View {
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.shutterAngle) { _, on in camera.setShutterAngle(on) }
+        .onChange(of: camera.shutterAngleOn) { _, active in
+            // Never leave the switch claiming 180° is active when this camera
+            // mode rejected custom exposure in order to retain native HDR.
+            if settings.shutterAngle, !active,
+               camera.shutterSpeedLabel == "Unavailable with the selected HDR mode" {
+                settings.shutterAngle = false
+            }
+        }
         .onChange(of: settings.chunking) { _, enabled in
             document = ScriptDocument(script.body, chunking: enabled)
         }
