@@ -24,3 +24,5 @@
 - [x] Brand the native home screen and organize scripts with pinned folders and drag-and-drop.
 - [x] Refine native home branding, colour organisation folders, move script clip folders to Shooting list, and flatten All videoclips.
 - [x] Simplify organisation-folder interiors and clarify each shooting-list folder's record and edit controls.
+- [x] Enlarge and evenly space recording controls, keeping them visible throughout each take.
+- [x] Keep HDR independent while enforcing an exact 180° shutter before and during recording.
