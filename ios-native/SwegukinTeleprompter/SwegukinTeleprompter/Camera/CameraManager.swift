@@ -195,17 +195,15 @@ final class CameraManager: NSObject, ObservableObject {
             shutterSpeedLabel = "Not supported on this camera"
             return
         }
-        let format = device.activeFormat
         var frame = device.activeVideoMinFrameDuration
         if !frame.isValid || frame.seconds <= 0 { frame = CMTime(value: 1, timescale: 30) }
-        var duration = CMTimeMultiplyByRatio(frame, multiplier: 1, divisor: 2)
-        if CMTimeCompare(duration, format.minExposureDuration) < 0 { duration = format.minExposureDuration }
-        if CMTimeCompare(duration, format.maxExposureDuration) > 0 { duration = format.maxExposureDuration }
+        let duration = CMTimeMultiplyByRatio(frame, multiplier: 1, divisor: 2)
         let denominator = Int((1 / max(duration.seconds, 0.0001)).rounded())
         lockedShutterDuration = duration
         shutterSpeedLabel = "1/\(denominator) s"
         sessionQueue.async {
             guard (try? device.lockForConfiguration()) != nil else { return }
+            let format = device.activeFormat
             let iso = min(max(device.iso, format.minISO), format.maxISO)
             device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
             if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
@@ -737,16 +735,14 @@ final class CameraManager: NSObject, ObservableObject {
 
     private func applyLockedShutterNow() {
         guard let device, let duration = lockedShutterDuration else { return }
-        sessionQueue.async {
-            let format = device.activeFormat
-            let iso = min(max(device.iso, format.minISO), format.maxISO)
-            guard (try? device.lockForConfiguration()) != nil else { return }
-            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
-            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
-                device.whiteBalanceMode = .continuousAutoWhiteBalance
-            }
-            device.unlockForConfiguration()
+        let format = device.activeFormat
+        let iso = min(max(device.iso, format.minISO), format.maxISO)
+        guard (try? device.lockForConfiguration()) != nil else { return }
+        device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+            device.whiteBalanceMode = .continuousAutoWhiteBalance
         }
+        device.unlockForConfiguration()
     }
 
     func stopRecording(completion: @escaping (Result<URL, Error>) -> Void) {

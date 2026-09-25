@@ -340,7 +340,7 @@ struct PrompterView: View {
                 } label: {
                     ZStack {
                         Circle()
-                            .stroke(.white.opacity(0.85), lineWidth: 2)
+                            .stroke(.white.opacity(0.85), lineWidth: 4)
                             .frame(width: recordButtonSize, height: recordButtonSize)
                         RoundedRectangle(cornerRadius: camera.recordingRequested ? 7 : recordButtonSize / 2, style: .continuous)
                             .fill(Color.red)
