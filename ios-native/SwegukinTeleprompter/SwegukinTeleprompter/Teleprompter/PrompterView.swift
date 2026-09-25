@@ -210,6 +210,7 @@ struct PrompterView: View {
         }
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
+        .onChange(of: settings.shutterAngle) { _, on in camera.setShutterAngle(on) }
         .onChange(of: settings.chunking) { _, enabled in
             document = ScriptDocument(script.body, chunking: enabled)
         }
@@ -506,6 +507,16 @@ struct PrompterView: View {
                                     }
                                 }
 
+                                Toggle("180° shutter angle", isOn: $settings.shutterAngle)
+                                    .tint(Theme.accent)
+                                    .disabled(camera.recordingRequested)
+                                Text(settings.shutterAngle
+                                     ? (camera.shutterSpeedLabel.isEmpty ? "Shutter locked to double the frame rate. ISO and white balance stay auto."
+                                        : "Shutter \(camera.shutterSpeedLabel) · ISO and white balance auto")
+                                     : "Off for outdoors. Turn on indoors for natural motion blur.")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.5))
+
                                 Toggle("Stabilization", isOn: $settings.stabilization)
                                     .tint(Theme.accent)
                                     .disabled(camera.recordingRequested)
@@ -613,6 +624,7 @@ struct PrompterView: View {
                 appleLog: settings.appleLog,
                 logCodec: settings.logCodec
             )
+            camera.setShutterAngle(settings.shutterAngle)
             // The gain chosen for the last take is reapplied automatically.
             if camera.micGainSupported { camera.setMicGain(AudioGain.hardwareValue(db: settings.micGainDb)) }
             camera.levelMonitor.gainDb = settings.micGainDb
