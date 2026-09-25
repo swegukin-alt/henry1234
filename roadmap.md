@@ -27,3 +27,4 @@
 - [x] Enlarge and evenly space recording controls, keeping them visible throughout each take.
 - [x] Keep HDR independent while enforcing an exact 180° shutter before and during recording.
 - [x] Hide recording controls until tapped and unify the toolbar with sleek, equal-size native icons.
+- [x] Preserve native HDR when 180° shutter is incompatible, support landscape swipe-back, and improve recording-bar visibility.

@@ -169,6 +169,9 @@ final class CameraManager: NSObject, ObservableObject {
     /// reading the device's current duration back, because metering updates
     /// must never drift the shutter away from 180° during a take.
     private var lockedShutterDuration: CMTime?
+    /// The capture mode selected by the user. Shutter control is never allowed
+    /// to replace an active HDR mode with SDR.
+    private var requestedHDREnabled = false
 
     /// 180° shutter: exposure = 1 / (2 × frame rate). Uses the documented
     /// custom exposure mode with a fixed duration; ISO is driven automatically
@@ -205,7 +208,10 @@ final class CameraManager: NSObject, ObservableObject {
             guard (try? device.lockForConfiguration()) != nil else { return }
             let format = device.activeFormat
             let iso = min(max(device.iso, format.minISO), format.maxISO)
-            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+            device.setExposureModeCustom(duration: duration, iso: iso) { [weak self, weak device] _ in
+                guard let self, let device else { return }
+                Task { @MainActor in self.verifyHDRAfterCustomExposure(on: device) }
+            }
             if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
                 device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
@@ -230,7 +236,10 @@ final class CameraManager: NSObject, ObservableObject {
             let durationDrifted = CMTimeCompare(device.exposureDuration, duration) != 0
             guard durationDrifted || device.exposureMode != .custom || abs(iso - device.iso) > 0.5 else { return }
             guard (try? device.lockForConfiguration()) != nil else { return }
-            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+            device.setExposureModeCustom(duration: duration, iso: iso) { [weak self, weak device] _ in
+                guard let self, let device else { return }
+                Task { @MainActor in self.verifyHDRAfterCustomExposure(on: device) }
+            }
             if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
                 device.whiteBalanceMode = .continuousAutoWhiteBalance
             }
@@ -311,6 +320,7 @@ final class CameraManager: NSObject, ObservableObject {
     /// usable camera input.
     private func configure(front: Bool, quality: String, fps: Int, hdr: Bool, stabilization: Bool,
                            appleLog: Bool = false, logCodec: String = "prores") -> Bool {
+        requestedHDREnabled = hdr && !appleLog
         session.beginConfiguration()
         session.automaticallyConfiguresApplicationAudioSession = false
         // Must be false before activeColorSpace is set, or the session
@@ -738,11 +748,34 @@ final class CameraManager: NSObject, ObservableObject {
         let format = device.activeFormat
         let iso = min(max(device.iso, format.minISO), format.maxISO)
         guard (try? device.lockForConfiguration()) != nil else { return }
-        device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+        device.setExposureModeCustom(duration: duration, iso: iso) { [weak self, weak device] _ in
+            guard let self, let device else { return }
+            Task { @MainActor in self.verifyHDRAfterCustomExposure(on: device) }
+        }
         if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
             device.whiteBalanceMode = .continuousAutoWhiteBalance
         }
         device.unlockForConfiguration()
+    }
+
+    /// Some camera formats cannot retain native video HDR while custom exposure
+    /// is active. HDR wins in that case: immediately return exposure to Apple's
+    /// automatic mode instead of silently recording reduced dynamic range.
+    private func verifyHDRAfterCustomExposure(on device: AVCaptureDevice) {
+        guard requestedHDREnabled, shutterAngleOn, !device.isVideoHDREnabled else { return }
+        autoISOTimer?.invalidate()
+        autoISOTimer = nil
+        lockedShutterDuration = nil
+        shutterAngleOn = false
+        shutterSpeedLabel = "Unavailable with the selected HDR mode"
+        status = "180° shutter unavailable with this HDR mode — HDR kept on"
+        sessionQueue.async {
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+            device.unlockForConfiguration()
+        }
     }
 
     func stopRecording(completion: @escaping (Result<URL, Error>) -> Void) {

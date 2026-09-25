@@ -351,11 +351,12 @@ struct PrompterView: View {
                     camera.recordingRequested ? stopRecording() : startRecording()
                 } label: {
                     Image(systemName: camera.recordingRequested ? "stop.circle.fill" : "record.circle")
-                        .font(.system(size: toolbarIconSize, weight: .regular))
+                        .font(.system(size: toolbarIconSize + 4, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(Color.red)
-                        .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                        .background(.white.opacity(0.06), in: Circle())
+                        .frame(width: recordButtonSize, height: recordButtonSize)
+                        .background(.white.opacity(0.16), in: Circle())
+                        .overlay(Circle().stroke(.red.opacity(0.55), lineWidth: 1.5))
                 }
                 .disabled(saving)
                 .opacity(saving ? 0.4 : 1)
@@ -367,11 +368,13 @@ struct PrompterView: View {
             Spacer(minLength: 0)
             iconButton("ellipsis", tint: panel == .more ? Theme.accent : .white.opacity(0.75)) { toggle(.more) }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.leading, 16 + safeHorizontal.leading)
+        .padding(.trailing, 16 + safeHorizontal.trailing)
+        .padding(.vertical, 12)
         .padding(.bottom, safeBottom)
         .frame(maxWidth: .infinity)
-        .background(.black.opacity(0.85))
+        .background(.black.opacity(0.97))
+        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.16)).frame(height: 1) }
         .scaleEffect(y: interfaceFlip)
     }
 
@@ -394,15 +397,16 @@ struct PrompterView: View {
     }
 
     private var toolbarIconSize: CGFloat { 28 }
+    private var recordButtonSize: CGFloat { toolbarButtonSize + 8 }
 
-    private func iconButton(_ name: String, tint: Color = .white.opacity(0.75), action: @escaping () -> Void) -> some View {
+    private func iconButton(_ name: String, tint: Color = .white, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: toolbarSymbol(for: name))
-                .font(.system(size: toolbarIconSize, weight: .regular))
+                .font(.system(size: toolbarIconSize, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(tint)
                 .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                .background(.white.opacity(0.06), in: Circle())
+                .background(.white.opacity(0.14), in: Circle())
         }
     }
 
@@ -855,11 +859,11 @@ private struct PlayPauseButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 28, weight: .regular))
+                .font(.system(size: 28, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Theme.accent)
                 .frame(width: size, height: size)
-                .background(.white.opacity(0.06), in: Circle())
+                .background(.white.opacity(0.14), in: Circle())
         }
     }
 }
