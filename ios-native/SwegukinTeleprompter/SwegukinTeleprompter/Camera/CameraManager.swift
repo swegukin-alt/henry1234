@@ -164,6 +164,8 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var shutterAngleOn = false
     /// e.g. "1/60 s" — the shutter speed actually applied by the device.
     @Published private(set) var shutterSpeedLabel = ""
+    /// Set when native HDR and custom exposure cannot coexist in the selected mode.
+    @Published private(set) var shutterWarning = ""
     private var autoISOTimer: Timer?
     /// The exact half-frame exposure duration. Keep this value instead of
     /// reading the device's current duration back, because metering updates
@@ -178,6 +180,7 @@ final class CameraManager: NSObject, ObservableObject {
     /// from exposureTargetOffset, and white balance stays continuous auto.
     func setShutterAngle(_ on: Bool) {
         shutterAngleOn = on
+        if on { shutterWarning = "" }
         autoISOTimer?.invalidate()
         autoISOTimer = nil
         guard let device else { shutterSpeedLabel = ""; return }
@@ -768,7 +771,7 @@ final class CameraManager: NSObject, ObservableObject {
         lockedShutterDuration = nil
         shutterAngleOn = false
         shutterSpeedLabel = "Unavailable with the selected HDR mode"
-        status = "180° shutter unavailable with this HDR mode — HDR kept on"
+        shutterWarning = "180° shutter unavailable with this HDR mode — HDR kept on"
         sessionQueue.async {
             guard (try? device.lockForConfiguration()) != nil else { return }
             if device.isExposureModeSupported(.continuousAutoExposure) {

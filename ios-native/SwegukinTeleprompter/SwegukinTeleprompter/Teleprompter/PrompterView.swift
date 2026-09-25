@@ -544,10 +544,12 @@ struct PrompterView: View {
 
                                 Toggle("180° shutter angle", isOn: $settings.shutterAngle)
                                     .tint(Theme.accent)
-                                Text(settings.shutterAngle
-                                     ? (camera.shutterSpeedLabel.isEmpty ? "Shutter locked to double the frame rate. ISO and white balance stay auto."
-                                        : "Shutter \(camera.shutterSpeedLabel) · ISO and white balance auto")
-                                     : "Off for outdoors. Turn on indoors for natural motion blur.")
+                                Text(!camera.shutterWarning.isEmpty
+                                     ? camera.shutterWarning
+                                     : (settings.shutterAngle
+                                        ? (camera.shutterSpeedLabel.isEmpty ? "Shutter locked to double the frame rate. ISO and white balance stay auto."
+                                           : "Shutter \(camera.shutterSpeedLabel) · ISO and white balance auto")
+                                        : "Off for outdoors. Turn on indoors for natural motion blur."))
                                     .font(.system(size: 12))
                                     .foregroundStyle(.white.opacity(0.5))
 
