@@ -63,7 +63,7 @@ struct PrompterView: View {
                         // Attached to the preview so UIKit can never composite
                         // its camera layer above the scrim.
                         Rectangle()
-                            .fill(Color.black.opacity(0.54))
+                            .fill(Color.black.opacity(0.65))
                             .ignoresSafeArea()
                             .allowsHitTesting(false)
                     }
@@ -132,7 +132,7 @@ struct PrompterView: View {
                     .padding(.leading, 14 + safeHorizontal.leading)
                     // Sit just above the bottom toolbar so the bar never clips the gauges.
                     .padding(.bottom, toolbarButtonSize + 52 + geo.safeAreaInsets.bottom)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .zIndex(25)
                 }
 
