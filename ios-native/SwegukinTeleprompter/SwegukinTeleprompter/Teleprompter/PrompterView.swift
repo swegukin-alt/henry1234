@@ -125,13 +125,12 @@ struct PrompterView: View {
                     .zIndex(20)
 
                 if videoMode && !camera.recordingRequested {
-                    VStack(alignment: .trailing, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 6) {
                         AudioLevelMeter(monitor: camera.levelMonitor, micName: camera.micName)
                         HorizonLevelGauge(monitor: horizon)
                     }
-                    .padding(.trailing, 14 + safeHorizontal.trailing)
-                    .padding(.bottom, 74 + safeBottom)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.leading, 14 + safeHorizontal.leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .zIndex(25)
                 }
 
@@ -162,6 +161,16 @@ struct PrompterView: View {
                 }
 
                 if let panel { popover(for: panel).zIndex(40) }
+
+                if showClips {
+                    InteractiveSwipeBack(onBack: { showClips = false }) {
+                        Color.clear
+                    } front: {
+                        ClipsView(scriptID: script.id, onBack: { showClips = false })
+                            .environmentObject(recordings)
+                    }
+                    .zIndex(50)
+                }
 
                 RemoteKeyCatcher(onAction: handle(action:))
                     .frame(width: 1, height: 1)
@@ -248,10 +257,6 @@ struct PrompterView: View {
             // recording stop. If iOS closes capture itself, CameraManager's
             // delegate preserves the file that was already written to disk.
             if !camera.recordingRequested { pause() }
-        }
-        .sheet(isPresented: $showClips) {
-            ClipsView(scriptID: script.id, onBack: { showClips = false })
-                .environmentObject(recordings)
         }
         .alert("Camera", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("Open Settings") { PermissionManager.openSettings() }

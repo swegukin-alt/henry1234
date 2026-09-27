@@ -19,10 +19,10 @@ struct InteractiveSwipeBack<Back: View, Front: View>: View {
         GeometryReader { geo in
             let width = max(geo.size.width, 1)
             let progress = min(max(offset / width, 0), 1)
-            // In landscape the visible content begins inside the notch/Dynamic
-            // Island safe area. Include that inset so the gesture remains easy
-            // to start from the phone's real left edge in either orientation.
-            let activeEdgeWidth = edgeWidth + geo.safeAreaInsets.leading
+            // Keep a dedicated hit target on the physical left edge. A gesture
+            // attached to the whole front view can lose to landscape ScrollView
+            // and grid gestures before it has enough horizontal movement.
+            let activeEdgeWidth = edgeWidth + max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing)
 
             ZStack {
                 if offset > 0 || tracking {
@@ -36,13 +36,18 @@ struct InteractiveSwipeBack<Back: View, Front: View>: View {
                     .background(Theme.background.ignoresSafeArea())
                     .offset(x: offset)
                     .shadow(color: .black.opacity(offset > 0 ? 0.35 : 0), radius: 12, x: -4)
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(width: activeEdgeWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .ignoresSafeArea()
+                    .gesture(
+                        DragGesture(minimumDistance: 6, coordinateSpace: .global)
                             .onChanged { value in
                                 guard !finishing else { return }
                                 if !tracking {
-                                    guard value.startLocation.x < activeEdgeWidth,
-                                          value.translation.width > abs(value.translation.height) else { return }
+                                    guard value.translation.width > abs(value.translation.height) else { return }
                                     tracking = true
                                 }
                                 offset = max(0, value.translation.width)
