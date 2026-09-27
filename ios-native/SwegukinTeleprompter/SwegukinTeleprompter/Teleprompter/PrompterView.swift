@@ -130,7 +130,9 @@ struct PrompterView: View {
                         HorizonLevelGauge(monitor: horizon)
                     }
                     .padding(.leading, 14 + safeHorizontal.leading)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    // Sit just above the bottom toolbar so the bar never clips the gauges.
+                    .padding(.bottom, toolbarButtonSize + 52 + geo.safeAreaInsets.bottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .zIndex(25)
                 }
 
