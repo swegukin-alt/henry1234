@@ -63,7 +63,7 @@ struct PrompterView: View {
                         // Attached to the preview so UIKit can never composite
                         // its camera layer above the scrim.
                         Rectangle()
-                            .fill(Color.black.opacity(0.45))
+                            .fill(Color.black.opacity(0.54))
                             .ignoresSafeArea()
                             .allowsHitTesting(false)
                     }
