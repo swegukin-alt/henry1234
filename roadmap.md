@@ -28,3 +28,5 @@
 - [x] Keep HDR independent while enforcing an exact 180° shutter before and during recording.
 - [x] Hide recording controls until tapped and unify the toolbar with sleek, equal-size native icons.
 - [x] Preserve native HDR when 180° shutter is incompatible, support landscape swipe-back, and improve recording-bar visibility.
+- [ ] Make every back swipe work from either landscape orientation, including clips opened from recording.
+- [ ] Move the pre-recording audio meter and horizon gauge clear of the bottom toolbar.
