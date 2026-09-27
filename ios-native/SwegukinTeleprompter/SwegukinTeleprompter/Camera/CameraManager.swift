@@ -328,7 +328,9 @@ final class CameraManager: NSObject, ObservableObject {
         session.automaticallyConfiguresApplicationAudioSession = false
         // Must be false before activeColorSpace is set, or the session
         // reconfigures the device and drops Apple Log.
-        session.automaticallyConfiguresCaptureDeviceForWideColor = !appleLog
+        // Also false for HDR so the session keeps the 10-bit HLG colour space
+        // (the Camera app's Dolby Vision HDR) instead of reverting to P3.
+        session.automaticallyConfiguresCaptureDeviceForWideColor = !(appleLog || hdr)
 
 
         for input in session.inputs { session.removeInput(input) }
@@ -478,7 +480,7 @@ final class CameraManager: NSObject, ObservableObject {
             guard format.videoSupportedFrameRateRanges.contains(where: {
                 Double(fps) >= $0.minFrameRate && Double(fps) <= $0.maxFrameRate
             }) else { return false }
-            if hdr && !appleLog { return format.isVideoHDRSupported }
+            if hdr && !appleLog { return format.isVideoHDRSupported || supportsHLG(format) }
             return true
         }
         // Apple Log is only offered when a format for this exact resolution and
@@ -489,6 +491,16 @@ final class CameraManager: NSObject, ObservableObject {
             if !logFormats.isEmpty {
                 candidates = logFormats
                 wantLog = true
+            }
+        }
+        // HDR like the Camera app = 10-bit HLG BT.2020 (Dolby Vision). Prefer
+        // those formats; fall back to classic HDR only if none exist.
+        var wantHLG = false
+        if hdr && !wantLog {
+            let hlgFormats = candidates.filter { supportsHLG($0) }
+            if !hlgFormats.isEmpty {
+                candidates = hlgFormats
+                wantHLG = true
             }
         }
         // Several formats can have identical dimensions and frame rates but a
@@ -506,6 +518,12 @@ final class CameraManager: NSObject, ObservableObject {
             // Log carries its own wide dynamic range; HDR is turned off for it.
             camera.isVideoHDREnabled = wantLog ? false : hdr
         }
+        if wantHLG {
+            camera.activeColorSpace = .HLG_BT2020
+        } else if !wantLog && camera.activeColorSpace == .HLG_BT2020 {
+            if format.supportedColorSpaces.contains(.P3_D65) { camera.activeColorSpace = .P3_D65 }
+            else if format.supportedColorSpaces.contains(.sRGB) { camera.activeColorSpace = .sRGB }
+        }
         if #available(iOS 17.0, *) {
             if wantLog {
                 camera.activeColorSpace = .appleLog
@@ -519,10 +537,16 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         camera.unlockForConfiguration()
+        print("[Camera] format \(target.width)x\(target.height)@\(fps) hlg=\(wantHLG) colorSpace=\(camera.activeColorSpace.rawValue) fov=\(format.videoFieldOfView)")
         if #available(iOS 17.0, *) {
             return wantLog && camera.activeColorSpace == .appleLog
         }
         return false
+    }
+
+    /// 10-bit HLG BT.2020 — the colour space of the Camera app's HDR video.
+    private static func supportsHLG(_ format: AVCaptureDevice.Format) -> Bool {
+        format.supportedColorSpaces.contains(.HLG_BT2020)
     }
 
     // MARK: - Apple Log
@@ -765,7 +789,10 @@ final class CameraManager: NSObject, ObservableObject {
     /// is active. HDR wins in that case: immediately return exposure to Apple's
     /// automatic mode instead of silently recording reduced dynamic range.
     private func verifyHDRAfterCustomExposure(on device: AVCaptureDevice) {
-        guard requestedHDREnabled, shutterAngleOn, !device.isVideoHDREnabled else { return }
+        // HLG HDR lives in the colour space, not isVideoHDREnabled, and is
+        // unaffected by a fixed shutter — nothing to undo there.
+        guard requestedHDREnabled, shutterAngleOn, device.activeColorSpace != .HLG_BT2020,
+              !device.isVideoHDREnabled else { return }
         autoISOTimer?.invalidate()
         autoISOTimer = nil
         lockedShutterDuration = nil
