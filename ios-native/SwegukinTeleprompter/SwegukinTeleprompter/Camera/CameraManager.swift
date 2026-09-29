@@ -464,6 +464,9 @@ final class CameraManager: NSObject, ObservableObject {
             ], for: connection)
             recordingCodecName = "HEVC \(mbps) Mbps"
         } else {
+            if appleLogActive, logCodec == "hevc" {
+                NSLog("[Camera] HEVC not offered for this Log format (available: \(available.map { $0.rawValue })) — take will be compressed to the slider rate after recording")
+            }
             movieOutput.setOutputSettings(nil, for: connection)
             recordingCodecName = appleLogActive ? "device default" : "device default"
         }
