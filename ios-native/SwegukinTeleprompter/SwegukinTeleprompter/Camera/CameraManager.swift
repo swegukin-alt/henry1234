@@ -445,7 +445,7 @@ final class CameraManager: NSObject, ObservableObject {
     /// active format. Otherwise the existing default codec keeps recording.
     /// `logCodec` is the user's choice while Apple Log is on: "prores" or "hevc".
     /// HEVC Log bitrate in Mbps, set by the settings slider before start().
-    nonisolated(unsafe) var logHEVCMbps: Int = 40
+    var logHEVCMbps: Int = 40
 
     private func applyRecordingCodec(appleLogActive: Bool, logCodec: String) {
         guard let connection = movieOutput.connection(with: .video) else { return }
