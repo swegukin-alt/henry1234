@@ -770,7 +770,7 @@ struct PrompterView: View {
                         recordings.register(id: segmentID, url: finishedURL, title: script.displayTitle, scriptID: script.id)
                         recordings.refreshMetadata(id: segmentID)
                         let trim = settings.micGainDb
-                        let bitrateTarget = camera.recordingCodecName.hasPrefix("HEVC ") ? Int(settings.logHEVCMbps) : 0
+                        let bitrateTarget = (settings.appleLog && settings.logCodec == "hevc") ? Int(settings.logHEVCMbps) : 0
                         Task {
                             _ = await AudioGain.apply(gainDb: trim, to: finishedURL)
                             await VideoBitrate.enforce(targetMbps: bitrateTarget, on: finishedURL)
@@ -814,7 +814,7 @@ struct PrompterView: View {
                     recordings.register(id: finishedID, url: url, title: script.displayTitle, scriptID: script.id)
                     recordings.refreshMetadata(id: finishedID)
                     let trim = settings.micGainDb
-                    let bitrateTarget = camera.recordingCodecName.hasPrefix("HEVC ") ? Int(settings.logHEVCMbps) : 0
+                    let bitrateTarget = (settings.appleLog && settings.logCodec == "hevc") ? Int(settings.logHEVCMbps) : 0
                     Task {
                         _ = await AudioGain.apply(gainDb: trim, to: url)
                         await VideoBitrate.enforce(targetMbps: bitrateTarget, on: url)
