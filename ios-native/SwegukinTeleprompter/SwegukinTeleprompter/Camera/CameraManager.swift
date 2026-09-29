@@ -444,6 +444,9 @@ final class CameraManager: NSObject, ObservableObject {
     /// A codec is only selected when the movie output itself reports it for the
     /// active format. Otherwise the existing default codec keeps recording.
     /// `logCodec` is the user's choice while Apple Log is on: "prores" or "hevc".
+    /// HEVC Log bitrate in Mbps, set by the settings slider before start().
+    nonisolated(unsafe) var logHEVCMbps: Int = 40
+
     private func applyRecordingCodec(appleLogActive: Bool, logCodec: String) {
         guard let connection = movieOutput.connection(with: .video) else { return }
         let available = movieOutput.availableVideoCodecTypes
@@ -451,15 +454,15 @@ final class CameraManager: NSObject, ObservableObject {
             movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.proRes422], for: connection)
             recordingCodecName = "ProRes 422"
         } else if appleLogActive, logCodec == "hevc", available.contains(.hevc) {
-            // Cap HEVC Log at ~40 Mbps so one hour is about 18 GB instead of
-            // the much higher default bitrate iOS uses for 4K Log.
+            // User-chosen HEVC Log bitrate (slider in settings).
+            let mbps = max(10, min(200, logHEVCMbps))
             movieOutput.setOutputSettings([
                 AVVideoCodecKey: AVVideoCodecType.hevc,
                 AVVideoCompressionPropertiesKey: [
-                    AVVideoAverageBitRateKey: 40_000_000
+                    AVVideoAverageBitRateKey: mbps * 1_000_000
                 ]
             ], for: connection)
-            recordingCodecName = "HEVC 40 Mbps"
+            recordingCodecName = "HEVC \(mbps) Mbps"
         } else {
             movieOutput.setOutputSettings(nil, for: connection)
             recordingCodecName = appleLogActive ? "device default" : "device default"
