@@ -537,6 +537,16 @@ struct PrompterView: View {
                                              : "HEVC · much smaller files, still Apple Log")
                                             .font(.system(size: 11))
                                             .foregroundStyle(.white.opacity(0.5))
+                                        if settings.logCodec == "hevc" {
+                                            Slider(value: $settings.logHEVCMbps, in: 10...150, step: 5) { editing in
+                                                if !editing { Task { await restartCamera() } }
+                                            }
+                                            .tint(Theme.accent)
+                                            .disabled(camera.recordingRequested)
+                                            Text(hevcSizeLabel(settings.logHEVCMbps))
+                                                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                                .foregroundStyle(.white.opacity(0.8))
+                                        }
                                     }
                                     if !logAvailable {
                                         Text(CameraManager.appleLogUnavailableReason)
@@ -656,7 +666,14 @@ struct PrompterView: View {
         guard !didFinish else { return }
     }
 
+    private func hevcSizeLabel(_ mbps: Double) -> String {
+        let mbPerMin = Int((mbps * 60 / 8).rounded())
+        let gbPerHour = mbps * 3600 / 8 / 1000
+        return "\(Int(mbps)) Mbps · ≈ \(mbPerMin) MB per minute · ≈ \(String(format: "%.0f", gbPerHour)) GB per hour"
+    }
+
     private func restartCamera() async {
+        camera.logHEVCMbps = Int(settings.logHEVCMbps)
         do {
             try await camera.start(
                 front: settings.useFrontCamera,
