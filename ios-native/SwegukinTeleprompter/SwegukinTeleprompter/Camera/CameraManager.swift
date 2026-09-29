@@ -939,10 +939,36 @@ final class CameraManager: NSObject, ObservableObject {
 }
 
 extension CameraManager: AVCaptureFileOutputRecordingDelegate {
+    /// Read-only check of a finished take: codec, measured bitrate and the
+    /// colour tags actually written into the file. Never modifies the file.
+    nonisolated static func logRecordedFileDiagnostics(_ url: URL) {
+        Task.detached(priority: .utility) {
+            let asset = AVURLAsset(url: url)
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                  let rate = try? await track.load(.estimatedDataRate),
+                  let descs = try? await track.load(.formatDescriptions),
+                  let desc = descs.first else {
+                print("[Verify] could not read \(url.lastPathComponent)")
+                return
+            }
+            let sub = CMFormatDescriptionGetMediaSubType(desc)
+            let fourCC = String(bytes: [UInt8((sub >> 24) & 0xff), UInt8((sub >> 16) & 0xff),
+                                        UInt8((sub >> 8) & 0xff), UInt8(sub & 0xff)],
+                                encoding: .ascii) ?? "\(sub)"
+            let ext = CMFormatDescriptionGetExtensions(desc) as? [String: Any] ?? [:]
+            let transfer = ext[kCVImageBufferTransferFunctionKey as String] ?? "none"
+            let primaries = ext[kCVImageBufferColorPrimariesKey as String] ?? "none"
+            let matrix = ext[kCVImageBufferYCbCrMatrixKey as String] ?? "none"
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+            print("[Verify] \(url.lastPathComponent) codec=\(fourCC) videoBitrate=\(String(format: "%.1f", Double(rate) / 1_000_000)) Mbps fileSize=\(size / 1_000_000) MB transfer=\(transfer) primaries=\(primaries) matrix=\(matrix)")
+        }
+    }
+
     nonisolated func fileOutput(_ output: AVCaptureFileOutput,
                                 didFinishRecordingTo outputFileURL: URL,
                                 from connections: [AVCaptureConnection],
                                 error: Error?) {
+        Self.logRecordedFileDiagnostics(outputFileURL)
         Task { @MainActor in
             self.timer?.invalidate()
             self.timer = nil
