@@ -451,8 +451,15 @@ final class CameraManager: NSObject, ObservableObject {
             movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.proRes422], for: connection)
             recordingCodecName = "ProRes 422"
         } else if appleLogActive, logCodec == "hevc", available.contains(.hevc) {
-            movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
-            recordingCodecName = "HEVC"
+            // Cap HEVC Log at ~40 Mbps so one hour is about 18 GB instead of
+            // the much higher default bitrate iOS uses for 4K Log.
+            movieOutput.setOutputSettings([
+                AVVideoCodecKey: AVVideoCodecType.hevc,
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoAverageBitRateKey: 40_000_000
+                ]
+            ], for: connection)
+            recordingCodecName = "HEVC 40 Mbps"
         } else {
             movieOutput.setOutputSettings(nil, for: connection)
             recordingCodecName = appleLogActive ? "device default" : "device default"
