@@ -546,6 +546,9 @@ struct PrompterView: View {
                                             Text(hevcSizeLabel(settings.logHEVCMbps))
                                                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
                                                 .foregroundStyle(.white.opacity(0.8))
+                                            Text("Each take is checked after recording and compressed to this exact rate if iPhone went over it.")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(.white.opacity(0.5))
                                         }
                                     }
                                     if !logAvailable {
@@ -767,8 +770,10 @@ struct PrompterView: View {
                         recordings.register(id: segmentID, url: finishedURL, title: script.displayTitle, scriptID: script.id)
                         recordings.refreshMetadata(id: segmentID)
                         let trim = settings.micGainDb
+                        let bitrateTarget = camera.recordingCodecName.hasPrefix("HEVC ") ? Int(settings.logHEVCMbps) : 0
                         Task {
                             _ = await AudioGain.apply(gainDb: trim, to: finishedURL)
+                            await VideoBitrate.enforce(targetMbps: bitrateTarget, on: finishedURL)
                             await MainActor.run { recordings.refreshMetadata(id: segmentID) }
                         }
                     case .failure(let error):
@@ -809,8 +814,10 @@ struct PrompterView: View {
                     recordings.register(id: finishedID, url: url, title: script.displayTitle, scriptID: script.id)
                     recordings.refreshMetadata(id: finishedID)
                     let trim = settings.micGainDb
+                    let bitrateTarget = camera.recordingCodecName.hasPrefix("HEVC ") ? Int(settings.logHEVCMbps) : 0
                     Task {
                         _ = await AudioGain.apply(gainDb: trim, to: url)
+                        await VideoBitrate.enforce(targetMbps: bitrateTarget, on: url)
                         await MainActor.run { recordings.refreshMetadata(id: finishedID) }
                     }
                 case .failure(let error):
