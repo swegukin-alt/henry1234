@@ -114,43 +114,40 @@ struct ClipsView: View {
                         }
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.65))
-                        Spacer()
-                        Button { askForDrive(title: headerTitle, items: items.filter { selected.contains($0.id) }) } label: {
-                            AppIcon("externaldrive")
-                                .font(.system(size: 15, weight: .semibold))
-                                .frame(width: 42, height: 38)
-                                .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
-                                .foregroundStyle(.white)
-                        }
-                        .disabled(selected.isEmpty)
-                        Button { compress(items.filter { selected.contains($0.id) }) } label: {
-                            Label { Text(selected.isEmpty ? "Compress" : "Compress \(selected.count)") } icon: { AppIcon("arrow.down.doc") }
-                                .labelStyle(.titleAndIcon)
-                                .font(.system(size: 14, weight: .semibold))
-                                .padding(.horizontal, 14).padding(.vertical, 10)
-                                .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
-                                .foregroundStyle(.white)
-                        }
-                        .disabled(selected.isEmpty)
-                        Button { shareSelected() } label: {
-                            Label { Text(selected.isEmpty ? "Share" : "Share \(selected.count)") } icon: { AppIcon("square.and.arrow.up") }
-                                .labelStyle(.titleAndIcon)
-                                .font(.system(size: 14, weight: .semibold))
-                                .padding(.horizontal, 14).padding(.vertical, 10)
-                                .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
-                                .foregroundStyle(.white)
-                        }
-                        .disabled(selected.isEmpty)
-                        Button(role: .destructive) { deleteSelected() } label: {
-                            Text(selected.isEmpty ? "Delete" : "Delete \(selected.count)")
-                                .font(.system(size: 14, weight: .semibold))
-                                .padding(.horizontal, 16).padding(.vertical, 10)
-                                .background(.red.opacity(selected.isEmpty ? 0.25 : 0.85), in: Capsule())
-                                .foregroundStyle(.white)
-                        }
-                        .disabled(selected.isEmpty)
+                        .fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 16).padding(.bottom, 14)
+                    .padding(.horizontal, 16)
+
+                    // Toolbar actions scroll sideways instead of squashing
+                    // their labels when the row runs out of width.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            actionButton(
+                                title: "Copy to drive",
+                                icon: "externaldrive",
+                                enabled: !selected.isEmpty
+                            ) { askForDrive(title: headerTitle, items: items.filter { selected.contains($0.id) }) }
+                            actionButton(
+                                title: selected.isEmpty ? "Compress" : "Compress \(selected.count)",
+                                icon: "arrow.down.doc",
+                                enabled: !selected.isEmpty
+                            ) { compress(items.filter { selected.contains($0.id) }) }
+                            actionButton(
+                                title: selected.isEmpty ? "Share" : "Share \(selected.count)",
+                                icon: "square.and.arrow.up",
+                                enabled: !selected.isEmpty
+                            ) { shareSelected() }
+                            actionButton(
+                                title: selected.isEmpty ? "Delete" : "Delete \(selected.count)",
+                                icon: "trash",
+                                enabled: !selected.isEmpty,
+                                destructive: true
+                            ) { deleteSelected() }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .padding(.bottom, 14)
                 }
             }
         }
@@ -214,6 +211,37 @@ struct ClipsView: View {
             Text(message ?? "")
         }
         .onAppear { recordings.reconcile() }
+    }
+
+    /// One capsule action in the selection toolbar. The label is always
+    /// fixed-size so the text never gets squashed or truncated.
+    private func actionButton(
+        title: String,
+        icon: String,
+        enabled: Bool,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                AppIcon(icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 10)
+            .background(
+                destructive
+                    ? AnyShapeStyle(.red.opacity(enabled ? 0.85 : 0.25))
+                    : AnyShapeStyle(.white.opacity(enabled ? 0.16 : 0.06)),
+                in: Capsule()
+            )
+            .foregroundStyle(.white)
+        }
+        .disabled(!enabled)
     }
 
     private func toggle(_ item: RecordingItem) {
