@@ -874,8 +874,10 @@ final class CameraManager: NSObject, ObservableObject {
                     audioSampleRate: AudioSessionManager.shared.inputSampleRate,
                     gainDb: levelMonitor.gainDb)
                 made.onFailure = { [weak self, weak made] in
-                    guard let self, let made else { return }
-                    self.liveWriterFailed(made)
+                    Task { @MainActor in
+                        guard let self, let made else { return }
+                        self.liveWriterFailed(made)
+                    }
                 }
                 writer = made
             } catch {
