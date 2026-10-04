@@ -270,6 +270,15 @@ final class CameraManager: NSObject, ObservableObject {
         print("[Camera] full auto exposure/ISO/WB applied, colorSpace=\(device.activeColorSpace.rawValue)")
     }
 
+    /// Log exposure compensation in EV, set from the settings slider. Apple Log
+    /// meters bright, so the default sits below 0 to protect highlights.
+    var logExposureEV: Double = -1.0
+    /// e.g. "1/2000 s · ISO 64" — what the Log auto exposure actually applied.
+    @Published private(set) var logExposureLabel = ""
+    /// Only touched on sessionQueue: true while a custom exposure change has
+    /// not yet reached the sensor, so the next step never meters stale frames.
+    nonisolated(unsafe) private var logAEPending = false
+
     /// Log auto exposure with the 180° shutter off. Total exposure is
     /// duration × ISO; correct it from exposureTargetOffset (EV), spending the
     /// change on shutter first while ISO stays at base, and only raising ISO
@@ -277,8 +286,10 @@ final class CameraManager: NSObject, ObservableObject {
     /// fast shutter speeds (no motion blur), like normal shooting mode.
     private func stepLogAutoExposure() {
         guard !shutterAngleOn, appleLogActive, let device else { return }
-        sessionQueue.async {
-            let offset = device.exposureTargetOffset
+        let comp = max(-3, min(1, logExposureEV))
+        sessionQueue.async { [weak self] in
+            guard let self, !self.logAEPending else { return }
+            let offset = Double(device.exposureTargetOffset)
             guard offset.isFinite else { return }
             let format = device.activeFormat
             let minDur = format.minExposureDuration.seconds
@@ -288,17 +299,33 @@ final class CameraManager: NSObject, ObservableObject {
             let baseISO = Double(format.minISO), maxISO = Double(format.maxISO)
             let curDur = device.exposureDuration.seconds > 0 ? device.exposureDuration.seconds : maxDur
             let curISO = Double(device.iso)
-            // Damped step toward target so exposure moves smoothly.
-            let step = abs(offset) < 0.08 ? 0 : Double(-offset) * 0.5
+            // Error relative to the chosen Log exposure (0 = Apple's meter target).
+            let error = offset - comp
             let wasCustom = device.exposureMode == .custom
+            // Blown-out frames under-report how bright the scene is, so correct
+            // fully (plus an extra stop when far over) instead of creeping.
+            let step: Double
+            if abs(error) < 0.1 { step = 0 }
+            else if error > 1.5 { step = -(error + 1) }
+            else if error > 0.5 { step = -error }
+            else { step = -error * 0.6 }
             if step == 0 && wasCustom { return }
             let target = curDur * curISO * pow(2, step)
             var dur = min(max(target / baseISO, minDur), maxDur)
             var iso = min(max(target / dur, baseISO), maxISO)
             if !dur.isFinite || !iso.isFinite { dur = maxDur; iso = baseISO }
             guard (try? device.lockForConfiguration()) != nil else { return }
+            if !wasCustom, device.exposureTargetBias != 0 {
+                device.setExposureTargetBias(0, completionHandler: nil)
+            }
+            self.logAEPending = true
             device.setExposureModeCustom(duration: CMTime(seconds: dur, preferredTimescale: 1_000_000),
-                                         iso: Float(iso), completionHandler: nil)
+                                         iso: Float(iso)) { [weak self] _ in
+                guard let self else { return }
+                self.sessionQueue.async { self.logAEPending = false }
+                let label = "1/\(Int((1 / max(dur, 0.00001)).rounded())) s · ISO \(Int(iso.rounded()))"
+                Task { @MainActor in if self.logExposureLabel != label { self.logExposureLabel = label } }
+            }
             if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance),
                device.whiteBalanceMode != .continuousAutoWhiteBalance {
                 device.whiteBalanceMode = .continuousAutoWhiteBalance
@@ -909,7 +936,10 @@ final class CameraManager: NSObject, ObservableObject {
         // Reassert the fixed duration immediately before every segment. This
         // covers the first take and automatic continuation after an iOS camera
         // interruption, without changing HDR or white-balance automation.
-        if shutterAngleOn { applyLockedShutterNow() } else if let device { Self.applyFullAuto(on: device) }
+        // In Apple Log the app's own auto exposure keeps running; handing it
+        // back to iOS here would drop to a slow shutter at the start of a take.
+        if shutterAngleOn { applyLockedShutterNow() }
+        else if let device, !(appleLogActive && autoISOTimer != nil) { Self.applyFullAuto(on: device) }
 
         let folder = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
