@@ -560,7 +560,7 @@ struct PrompterView: View {
                                                     .foregroundStyle(.white.opacity(0.8))
                                             }
                                             .font(.system(size: 13, weight: .semibold))
-                                            Slider(value: $settings.logExposureEV, in: -3...1, step: 0.3)
+                                            Slider(value: $settings.logExposureEV, in: -3...1, step: 0.5)
                                                 .tint(Theme.accent)
                                             Text(camera.logExposureLabel.isEmpty
                                                  ? "Lower if highlights blow out. Shutter, ISO and white balance stay auto."
