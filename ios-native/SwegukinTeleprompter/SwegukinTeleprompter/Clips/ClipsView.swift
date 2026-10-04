@@ -3,6 +3,7 @@ import SwiftUI
 struct ClipsView: View {
     @EnvironmentObject private var recordings: RecordingStore
     @EnvironmentObject private var scripts: ScriptStore
+    @EnvironmentObject private var settings: AppSettings
 
     let scriptID: String?
     let onBack: () -> Void
@@ -17,6 +18,9 @@ struct ClipsView: View {
     @State private var copying = false
     @State private var copyDone = 0
     @State private var copyTotal = 0
+    @State private var compressing = false
+    @State private var compressDone = 0
+    @State private var compressTotal = 0
 
     private struct DriveRequest {
         var title: String
@@ -96,6 +100,7 @@ struct ClipsView: View {
                         .contextMenu {
                             Button { save(item) } label: { Label("Save to camera roll", systemImage: "square.and.arrow.down") }
                             Button { share([item]) } label: { Label("Share", systemImage: "square.and.arrow.up") }
+                            Button { compress([item]) } label: { Label("Compress to \(Int(settings.logHEVCMbps)) Mbps", systemImage: "arrow.down.doc") }
                             Button("Delete", role: .destructive) { recordings.delete(item) }
                         }
                     }
@@ -114,6 +119,15 @@ struct ClipsView: View {
                             AppIcon("externaldrive")
                                 .font(.system(size: 15, weight: .semibold))
                                 .frame(width: 42, height: 38)
+                                .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                        .disabled(selected.isEmpty)
+                        Button { compress(items.filter { selected.contains($0.id) }) } label: {
+                            Label { Text(selected.isEmpty ? "Compress" : "Compress \(selected.count)") } icon: { AppIcon("arrow.down.doc") }
+                                .labelStyle(.titleAndIcon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .padding(.horizontal, 14).padding(.vertical, 10)
                                 .background(.white.opacity(selected.isEmpty ? 0.06 : 0.16), in: Capsule())
                                 .foregroundStyle(.white)
                         }
@@ -151,6 +165,22 @@ struct ClipsView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
                 Text("Keep the drive connected.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .padding(22)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+            .frame(maxHeight: .infinity)
+        }
+
+        if compressing {
+            Color.black.opacity(0.65).ignoresSafeArea()
+            VStack(spacing: 10) {
+                ProgressView().tint(.white)
+                Text("Compressing \(compressDone) of \(compressTotal)")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Originals are kept until each smaller file is complete.")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.6))
             }
@@ -277,6 +307,29 @@ struct ClipsView: View {
                 message = error.localizedDescription
             }
             busy = false
+        }
+    }
+
+    /// Re-encode clips to the bitrate chosen on the compression slider.
+    /// Each original is only replaced once a complete smaller file exists.
+    private func compress(_ clips: [RecordingItem]) {
+        let alive = clips.filter { FileManager.default.fileExists(atPath: $0.url.path) }
+        guard !alive.isEmpty, !compressing else { return }
+        let target = Int(settings.logHEVCMbps)
+        compressing = true
+        compressDone = 0
+        compressTotal = alive.count
+        Haptics.tap()
+        Task {
+            for item in alive {
+                await VideoBitrate.enforce(targetMbps: target, on: item.url)
+                recordings.refreshMetadata(id: item.id)
+                compressDone += 1
+            }
+            compressing = false
+            Haptics.success()
+            endSelection()
+            message = "Compression finished. Clips already at or below \(target) Mbps were left untouched."
         }
     }
 }
