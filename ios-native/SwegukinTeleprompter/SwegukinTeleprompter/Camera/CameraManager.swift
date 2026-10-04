@@ -55,6 +55,20 @@ final class CameraManager: NSObject, ObservableObject {
     let levelMonitor = AudioLevelMonitor()
     private let audioDataOutput = AVCaptureAudioDataOutput()
     private let audioMeterQueue = DispatchQueue(label: "camera.audio.meter")
+    /// Live HEVC Log recording: 10-bit camera frames → LogHEVCWriter.
+    private let videoDataOutput = AVCaptureVideoDataOutput()
+    private let videoDataQueue = DispatchQueue(label: "camera.video.data")
+    private let sampleRouter = LiveSampleRouter()
+    private var usesLiveHEVC = false
+    private var liveWriter: LogHEVCWriter?
+    private var liveFormat: (width: Int, height: Int, fps: Int) = (1920, 1080, 30)
+    /// Takes written live at the exact bitrate (gain already applied).
+    private var liveFileURLs = Set<URL>()
+    func wasWrittenLive(_ url: URL) -> Bool { liveFileURLs.contains(url) }
+    private var activeVideoConnection: AVCaptureConnection? {
+        usesLiveHEVC ? videoDataOutput.connection(with: .video) : movieOutput.connection(with: .video)
+    }
+    private var outputIsWriting: Bool { liveWriter != nil || movieOutput.isRecording }
     private var device: AVCaptureDevice? { videoInput?.device }
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     
@@ -379,33 +393,27 @@ final class CameraManager: NSObject, ObservableObject {
             audioInput = aInput
         }
 
+        // Live HEVC Log mode is only switched on below, after Log is confirmed.
+        if session.outputs.contains(videoDataOutput) { session.removeOutput(videoDataOutput) }
+        usesLiveHEVC = false
         if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
         }
         movieOutput.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 1)
 
         // Metering tap. It only reads samples; the recorded file still comes
-        // from the movie output exactly as before.
+        // from the movie output exactly as before. The sink also feeds the
+        // live HEVC Log writer while it is recording.
+        if levelMonitor.sampleSink == nil {
+            let router = sampleRouter
+            levelMonitor.sampleSink = { router.appendAudio($0) }
+        }
         if !session.outputs.contains(audioDataOutput), session.canAddOutput(audioDataOutput) {
             audioDataOutput.setSampleBufferDelegate(levelMonitor, queue: audioMeterQueue)
             session.addOutput(audioDataOutput)
         }
 
-        // Full-rate AAC instead of AVFoundation's default: 48 kHz, every
-        // channel the microphone provides, at the top documented bitrate.
-        if let audioConnection = movieOutput.connection(with: .audio) {
-            let channels = max(1, min(2, AudioSessionManager.shared.inputChannelCount))
-            let rate = AudioSessionManager.shared.inputSampleRate > 0
-                ? AudioSessionManager.shared.inputSampleRate
-                : 48_000
-            let settings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: rate,
-                AVNumberOfChannelsKey: channels,
-                AVEncoderBitRateKey: channels > 1 ? 256_000 : 128_000
-            ]
-            movieOutput.setOutputSettings(settings, for: audioConnection)
-        }
+        applyMovieAudioSettings()
 
         if let connection = movieOutput.connection(with: .video) {
             if connection.isVideoStabilizationSupported {
@@ -421,6 +429,9 @@ final class CameraManager: NSObject, ObservableObject {
 
         // Best-effort refinement once the session is valid.
         let logOn = Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr, appleLog: appleLog)
+        if logOn && logCodec == "hevc" {
+            usesLiveHEVC = enableLiveHEVC(camera: camera, fps: fps, stabilization: stabilization)
+        }
         applyRecordingCodec(appleLogActive: logOn, logCodec: logCodec)
         let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
         let spaces = camera.activeFormat.supportedColorSpaces.map { String(describing: $0.rawValue) }.joined(separator: ",")
@@ -448,6 +459,11 @@ final class CameraManager: NSObject, ObservableObject {
     var logHEVCMbps: Int = 40
 
     private func applyRecordingCodec(appleLogActive: Bool, logCodec: String) {
+        if usesLiveHEVC {
+            // Encoded live at exactly this rate by LogHEVCWriter.
+            recordingCodecName = "HEVC \(max(10, min(200, logHEVCMbps))) Mbps"
+            return
+        }
         guard let connection = movieOutput.connection(with: .video) else { return }
         let available = movieOutput.availableVideoCodecTypes
         if appleLogActive, logCodec == "prores", available.contains(.proRes422) {
@@ -465,11 +481,92 @@ final class CameraManager: NSObject, ObservableObject {
             recordingCodecName = "HEVC \(mbps) Mbps"
         } else {
             if appleLogActive, logCodec == "hevc" {
-                NSLog("[Camera] HEVC not offered for this Log format (available: \(available.map { $0.rawValue })) — take will be compressed to the slider rate after recording")
+                NSLog("[Camera] HEVC not offered for this Log format (available: \(available.map { $0.rawValue }))")
             }
             movieOutput.setOutputSettings(nil, for: connection)
-            recordingCodecName = appleLogActive ? "device default" : "device default"
+            if appleLogActive, logCodec == "hevc" {
+                recordingCodecName = available.contains(.proRes422)
+                    ? "ProRes — HEVC unavailable, files will be very large"
+                    : "device default — HEVC unavailable"
+            } else {
+                recordingCodecName = "device default"
+            }
         }
+    }
+
+    /// Switches this session to live HEVC Log recording: the camera's 10-bit
+    /// frames go to LogHEVCWriter instead of the movie recorder. Returns false
+    /// (and restores the movie recorder) if 10-bit frames are not offered.
+    private func enableLiveHEVC(camera: AVCaptureDevice, fps: Int, stabilization: Bool) -> Bool {
+        let tenBit = kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+        session.beginConfiguration()
+        if session.outputs.contains(movieOutput) { session.removeOutput(movieOutput) }
+        var ok = false
+        if session.canAddOutput(videoDataOutput) {
+            session.addOutput(videoDataOutput)
+            if videoDataOutput.availableVideoPixelFormatTypes.contains(tenBit) {
+                videoDataOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: tenBit]
+                videoDataOutput.alwaysDiscardsLateVideoFrames = false
+                videoDataOutput.setSampleBufferDelegate(sampleRouter, queue: videoDataQueue)
+                if let connection = videoDataOutput.connection(with: .video) {
+                    if connection.isVideoStabilizationSupported {
+                        connection.preferredVideoStabilizationMode = stabilization ? .auto : .off
+                    }
+                    if connection.isVideoMirroringSupported {
+                        connection.automaticallyAdjustsVideoMirroring = false
+                        connection.isVideoMirrored = false
+                    }
+                    // Pixels stay in sensor orientation; the writer stores
+                    // the rotation as a track transform like the movie recorder.
+                    if connection.isVideoRotationAngleSupported(0) {
+                        connection.videoRotationAngle = 0
+                    }
+                }
+                ok = true
+            } else {
+                NSLog("[LiveHEVC] 10-bit frames not offered: \(videoDataOutput.availableVideoPixelFormatTypes)")
+                session.removeOutput(videoDataOutput)
+            }
+        }
+        if !ok, !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) {
+            session.addOutput(movieOutput)
+            movieOutput.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 1)
+            applyMovieAudioSettings()
+        }
+        session.commitConfiguration()
+
+        // Changing outputs must never drop Log or the chosen frame rate.
+        if (try? camera.lockForConfiguration()) != nil {
+            let frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(1, fps)))
+            camera.activeVideoMinFrameDuration = frameDuration
+            camera.activeVideoMaxFrameDuration = frameDuration
+            if ok, camera.activeColorSpace != .appleLog,
+               camera.activeFormat.supportedColorSpaces.contains(.appleLog) {
+                camera.activeColorSpace = .appleLog
+            }
+            camera.unlockForConfiguration()
+        }
+        let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
+        liveFormat = (Int(dims.width), Int(dims.height), max(1, fps))
+        NSLog("[LiveHEVC] enabled=\(ok) format=\(dims.width)x\(dims.height)@\(fps) activeColorSpace=\(camera.activeColorSpace.rawValue)")
+        return ok && camera.activeColorSpace == .appleLog
+    }
+
+    /// Full-rate AAC on the movie recorder: 48 kHz, every channel the
+    /// microphone provides, at the top documented bitrate.
+    private func applyMovieAudioSettings() {
+        guard let audioConnection = movieOutput.connection(with: .audio) else { return }
+        let channels = max(1, min(2, AudioSessionManager.shared.inputChannelCount))
+        let rate = AudioSessionManager.shared.inputSampleRate > 0
+            ? AudioSessionManager.shared.inputSampleRate
+            : 48_000
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: rate,
+            AVNumberOfChannelsKey: channels,
+            AVEncoderBitRateKey: channels > 1 ? 256_000 : 128_000
+        ]
+        movieOutput.setOutputSettings(settings, for: audioConnection)
     }
 
     private static func preset(for quality: String) -> AVCaptureSession.Preset {
@@ -655,10 +752,9 @@ final class CameraManager: NSObject, ObservableObject {
     /// Stabilization can be toggled while the camera is live; applying it to the
     /// existing connection avoids restarting capture.
     func setStabilization(_ on: Bool) {
-        let output = movieOutput
+        let connection = activeVideoConnection
         sessionQueue.async {
-            guard let connection = output.connection(with: .video),
-                  connection.isVideoStabilizationSupported else { return }
+            guard let connection, connection.isVideoStabilizationSupported else { return }
             connection.preferredVideoStabilizationMode = on ? .auto : .off
         }
     }
@@ -737,10 +833,10 @@ final class CameraManager: NSObject, ObservableObject {
 
     private func startRecordingSegment(to url: URL, userInitiated: Bool) throws {
         guard session.isRunning else { throw CameraError.notReady }
-        guard !movieOutput.isRecording, !isRecording else { throw CameraError.alreadyRecording }
+        guard !outputIsWriting, !isRecording else { throw CameraError.alreadyRecording }
         // A previous take is still being closed: starting now would drop it.
         guard !isFinishing else { throw CameraError.busy }
-        guard movieOutput.connection(with: .video) != nil else { throw CameraError.notReady }
+        guard activeVideoConnection != nil else { throw CameraError.notReady }
         guard Self.hasRoomToRecord() else { throw CameraError.noSpace }
 
         // Reassert the fixed duration immediately before every segment. This
@@ -752,8 +848,8 @@ final class CameraManager: NSObject, ObservableObject {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         guard FileManager.default.fileExists(atPath: folder.path) else { throw CameraError.notReady }
 
-        if let connection = movieOutput.connection(with: .video) {
-            let angle = Self.interfaceRotationAngle()
+        let angle = Self.interfaceRotationAngle()
+        if !usesLiveHEVC, let connection = movieOutput.connection(with: .video) {
             if connection.isVideoRotationAngleSupported(angle) {
                 connection.videoRotationAngle = angle
             }
@@ -763,6 +859,31 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
         try? FileManager.default.removeItem(at: url)
+
+        var writer: LogHEVCWriter?
+        if usesLiveHEVC {
+            do {
+                let made = try LogHEVCWriter(
+                    url: url,
+                    width: liveFormat.width,
+                    height: liveFormat.height,
+                    fps: liveFormat.fps,
+                    bitrate: max(10, min(200, logHEVCMbps)) * 1_000_000,
+                    rotationAngle: angle,
+                    audioChannels: AudioSessionManager.shared.inputChannelCount,
+                    audioSampleRate: AudioSessionManager.shared.inputSampleRate,
+                    gainDb: levelMonitor.gainDb)
+                made.onFailure = { [weak self, weak made] in
+                    guard let self, let made else { return }
+                    self.liveWriterFailed(made)
+                }
+                writer = made
+            } catch {
+                NSLog("[LiveHEVC] could not create writer: \(error.localizedDescription)")
+                throw CameraError.notReady
+            }
+        }
+
         currentFileURL = url
         isFinishing = false
         if userInitiated {
@@ -770,7 +891,13 @@ final class CameraManager: NSObject, ObservableObject {
             elapsed = 0
         }
         startedAt = Date()
-        movieOutput.startRecording(to: url, recordingDelegate: self)
+        if let writer {
+            liveWriter = writer
+            liveFileURLs.insert(url)
+            sampleRouter.setWriter(writer)
+        } else {
+            movieOutput.startRecording(to: url, recordingDelegate: self)
+        }
         isRecording = true
         AudioSessionManager.shared.isRecording = true
         levelMonitor.isPaused = true
@@ -829,7 +956,7 @@ final class CameraManager: NSObject, ObservableObject {
         recordingRequested = false
         AudioSessionManager.shared.isRecording = false
         levelMonitor.isPaused = false
-        guard movieOutput.isRecording else {
+        guard outputIsWriting else {
             // The system already closed the file (interruption, error). Hand
             // back whatever finished writing instead of reporting a failure.
             if let url = currentFileURL, FileManager.default.fileExists(atPath: url.path) {
@@ -843,7 +970,11 @@ final class CameraManager: NSObject, ObservableObject {
         if isFinishing, pendingCompletion != nil { return }
         pendingCompletion = completion
         isFinishing = true
-        movieOutput.stopRecording()
+        if liveWriter != nil {
+            finishLiveWriter()
+        } else {
+            movieOutput.stopRecording()
+        }
 
         // Safety net: if AVFoundation never calls back, keep the footage and
         // free the UI instead of leaving the app stuck in "saving".
@@ -854,6 +985,8 @@ final class CameraManager: NSObject, ObservableObject {
                 self.pendingCompletion = nil
                 self.isFinishing = false
                 self.isRecording = false
+                self.liveWriter = nil
+                self.sampleRouter.setWriter(nil)
                 AudioSessionManager.shared.isRecording = false
                 self.timer?.invalidate()
                 self.timer = nil
@@ -864,6 +997,28 @@ final class CameraManager: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    /// Closes the live HEVC file and reports it through the same path as the
+    /// movie recorder's delegate.
+    private func finishLiveWriter() {
+        guard let writer = liveWriter else { return }
+        liveWriter = nil
+        sampleRouter.setWriter(nil)
+        writer.finish { [weak self] completed, error in
+            Self.logRecordedFileDiagnostics(writer.url)
+            Task { @MainActor in
+                self?.handleSegmentFinished(url: writer.url, error: completed ? nil : (error ?? CameraError.notReady))
+            }
+        }
+    }
+
+    /// The writer failed mid-take: keep everything already on disk, then the
+    /// shared finish path continues in a fresh file while recording is on.
+    private func liveWriterFailed(_ writer: LogHEVCWriter) {
+        guard liveWriter === writer, !isFinishing else { return }
+        isFinishing = true
+        finishLiveWriter()
     }
 
     // MARK: - Session health
@@ -916,7 +1071,7 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     private func resumeRequestedRecordingIfPossible() {
-        guard recordingRequested, !sessionInterrupted, session.isRunning, !movieOutput.isRecording,
+        guard recordingRequested, !sessionInterrupted, session.isRunning, !outputIsWriting,
               !isRecording, !isFinishing, let continuationURLProvider else { return }
         do {
             try startRecordingSegment(to: continuationURLProvider(), userInitiated: false)
@@ -973,43 +1128,51 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
                                 error: Error?) {
         Self.logRecordedFileDiagnostics(outputFileURL)
         Task { @MainActor in
-            self.timer?.invalidate()
-            self.timer = nil
-            self.isRecording = false
-            self.isFinishing = false
-            AudioSessionManager.shared.isRecording = false
-            if self.recordingRequested, let startedAt = self.startedAt {
-                self.elapsedBeforeCurrentSegment += Date().timeIntervalSince(startedAt)
-            }
-            self.stopWatchdog?.invalidate()
-            self.stopWatchdog = nil
-            self.startedAt = nil
+            self.handleSegmentFinished(url: outputFileURL, error: error)
+        }
+    }
 
-            let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
-            let attributes = try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)
-            let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
-            // AVFoundation flags a stopped-early recording but still leaves a
-            // playable file on disk — keep it rather than losing the take.
-            let result: Result<URL, Error>
-            if let error, !fileExists || size == 0 {
-                Haptics.failure()
-                self.status = error.localizedDescription
-                result = .failure(error)
-            } else {
-                Haptics.success()
-                result = .success(outputFileURL)
-            }
+    /// Shared by the movie recorder and the live HEVC Log writer.
+    fileprivate func handleSegmentFinished(url outputFileURL: URL, error: Error?) {
+        self.timer?.invalidate()
+        self.timer = nil
+        self.isRecording = false
+        self.isFinishing = false
+        AudioSessionManager.shared.isRecording = false
+        if self.recordingRequested, let startedAt = self.startedAt {
+            self.elapsedBeforeCurrentSegment += Date().timeIntervalSince(startedAt)
+        }
+        self.stopWatchdog?.invalidate()
+        self.stopWatchdog = nil
+        self.startedAt = nil
 
-            if let completion = self.pendingCompletion {
-                self.pendingCompletion = nil
-                completion(result)
-            } else {
-                // Nobody asked for this stop: the system ended the take. Hand
-                // the footage over so it still lands in the clip list, then
-                // continue in a fresh file while the record button remains on.
-                self.onInvoluntaryFinish?(result)
-                self.resumeRequestedRecordingIfPossible()
-            }
+        let fileExists = FileManager.default.fileExists(atPath: outputFileURL.path)
+        let attributes = try? FileManager.default.attributesOfItem(atPath: outputFileURL.path)
+        let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        // AVFoundation flags a stopped-early recording but still leaves a
+        // playable file on disk — keep it rather than losing the take.
+        let result: Result<URL, Error>
+        if let error, !fileExists || size == 0 {
+            Haptics.failure()
+            self.status = error.localizedDescription
+            result = .failure(error)
+        } else if !fileExists || size == 0 {
+            Haptics.failure()
+            result = .failure(CameraError.notReady)
+        } else {
+            Haptics.success()
+            result = .success(outputFileURL)
+        }
+
+        if let completion = self.pendingCompletion {
+            self.pendingCompletion = nil
+            completion(result)
+        } else {
+            // Nobody asked for this stop: the system ended the take. Hand
+            // the footage over so it still lands in the clip list, then
+            // continue in a fresh file while the record button remains on.
+            self.onInvoluntaryFinish?(result)
+            self.resumeRequestedRecordingIfPossible()
         }
     }
 }
