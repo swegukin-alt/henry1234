@@ -855,7 +855,7 @@ final class CameraManager: NSObject, ObservableObject {
         // Reassert the fixed duration immediately before every segment. This
         // covers the first take and automatic continuation after an iOS camera
         // interruption, without changing HDR or white-balance automation.
-        if shutterAngleOn { applyLockedShutterNow() }
+        if shutterAngleOn { applyLockedShutterNow() } else if let device { Self.applyFullAuto(on: device) }
 
         let folder = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
