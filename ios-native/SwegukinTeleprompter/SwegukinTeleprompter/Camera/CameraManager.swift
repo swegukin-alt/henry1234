@@ -201,7 +201,24 @@ final class CameraManager: NSObject, ObservableObject {
         if !on {
             lockedShutterDuration = nil
             shutterSpeedLabel = ""
-            sessionQueue.async { Self.applyFullAuto(on: device) }
+            if appleLogActive, device.isExposureModeSupported(.custom) {
+                // In Apple Log, iOS continuous AE holds a slow shutter and
+                // under-reacts in bright light. Meter like normal video instead:
+                // base ISO first, shutter shortens as light increases.
+                sessionQueue.async {
+                    if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance),
+                       (try? device.lockForConfiguration()) != nil {
+                        device.whiteBalanceMode = .continuousAutoWhiteBalance
+                        device.unlockForConfiguration()
+                    }
+                }
+                autoISOTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                    Task { @MainActor in self?.stepLogAutoExposure() }
+                }
+                print("[Camera] Log auto exposure (auto shutter + ISO, base ISO priority) on")
+            } else {
+                sessionQueue.async { Self.applyFullAuto(on: device) }
+            }
             return
         }
         guard device.isExposureModeSupported(.custom) else {
@@ -251,6 +268,43 @@ final class CameraManager: NSObject, ObservableObject {
         }
         device.unlockForConfiguration()
         print("[Camera] full auto exposure/ISO/WB applied, colorSpace=\(device.activeColorSpace.rawValue)")
+    }
+
+    /// Log auto exposure with the 180° shutter off. Total exposure is
+    /// duration × ISO; correct it from exposureTargetOffset (EV), spending the
+    /// change on shutter first while ISO stays at base, and only raising ISO
+    /// once the shutter reaches the frame interval. Bright scenes therefore get
+    /// fast shutter speeds (no motion blur), like normal shooting mode.
+    private func stepLogAutoExposure() {
+        guard !shutterAngleOn, appleLogActive, let device else { return }
+        sessionQueue.async {
+            let offset = device.exposureTargetOffset
+            guard offset.isFinite else { return }
+            let format = device.activeFormat
+            let minDur = format.minExposureDuration.seconds
+            var frame = device.activeVideoMinFrameDuration.seconds
+            if !(frame > 0) { frame = 1.0 / 30 }
+            let maxDur = min(format.maxExposureDuration.seconds, frame)
+            let baseISO = Double(format.minISO), maxISO = Double(format.maxISO)
+            let curDur = device.exposureDuration.seconds > 0 ? device.exposureDuration.seconds : maxDur
+            let curISO = Double(device.iso)
+            // Damped step toward target so exposure moves smoothly.
+            let step = abs(offset) < 0.08 ? 0 : Double(-offset) * 0.5
+            let wasCustom = device.exposureMode == .custom
+            if step == 0 && wasCustom { return }
+            let target = curDur * curISO * pow(2, step)
+            var dur = min(max(target / baseISO, minDur), maxDur)
+            var iso = min(max(target / dur, baseISO), maxISO)
+            if !dur.isFinite || !iso.isFinite { dur = maxDur; iso = baseISO }
+            guard (try? device.lockForConfiguration()) != nil else { return }
+            device.setExposureModeCustom(duration: CMTime(seconds: dur, preferredTimescale: 1_000_000),
+                                         iso: Float(iso), completionHandler: nil)
+            if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance),
+               device.whiteBalanceMode != .continuousAutoWhiteBalance {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            device.unlockForConfiguration()
+        }
     }
 
     private func stepAutoISO() {
