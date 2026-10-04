@@ -22,6 +22,13 @@ enum VideoBitrate {
         guard let measured = await measuredVideoBitrate(url) else { return }
         NSLog("[Bitrate] \(url.lastPathComponent) measured=\(String(format: "%.1f", measured / 1_000_000)) Mbps target=\(targetMbps) Mbps")
         guard measured > target * tolerance else { return }
+        // The compressed copy is written next to the original first.
+        let seconds = CMTimeGetSeconds((try? await AVURLAsset(url: url).load(.duration)) ?? .zero)
+        let expected = Int64(target / 8 * (seconds.isFinite ? seconds : 0) * 1.2)
+        guard freeSpace() > expected + 200_000_000 else {
+            NSLog("[Bitrate] skipped: not enough free space for the compressed copy")
+            return
+        }
 
         let temp = url.deletingPathExtension()
             .appendingPathExtension("bitrate")
@@ -43,6 +50,12 @@ enum VideoBitrate {
             NSLog("[Bitrate] failed: \(error.localizedDescription) — original kept")
             try? FileManager.default.removeItem(at: temp)
         }
+    }
+
+    /// Free bytes on the recordings volume (unlimited when iOS cannot say).
+    static func freeSpace() -> Int64 {
+        let values = try? AppPaths.recordings.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage ?? Int64.max
     }
 
     static func measuredVideoBitrate(_ url: URL) async -> Double? {

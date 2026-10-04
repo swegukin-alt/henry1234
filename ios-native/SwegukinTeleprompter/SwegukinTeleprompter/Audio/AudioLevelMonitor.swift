@@ -52,9 +52,14 @@ final class AudioLevelMonitor: NSObject, ObservableObject, AVCaptureAudioDataOut
         lastClipAt = nil
     }
 
+    /// Receives every live microphone buffer, also while metering is paused.
+    /// Used only by the live HEVC Log recorder; set once before capture starts.
+    var sampleSink: ((CMSampleBuffer) -> Void)?
+
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
+        sampleSink?(sampleBuffer)
         guard !isPaused else { return }
         guard let format = CMSampleBufferGetFormatDescription(sampleBuffer),
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee else { return }

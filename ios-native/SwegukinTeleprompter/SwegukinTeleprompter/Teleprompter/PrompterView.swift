@@ -546,7 +546,7 @@ struct PrompterView: View {
                                             Text(hevcSizeLabel(settings.logHEVCMbps))
                                                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
                                                 .foregroundStyle(.white.opacity(0.8))
-                                            Text("Each take is checked after recording and compressed to this exact rate if iPhone went over it.")
+                                            Text("Encoded live at this exact rate while recording — no waiting afterwards.")
                                                 .font(.system(size: 11))
                                                 .foregroundStyle(.white.opacity(0.5))
                                         }
@@ -769,13 +769,7 @@ struct PrompterView: View {
                         // gain pass touches anything.
                         recordings.register(id: segmentID, url: finishedURL, title: script.displayTitle, scriptID: script.id)
                         recordings.refreshMetadata(id: segmentID)
-                        let trim = settings.micGainDb
-                        let bitrateTarget = (settings.appleLog && settings.logCodec == "hevc") ? Int(settings.logHEVCMbps) : 0
-                        Task {
-                            _ = await AudioGain.apply(gainDb: trim, to: finishedURL)
-                            await VideoBitrate.enforce(targetMbps: bitrateTarget, on: finishedURL)
-                            await MainActor.run { recordings.refreshMetadata(id: segmentID) }
-                        }
+                        processFinishedTake(url: finishedURL, id: segmentID)
                     case .failure(let error):
                         errorMessage = error.localizedDescription
                     }
@@ -797,6 +791,26 @@ struct PrompterView: View {
         }
     }
 
+    /// After-take steps. Takes recorded live in HEVC Log already have the
+    /// exact bitrate and manual gain, so nothing is rewritten. Other takes get
+    /// the gain pass (and the bitrate check) with background time, so locking
+    /// the phone cannot cut them off; both steps skip themselves when the
+    /// disk cannot hold the new copy, and never replace the original early.
+    private func processFinishedTake(url: URL, id: String) {
+        let trim = settings.micGainDb
+        let live = camera.wasWrittenLive(url)
+        let bitrateTarget = (!live && settings.appleLog && settings.logCodec == "hevc") ? Int(settings.logHEVCMbps) : 0
+        Task {
+            if !live {
+                let token = await MainActor.run { BackgroundTaskToken(name: "take.postprocess") }
+                _ = await AudioGain.apply(gainDb: trim, to: url)
+                await VideoBitrate.enforce(targetMbps: bitrateTarget, on: url)
+                await MainActor.run { token.end() }
+            }
+            await MainActor.run { recordings.refreshMetadata(id: id) }
+        }
+    }
+
     private func stopRecording(stopCameraWhenFinished: Bool = false) {
         guard camera.recordingRequested, !saving else { return }
         saving = true
@@ -813,13 +827,7 @@ struct PrompterView: View {
                     // pass touches anything.
                     recordings.register(id: finishedID, url: url, title: script.displayTitle, scriptID: script.id)
                     recordings.refreshMetadata(id: finishedID)
-                    let trim = settings.micGainDb
-                    let bitrateTarget = (settings.appleLog && settings.logCodec == "hevc") ? Int(settings.logHEVCMbps) : 0
-                    Task {
-                        _ = await AudioGain.apply(gainDb: trim, to: url)
-                        await VideoBitrate.enforce(targetMbps: bitrateTarget, on: url)
-                        await MainActor.run { recordings.refreshMetadata(id: finishedID) }
-                    }
+                    processFinishedTake(url: url, id: finishedID)
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                 }
@@ -948,5 +956,25 @@ struct OutlineButtonStyle: ButtonStyle {
                     .stroke(active ? Theme.accent : Color.white.opacity(0.15))
             )
             .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+
+
+/// Keeps the app alive briefly in the background while a finished take is
+/// processed. Ends itself if iOS runs out of background time.
+@MainActor
+final class BackgroundTaskToken {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+
+    init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            Task { @MainActor in self?.end() }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
     }
 }
