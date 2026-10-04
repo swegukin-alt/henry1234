@@ -3,6 +3,7 @@ import SwiftUI
 struct ClipsView: View {
     @EnvironmentObject private var recordings: RecordingStore
     @EnvironmentObject private var scripts: ScriptStore
+    @EnvironmentObject private var settings: AppSettings
 
     let scriptID: String?
     let onBack: () -> Void
@@ -17,6 +18,9 @@ struct ClipsView: View {
     @State private var copying = false
     @State private var copyDone = 0
     @State private var copyTotal = 0
+    @State private var compressing = false
+    @State private var compressDone = 0
+    @State private var compressTotal = 0
 
     private struct DriveRequest {
         var title: String
