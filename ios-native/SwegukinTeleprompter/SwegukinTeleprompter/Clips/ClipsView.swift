@@ -124,6 +124,11 @@ struct ClipsView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
                             actionButton(
+                                title: "Copy to drive",
+                                icon: "externaldrive",
+                                enabled: !selected.isEmpty
+                            ) { askForDrive(title: headerTitle, items: items.filter { selected.contains($0.id) }) }
+                            actionButton(
                                 title: selected.isEmpty ? "Compress" : "Compress \(selected.count)",
                                 icon: "arrow.down.doc",
                                 enabled: !selected.isEmpty
