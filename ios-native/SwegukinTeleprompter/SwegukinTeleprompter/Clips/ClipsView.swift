@@ -108,21 +108,18 @@ struct ClipsView: View {
                 }
 
                 if selecting {
-                    HStack(spacing: 12) {
-                        Button(selected.count == items.count ? "Deselect all" : "Select all") {
-                            selected = selected.count == items.count ? [] : Set(items.map { $0.id })
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.65))
-                        .fixedSize(horizontal: true, vertical: false)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 16)
-
-                    // Toolbar actions scroll sideways instead of squashing
-                    // their labels when the row runs out of width.
+                    // One even strip of capsule actions: Select all first,
+                    // then the file actions. The row scrolls sideways instead
+                    // of squashing labels when it runs out of width.
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
+                            actionButton(
+                                title: selected.count == items.count ? "Deselect all" : "Select all",
+                                icon: selected.count == items.count ? "checkmark.circle.fill" : "checkmark.circle",
+                                enabled: true
+                            ) {
+                                selected = selected.count == items.count ? [] : Set(items.map { $0.id })
+                            }
                             actionButton(
                                 title: "Copy to drive",
                                 icon: "externaldrive",
