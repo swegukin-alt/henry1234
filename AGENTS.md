@@ -1,0 +1,1 @@
+- Native Apple Log + HEVC records through AVCaptureVideoDataOutput → LogHEVCWriter (AVAssetWriter) at the exact chosen bitrate; the movie file output stays for every other mode — because the movie output does not offer HEVC for Log formats and treats bitrate only as a hint.

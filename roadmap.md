@@ -30,3 +30,4 @@
 - [x] Preserve native HDR when 180° shutter is incompatible, support landscape swipe-back, and improve recording-bar visibility.
 - [x] Make every back swipe work from either landscape orientation, including clips opened from recording.
 - [x] Move the pre-recording audio meter and horizon gauge clear of the bottom toolbar.
+- [x] Record Apple Log HEVC live at the exact slider bitrate (no ProRes fallback surprise, no after-take rewrite).
