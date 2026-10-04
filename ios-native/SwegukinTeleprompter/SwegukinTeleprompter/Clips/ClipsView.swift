@@ -208,6 +208,37 @@ struct ClipsView: View {
         .onAppear { recordings.reconcile() }
     }
 
+    /// One capsule action in the selection toolbar. The label is always
+    /// fixed-size so the text never gets squashed or truncated.
+    private func actionButton(
+        title: String,
+        icon: String,
+        enabled: Bool,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                AppIcon(icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 10)
+            .background(
+                destructive
+                    ? AnyShapeStyle(.red.opacity(enabled ? 0.85 : 0.25))
+                    : AnyShapeStyle(.white.opacity(enabled ? 0.16 : 0.06)),
+                in: Capsule()
+            )
+            .foregroundStyle(.white)
+        }
+        .disabled(!enabled)
+    }
+
     private func toggle(_ item: RecordingItem) {
         if selected.contains(item.id) { selected.remove(item.id) } else { selected.insert(item.id) }
     }
