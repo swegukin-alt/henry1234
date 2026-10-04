@@ -201,13 +201,7 @@ final class CameraManager: NSObject, ObservableObject {
         if !on {
             lockedShutterDuration = nil
             shutterSpeedLabel = ""
-            sessionQueue.async {
-                guard (try? device.lockForConfiguration()) != nil else { return }
-                if device.isExposureModeSupported(.continuousAutoExposure) {
-                    device.exposureMode = .continuousAutoExposure
-                }
-                device.unlockForConfiguration()
-            }
+            sessionQueue.async { Self.applyFullAuto(on: device) }
             return
         }
         guard device.isExposureModeSupported(.custom) else {
@@ -238,6 +232,25 @@ final class CameraManager: NSObject, ObservableObject {
         autoISOTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.stepAutoISO() }
         }
+    }
+
+    /// Shutter angle off: hand shutter speed, ISO and white balance fully back
+    /// to Apple's continuous automatic metering. Clears anything a custom
+    /// exposure or a format change (e.g. Apple Log) may have left behind:
+    /// exposure bias returns to 0 and the max exposure duration limit returns
+    /// to the format default (kCMTimeInvalid), so auto shutter has its full range.
+    nonisolated static func applyFullAuto(on device: AVCaptureDevice) {
+        guard (try? device.lockForConfiguration()) != nil else { return }
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            device.activeMaxExposureDuration = .invalid
+            device.exposureMode = .continuousAutoExposure
+            device.setExposureTargetBias(0, completionHandler: nil)
+        }
+        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+            device.whiteBalanceMode = .continuousAutoWhiteBalance
+        }
+        device.unlockForConfiguration()
+        print("[Camera] full auto exposure/ISO/WB applied, colorSpace=\(device.activeColorSpace.rawValue)")
     }
 
     private func stepAutoISO() {
@@ -842,7 +855,7 @@ final class CameraManager: NSObject, ObservableObject {
         // Reassert the fixed duration immediately before every segment. This
         // covers the first take and automatic continuation after an iOS camera
         // interruption, without changing HDR or white-balance automation.
-        if shutterAngleOn { applyLockedShutterNow() }
+        if shutterAngleOn { applyLockedShutterNow() } else if let device { Self.applyFullAuto(on: device) }
 
         let folder = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
