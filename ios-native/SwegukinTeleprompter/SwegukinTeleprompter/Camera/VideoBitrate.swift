@@ -52,10 +52,10 @@ enum VideoBitrate {
         }
     }
 
-    /// Free bytes on the recordings volume (0 when unknown).
+    /// Free bytes on the recordings volume (unlimited when iOS cannot say).
     static func freeSpace() -> Int64 {
         let values = try? AppPaths.recordings.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return values?.volumeAvailableCapacityForImportantUsage ?? 0
+        return values?.volumeAvailableCapacityForImportantUsage ?? Int64.max
     }
 
     static func measuredVideoBitrate(_ url: URL) async -> Double? {

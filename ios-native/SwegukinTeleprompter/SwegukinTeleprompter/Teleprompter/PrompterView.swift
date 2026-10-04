@@ -546,7 +546,7 @@ struct PrompterView: View {
                                             Text(hevcSizeLabel(settings.logHEVCMbps))
                                                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
                                                 .foregroundStyle(.white.opacity(0.8))
-                                            Text("Each take is checked after recording and compressed to this exact rate if iPhone went over it.")
+                                            Text("Encoded live at this exact rate while recording — no waiting afterwards.")
                                                 .font(.system(size: 11))
                                                 .foregroundStyle(.white.opacity(0.5))
                                         }
