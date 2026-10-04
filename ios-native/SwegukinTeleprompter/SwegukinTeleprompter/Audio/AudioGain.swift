@@ -33,6 +33,12 @@ enum AudioGain {
     static func apply(gainDb: Double, to url: URL) async -> URL {
         guard abs(gainDb) >= 0.25 else { return url }
         guard FileManager.default.fileExists(atPath: url.path) else { return url }
+        // The rewrite needs a full second copy; skip rather than fill the disk.
+        let fileSize = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        guard VideoBitrate.freeSpace() > Int64(Double(fileSize) * 1.1) + 200_000_000 else {
+            NSLog("[AudioGain] skipped: not enough free space for a second copy")
+            return url
+        }
 
         let temp = url.deletingPathExtension()
             .appendingPathExtension("gain")
