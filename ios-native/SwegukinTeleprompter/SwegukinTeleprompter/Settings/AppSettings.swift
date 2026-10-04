@@ -37,6 +37,8 @@ final class AppSettings: ObservableObject {
     @Published var logCodec: String { didSet { write(logCodec, "logCodec") } }
     /// HEVC bitrate (Mbps) used while Apple Log records in HEVC.
     @Published var logHEVCMbps: Double { didSet { write(logHEVCMbps, "logHEVCMbps") } }
+    /// Exposure compensation (EV, -3 … +1) for the Apple Log auto exposure.
+    @Published var logExposureEV: Double { didSet { write(logExposureEV, "logExposureEV") } }
     @Published var simulatedAperture: Double { didSet { write(simulatedAperture, "simulatedAperture") } }
     /// Hardware microphone gain, 0…1. Only applied when iOS reports the
     /// connected input as gain-settable.
@@ -81,6 +83,7 @@ final class AppSettings: ObservableObject {
         appleLog = b("appleLog", false)
         logCodec = defaults.string(forKey: "logCodec") ?? "prores"
         logHEVCMbps = d("logHEVCMbps", 40)
+        logExposureEV = max(-3, min(1, d("logExposureEV", -1)))
         simulatedAperture = d("simulatedAperture", 2.8)
         micGain = d("micGain", 0.7)
         micGainDb = max(-20, min(20, d("micGainDb", 0)))

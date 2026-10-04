@@ -201,6 +201,7 @@ final class CameraManager: NSObject, ObservableObject {
         if !on {
             lockedShutterDuration = nil
             shutterSpeedLabel = ""
+            logExposureLabel = ""
             if appleLogActive, device.isExposureModeSupported(.custom) {
                 // In Apple Log, iOS continuous AE holds a slow shutter and
                 // under-reacts in bright light. Meter like normal video instead:

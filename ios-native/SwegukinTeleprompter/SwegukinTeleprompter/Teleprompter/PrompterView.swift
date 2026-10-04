@@ -230,6 +230,7 @@ struct PrompterView: View {
         
         .onChange(of: settings.stabilization) { _, on in camera.setStabilization(on) }
         .onChange(of: settings.shutterAngle) { _, on in camera.setShutterAngle(on) }
+        .onChange(of: settings.logExposureEV) { _, ev in camera.logExposureEV = ev }
         .onChange(of: camera.shutterAngleOn) { _, active in
             // Never leave the switch claiming 180° is active when this camera
             // mode rejected custom exposure in order to retain native HDR.
@@ -550,6 +551,23 @@ struct PrompterView: View {
                                                 .font(.system(size: 11))
                                                 .foregroundStyle(.white.opacity(0.5))
                                         }
+                                        if !settings.shutterAngle {
+                                            HStack {
+                                                Text("Log exposure")
+                                                Spacer()
+                                                Text(String(format: "%+.1f EV", settings.logExposureEV))
+                                                    .monospacedDigit()
+                                                    .foregroundStyle(.white.opacity(0.8))
+                                            }
+                                            .font(.system(size: 13, weight: .semibold))
+                                            Slider(value: $settings.logExposureEV, in: -3...1, step: 0.3)
+                                                .tint(Theme.accent)
+                                            Text(camera.logExposureLabel.isEmpty
+                                                 ? "Lower if highlights blow out. Shutter, ISO and white balance stay auto."
+                                                 : "Now \(camera.logExposureLabel) · lower if highlights blow out")
+                                                .font(.system(size: 11).monospacedDigit())
+                                                .foregroundStyle(.white.opacity(0.5))
+                                        }
                                     }
                                     if !logAvailable {
                                         Text(CameraManager.appleLogUnavailableReason)
@@ -677,6 +695,7 @@ struct PrompterView: View {
 
     private func restartCamera() async {
         camera.logHEVCMbps = Int(settings.logHEVCMbps)
+        camera.logExposureEV = settings.logExposureEV
         do {
             try await camera.start(
                 front: settings.useFrontCamera,
