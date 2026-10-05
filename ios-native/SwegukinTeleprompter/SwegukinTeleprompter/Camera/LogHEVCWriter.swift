@@ -33,7 +33,8 @@ final class LogHEVCWriter: @unchecked Sendable {
     var onFailure: (() -> Void)?
 
     init(url: URL, width: Int, height: Int, fps: Int, bitrate: Int, rotationAngle: CGFloat,
-         audioChannels: Int, audioSampleRate: Double, gainDb: Double) throws {
+         audioChannels: Int, audioSampleRate: Double, gainDb: Double,
+         recommended: [String: Any]? = nil) throws {
         self.url = url
         self.gainFactor = abs(gainDb) >= 0.25 ? Float(AudioGain.factor(db: gainDb)) : 1
 
@@ -42,17 +43,25 @@ final class LogHEVCWriter: @unchecked Sendable {
         writer.shouldOptimizeForNetworkUse = false
 
         let frameRate = max(1, fps)
-        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        // Start from the camera's own recommended HEVC settings for these
+        // exact Log frames (they carry the matching colour properties the
+        // encoder needs), then force our size, profile and bitrate on top.
+        var compression = (recommended?[AVVideoCompressionPropertiesKey] as? [String: Any]) ?? [:]
+        compression[AVVideoAverageBitRateKey] = bitrate
+        compression[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main10_AutoLevel as String
+        compression[AVVideoExpectedSourceFrameRateKey] = frameRate
+        compression[AVVideoMaxKeyFrameIntervalKey] = frameRate
+        var videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: bitrate,
-                AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main10_AutoLevel as String,
-                AVVideoExpectedSourceFrameRateKey: frameRate,
-                AVVideoMaxKeyFrameIntervalKey: frameRate
-            ]
-        ])
+            AVVideoCompressionPropertiesKey: compression
+        ]
+        if let color = recommended?[AVVideoColorPropertiesKey] {
+            videoSettings[AVVideoColorPropertiesKey] = color
+        }
+        NSLog("[LiveHEVC] writer settings: \(videoSettings)")
+        let video = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         video.expectsMediaDataInRealTime = true
         // Same orientation the movie recorder writes: a track transform, so
         // the pixels themselves are never rotated.
@@ -135,7 +144,8 @@ final class LogHEVCWriter: @unchecked Sendable {
     private func reportFailure() {
         guard !failureReported else { return }
         failureReported = true
-        NSLog("[LiveHEVC] writer failed: \(writer.error?.localizedDescription ?? "unknown")")
+        let ns = writer.error as NSError?
+        NSLog("[LiveHEVC] writer failed: \(ns?.localizedDescription ?? "unknown") code=\(ns?.code ?? 0) underlying=\(String(describing: ns?.userInfo[NSUnderlyingErrorKey]))")
         let handler = onFailure
         DispatchQueue.main.async { handler?() }
     }
