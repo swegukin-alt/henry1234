@@ -287,7 +287,8 @@ final class CameraManager: NSObject, ObservableObject {
     /// fast shutter speeds (no motion blur), like normal shooting mode.
     private func stepLogAutoExposure() {
         guard !shutterAngleOn, appleLogActive, let device else { return }
-        let comp = max(-3, min(1, logExposureEV))
+        // Log always exposes for 0.0 EV — Apple's own meter target.
+        let comp = 0.0
         sessionQueue.async { [weak self] in
             guard let self, !self.logAEPending else { return }
             let offset = Double(device.exposureTargetOffset)
@@ -306,9 +307,10 @@ final class CameraManager: NSObject, ObservableObject {
             // Blown-out frames under-report how bright the scene is, so correct
             // fully (plus an extra stop when far over) instead of creeping.
             let step: Double
-            if abs(error) < 0.1 { step = 0 }
-            else if error > 1.5 { step = -(error + 1) }
-            else if error > 0.5 { step = -error }
+            // Full correction toward 0.0, capped per step so it never
+            // overshoots and pumps; small errors settle smoothly.
+            if abs(error) < 0.05 { step = 0 }
+            else if abs(error) > 0.5 { step = -max(-2.0, min(2.0, error)) }
             else { step = -error * 0.6 }
             if step == 0 && wasCustom { return }
             let target = curDur * curISO * pow(2, step)
