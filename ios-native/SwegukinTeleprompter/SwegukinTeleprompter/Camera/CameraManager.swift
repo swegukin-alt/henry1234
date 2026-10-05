@@ -1009,9 +1009,7 @@ final class CameraManager: NSObject, ObservableObject {
                     rotationAngle: angle,
                     audioChannels: AudioSessionManager.shared.inputChannelCount,
                     audioSampleRate: AudioSessionManager.shared.inputSampleRate,
-                    gainDb: levelMonitor.gainDb,
-                    recommended: videoDataOutput.recommendedVideoSettings(
-                        forVideoCodecType: .hevc, assetWriterOutputFileType: .mov))
+                    gainDb: levelMonitor.gainDb)
                 made.onFailure = { [weak self, weak made] in
                     Task { @MainActor in
                         guard let self, let made else { return }
