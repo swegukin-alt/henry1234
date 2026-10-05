@@ -128,6 +128,14 @@ struct PrompterView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         AudioLevelMeter(monitor: camera.levelMonitor, micName: camera.micName)
                         HorizonLevelGauge(monitor: horizon)
+                        if !camera.liveExposureLabel.isEmpty {
+                            Text(camera.liveExposureLabel)
+                                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.black.opacity(0.45), in: Capsule())
+                        }
                     }
                     .padding(.leading, 14 + safeHorizontal.leading)
                     // Sit just above the bottom toolbar so the bar never clips the gauges.
