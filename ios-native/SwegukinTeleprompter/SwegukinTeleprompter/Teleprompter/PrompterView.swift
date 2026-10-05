@@ -560,11 +560,25 @@ struct PrompterView: View {
                                                 .foregroundStyle(.white.opacity(0.5))
                                         }
                                         if !settings.shutterAngle {
-                                            Text(camera.logExposureLabel.isEmpty
-                                                 ? "Log exposes for 0.0 EV. Shutter, ISO and white balance stay auto."
-                                                 : "0.0 EV · \(camera.logExposureLabel)")
-                                                .font(.system(size: 11).monospacedDigit())
+                                            HStack {
+                                                Text("Log exposure")
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundStyle(.white.opacity(0.8))
+                                                Spacer()
+                                                Text(String(format: "%+.1f EV", settings.logExposureEV))
+                                                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                                    .foregroundStyle(.white.opacity(0.8))
+                                            }
+                                            Slider(value: $settings.logExposureEV, in: -3...3, step: 0.1)
+                                                .tint(Theme.accent)
+                                            Text("0 is the camera's own target. Go negative to protect highlights, positive to brighten.")
+                                                .font(.system(size: 11))
                                                 .foregroundStyle(.white.opacity(0.5))
+                                            if !camera.logExposureLabel.isEmpty {
+                                                Text("\(String(format: "%+.1f", settings.logExposureEV)) EV · \(camera.logExposureLabel)")
+                                                    .font(.system(size: 11).monospacedDigit())
+                                                    .foregroundStyle(.white.opacity(0.5))
+                                            }
                                         }
                                     }
                                     if !logAvailable {
