@@ -170,6 +170,33 @@ final class CameraManager: NSObject, ObservableObject {
         makeRotationCoordinator()
         // The format may have changed; re-lock the shutter to the new frame rate.
         setShutterAngle(shutterAngleOn)
+        startExposureMeter()
+    }
+
+    // MARK: - Live exposure readout
+
+    /// Live "1/250 s · ISO 125" readout of what the sensor is actually using,
+    /// in every mode, before and during recording. Read straight from the
+    /// device so it always shows the truth, not what was last requested.
+    @Published private(set) var liveExposureLabel = ""
+    private var exposureMeterTimer: Timer?
+
+    private func startExposureMeter() {
+        exposureMeterTimer?.invalidate()
+        exposureMeterTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.sampleExposure() }
+        }
+    }
+
+    private func sampleExposure() {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.device else { return }
+            let dur = device.exposureDuration.seconds
+            let iso = device.iso
+            guard dur > 0, dur.isFinite, iso.isFinite else { return }
+            let label = "1/\(Int((1 / dur).rounded())) s · ISO \(Int(iso.rounded()))"
+            Task { @MainActor in if self.liveExposureLabel != label { self.liveExposureLabel = label } }
+        }
     }
 
     // MARK: - 180° shutter angle
@@ -364,6 +391,9 @@ final class CameraManager: NSObject, ObservableObject {
     func stop() {
         autoISOTimer?.invalidate()
         autoISOTimer = nil
+        exposureMeterTimer?.invalidate()
+        exposureMeterTimer = nil
+        liveExposureLabel = ""
         let session = self.session
         sessionQueue.async {
             if session.isRunning { session.stopRunning() }
