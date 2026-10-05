@@ -298,9 +298,9 @@ final class CameraManager: NSObject, ObservableObject {
         print("[Camera] full auto exposure/ISO/WB applied, colorSpace=\(device.activeColorSpace.rawValue)")
     }
 
-    /// Log exposure compensation in EV, set from the settings slider. Apple Log
-    /// meters bright, so the default sits below 0 to protect highlights.
-    var logExposureEV: Double = -1.0
+    /// Log exposure compensation in EV, set from the settings slider (−3…+3).
+    /// 0 is Apple's meter target; negative protects highlights.
+    var logExposureEV: Double = 0
     /// e.g. "1/2000 s · ISO 64" — what the Log auto exposure actually applied.
     @Published private(set) var logExposureLabel = ""
     /// Only touched on sessionQueue: true while a custom exposure change has
@@ -312,10 +312,11 @@ final class CameraManager: NSObject, ObservableObject {
     /// change on shutter first while ISO stays at base, and only raising ISO
     /// once the shutter reaches the frame interval. Bright scenes therefore get
     /// fast shutter speeds (no motion blur), like normal shooting mode.
+    /// Corrections are slewed: each tick moves only a fraction of the remaining
+    /// error, so exposure glides to the target instead of stepping.
     private func stepLogAutoExposure() {
         guard !shutterAngleOn, appleLogActive, let device else { return }
-        // Log always exposes for 0.0 EV — Apple's own meter target.
-        let comp = 0.0
+        let comp = logExposureEV
         sessionQueue.async { [weak self] in
             guard let self, !self.logAEPending else { return }
             let offset = Double(device.exposureTargetOffset)
@@ -328,17 +329,15 @@ final class CameraManager: NSObject, ObservableObject {
             let baseISO = Double(format.minISO), maxISO = Double(format.maxISO)
             let curDur = device.exposureDuration.seconds > 0 ? device.exposureDuration.seconds : maxDur
             let curISO = Double(device.iso)
-            // Error relative to the chosen Log exposure (0 = Apple's meter target).
+            // Error relative to the chosen Log exposure compensation.
             let error = offset - comp
             let wasCustom = device.exposureMode == .custom
-            // Blown-out frames under-report how bright the scene is, so correct
-            // fully (plus an extra stop when far over) instead of creeping.
-            let step: Double
-            // Full correction toward 0.0, capped per step so it never
-            // overshoots and pumps; small errors settle smoothly.
-            if abs(error) < 0.05 { step = 0 }
-            else if abs(error) > 0.5 { step = -max(-2.0, min(2.0, error)) }
-            else { step = -error * 0.6 }
+            // Stepless glide: close 30% of the remaining error per tick
+            // (~0.35 s time constant at 10 Hz), capped at 0.35 EV per tick so
+            // the sensor ramps smoothly and never overshoots or pumps.
+            var step = -error * 0.3
+            step = max(-0.35, min(0.35, step))
+            if abs(step) < 0.02 { step = 0 }
             if step == 0 && wasCustom { return }
             let target = curDur * curISO * pow(2, step)
             var dur = min(max(target / baseISO, minDur), maxDur)
