@@ -298,9 +298,9 @@ final class CameraManager: NSObject, ObservableObject {
         print("[Camera] full auto exposure/ISO/WB applied, colorSpace=\(device.activeColorSpace.rawValue)")
     }
 
-    /// Log exposure compensation in EV, set from the settings slider. Apple Log
-    /// meters bright, so the default sits below 0 to protect highlights.
-    var logExposureEV: Double = -1.0
+    /// Log exposure compensation in EV, set from the settings slider (−3…+3).
+    /// 0 is Apple's meter target; negative protects highlights.
+    var logExposureEV: Double = 0
     /// e.g. "1/2000 s · ISO 64" — what the Log auto exposure actually applied.
     @Published private(set) var logExposureLabel = ""
     /// Only touched on sessionQueue: true while a custom exposure change has

@@ -83,7 +83,7 @@ final class AppSettings: ObservableObject {
         appleLog = b("appleLog", false)
         logCodec = defaults.string(forKey: "logCodec") ?? "prores"
         logHEVCMbps = d("logHEVCMbps", 40)
-        logExposureEV = max(-3, min(1, d("logExposureEV", -1)))
+        logExposureEV = max(-3, min(3, d("logExposureEV", 0)))
         simulatedAperture = d("simulatedAperture", 2.8)
         micGain = d("micGain", 0.7)
         micGainDb = max(-20, min(20, d("micGainDb", 0)))
