@@ -240,7 +240,7 @@ final class CameraManager: NSObject, ObservableObject {
                         device.unlockForConfiguration()
                     }
                 }
-                autoISOTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                autoISOTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
                     Task { @MainActor in self?.stepLogAutoExposure() }
                 }
                 print("[Camera] Log auto exposure (auto shutter + ISO, base ISO priority) on")
@@ -306,6 +306,9 @@ final class CameraManager: NSObject, ObservableObject {
     /// Only touched on sessionQueue: true while a custom exposure change has
     /// not yet reached the sensor, so the next step never meters stale frames.
     nonisolated(unsafe) private var logAEPending = false
+    /// sessionQueue only: smoothed meter offset and convergence state.
+    nonisolated(unsafe) private var logAEFilteredOffset: Double = 0
+    nonisolated(unsafe) private var logAEConverging = true
 
     /// Log auto exposure with the 180° shutter off. Total exposure is
     /// duration × ISO; correct it from exposureTargetOffset (EV), spending the
@@ -329,16 +332,21 @@ final class CameraManager: NSObject, ObservableObject {
             let baseISO = Double(format.minISO), maxISO = Double(format.maxISO)
             let curDur = device.exposureDuration.seconds > 0 ? device.exposureDuration.seconds : maxDur
             let curISO = Double(device.iso)
-            // Error relative to the chosen Log exposure compensation.
-            let error = offset - comp
+            // Low-pass the meter so frame-to-frame noise never reaches the sensor.
+            self.logAEFilteredOffset += (offset - self.logAEFilteredOffset) * 0.2
+            let error = self.logAEFilteredOffset - comp
             let wasCustom = device.exposureMode == .custom
-            // Stepless glide: close 30% of the remaining error per tick
-            // (~0.35 s time constant at 10 Hz), capped at 0.35 EV per tick so
-            // the sensor ramps smoothly and never overshoots or pumps.
-            var step = -error * 0.3
-            step = max(-0.35, min(0.35, step))
-            if abs(step) < 0.02 { step = 0 }
-            if step == 0 && wasCustom { return }
+            // Hysteresis: start correcting past 0.12 EV, settle below 0.03 EV,
+            // so exposure doesn't hunt around the target.
+            if abs(error) > 0.12 { self.logAEConverging = true }
+            if abs(error) < 0.03 { self.logAEConverging = false }
+            if !self.logAEConverging && wasCustom { return }
+            // Ultra-smooth ramp at ~30 Hz: tiny per-frame increments (≤0.05 EV,
+            // invisible to the eye). Only a hard blow-out/black allows faster recovery.
+            let cap = abs(error) > 2 ? 0.2 : 0.05
+            var step = -error * 0.08
+            step = max(-cap, min(cap, step))
+            if !wasCustom { step = max(-0.05, min(0.05, step)) }
             let target = curDur * curISO * pow(2, step)
             var dur = min(max(target / baseISO, minDur), maxDur)
             var iso = min(max(target / dur, baseISO), maxISO)
