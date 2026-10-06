@@ -1,5 +1,7 @@
 # Roadmap
 
+- [ ] Add pre-recording 95% zebras and an undimmed, unobstructed framing preview.
+
 - [x] Prevent long native scripts from truncating or losing their reading position.
 - [x] Match the native library and editor to the web app.
 - [x] Match native prompter typography, scrolling, controls, settings, and video treatment to the web app.
