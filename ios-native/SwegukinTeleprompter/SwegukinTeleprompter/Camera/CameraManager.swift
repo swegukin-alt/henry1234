@@ -708,6 +708,9 @@ final class CameraManager: NSObject, ObservableObject {
                 videoDataOutput.alwaysDiscardsLateVideoFrames = false
                 videoDataOutput.setSampleBufferDelegate(sampleRouter, queue: videoDataQueue)
                 if let connection = videoDataOutput.connection(with: .video) {
+                    // This output may have been disabled as a movie-mode
+                    // preview tap. Live HEVC always needs its frame stream.
+                    connection.isEnabled = true
                     if connection.isVideoStabilizationSupported {
                         connection.preferredVideoStabilizationMode = stabilization ? .auto : .off
                     }
