@@ -40,6 +40,10 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var appleLogDetail: String = ""
     /// The codec the movie output is actually writing with.
     @Published private(set) var recordingCodecName: String = "device default"
+    @Published private(set) var zebraImage: UIImage?
+    @Published private(set) var zebraAvailable = false
+    @Published var zebrasEnabled = true { didSet { updateZebraMonitoring() } }
+    private let zebraMonitor = ZebraMonitor()
 
     static let log = Logger(subsystem: "com.swegukin.teleprompter", category: "capture")
 
@@ -398,6 +402,7 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     func stop() {
+        zebraMonitor.setEnabled(false)
         autoISOTimer?.invalidate()
         autoISOTimer = nil
         exposureMeterTimer?.invalidate()
@@ -430,6 +435,57 @@ final class CameraManager: NSObject, ObservableObject {
     /// Called by the prompter so metering runs only before a take.
     func setMeteringPaused(_ paused: Bool) {
         levelMonitor.isPaused = paused
+        updateZebraMonitoring(paused: paused)
+    }
+
+    private func updateZebraMonitoring(paused: Bool = false) {
+        let enabled = zebrasEnabled && zebraAvailable && !paused
+            && !recordingRequested && !isRecording && !isFinishing
+        zebraMonitor.setEnabled(enabled)
+        if !usesLiveHEVC {
+            let output = videoDataOutput
+            sessionQueue.async { output.connection(with: .video)?.isEnabled = enabled }
+        }
+    }
+
+    /// Adds only a preview tap; the movie output remains the recording owner.
+    private func enableZebraPreview(camera: AVCaptureDevice) -> Bool {
+        let format = camera.activeFormat
+        let color = camera.activeColorSpace
+        let minDuration = camera.activeVideoMinFrameDuration
+        let maxDuration = camera.activeVideoMaxFrameDuration
+        session.beginConfiguration()
+        if session.canAddOutput(videoDataOutput) { session.addOutput(videoDataOutput) }
+        let available = videoDataOutput.availableVideoPixelFormatTypes
+        let preferred = color == .appleLog || color == .HLG_BT2020
+            ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        let ok = session.outputs.contains(videoDataOutput) && available.contains(preferred)
+        if ok {
+            videoDataOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: preferred]
+            videoDataOutput.alwaysDiscardsLateVideoFrames = true
+            videoDataOutput.setSampleBufferDelegate(sampleRouter, queue: videoDataQueue)
+            if let connection = videoDataOutput.connection(with: .video) {
+                if connection.isVideoRotationAngleSupported(0) { connection.videoRotationAngle = 0 }
+                if connection.isVideoMirroringSupported {
+                    connection.automaticallyAdjustsVideoMirroring = false
+                    connection.isVideoMirrored = false
+                }
+                if connection.isVideoStabilizationSupported { connection.preferredVideoStabilizationMode = .off }
+            }
+        } else if session.outputs.contains(videoDataOutput) {
+            session.removeOutput(videoDataOutput)
+        }
+        session.commitConfiguration()
+        // Adding an output must not select a different capture mode.
+        if (try? camera.lockForConfiguration()) != nil {
+            camera.activeFormat = format
+            camera.activeVideoMinFrameDuration = minDuration
+            camera.activeVideoMaxFrameDuration = maxDuration
+            camera.activeColorSpace = color
+            camera.unlockForConfiguration()
+        }
+        return ok
     }
 
     /// Called by the preview view so rotation follows the real hardware horizon.
@@ -567,6 +623,14 @@ final class CameraManager: NSObject, ObservableObject {
         let logOn = Self.applyFormat(on: camera, quality: quality, fps: fps, hdr: hdr, appleLog: appleLog)
         if logOn && logCodec == "hevc" {
             usesLiveHEVC = enableLiveHEVC(camera: camera, fps: fps, stabilization: stabilization)
+        }
+        sampleRouter.setPreviewMonitor(zebraMonitor)
+        let zebraOK = usesLiveHEVC || enableZebraPreview(camera: camera)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.zebraMonitor.onImage = { [weak self] image in self?.zebraImage = image }
+            self.zebraAvailable = zebraOK
+            self.updateZebraMonitoring()
         }
         applyRecordingCodec(appleLogActive: logOn, logCodec: logCodec)
         let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
@@ -959,10 +1023,12 @@ final class CameraManager: NSObject, ObservableObject {
 
     func startRecording(to url: URL) throws {
         recordingRequested = true
+        updateZebraMonitoring()
         do {
             try startRecordingSegment(to: url, userInitiated: true)
         } catch {
             recordingRequested = false
+            updateZebraMonitoring()
             throw error
         }
     }
