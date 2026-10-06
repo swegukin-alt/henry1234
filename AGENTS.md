@@ -1,1 +1,2 @@
 - Native Apple Log + HEVC records through AVCaptureVideoDataOutput → LogHEVCWriter (AVAssetWriter) at the exact chosen bitrate; the movie file output stays for every other mode — because the movie output does not offer HEVC for Log formats and treats bitrate only as a hint.
+- Native zebras use a throttled preview-only luminance mask, sharing the live HEVC frame router or a disabled-during-recording movie-mode tap; they never modify capture samples or encoded footage because exposure warnings are display-only.

@@ -56,16 +56,19 @@ struct PrompterView: View {
                         session: camera.session,
                         rotationAngle: camera.previewRotationAngle,
                         mirrored: camera.usingFront,
+                        zebraImage: camera.recordingRequested ? nil : camera.zebraImage,
                         onAttach: { camera.attach(previewLayer: $0) }
                     )
                     .ignoresSafeArea()
                     .overlay {
                         // Attached to the preview so UIKit can never composite
                         // its camera layer above the scrim.
-                        Rectangle()
-                            .fill(Color.black.opacity(0.65))
-                            .ignoresSafeArea()
-                            .allowsHitTesting(false)
+                        if camera.recordingRequested {
+                            Rectangle()
+                                .fill(Color.black.opacity(0.65))
+                                .ignoresSafeArea()
+                                .allowsHitTesting(false)
+                        }
                     }
 
                 } else {
@@ -94,6 +97,8 @@ struct PrompterView: View {
                         }
                     }
                 )
+                .opacity(videoMode && !camera.recordingRequested ? 0 : 1)
+                .allowsHitTesting(!videoMode || camera.recordingRequested)
 
                 Color.clear
                     .contentShape(Rectangle())
@@ -606,6 +611,10 @@ struct PrompterView: View {
                                 Toggle("Stabilization", isOn: $settings.stabilization)
                                     .tint(Theme.accent)
                                     .disabled(camera.recordingRequested)
+
+                                Toggle("Zebras · 95%", isOn: $camera.zebrasEnabled)
+                                    .tint(Theme.accent)
+                                    .disabled(camera.recordingRequested || !camera.zebraAvailable)
 
                                 Toggle("Cinematic mode", isOn: .constant(false))
                                     .tint(Theme.accent)

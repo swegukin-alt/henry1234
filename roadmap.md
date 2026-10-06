@@ -1,6 +1,6 @@
 # Roadmap
 
-- [ ] Add pre-recording 95% zebras and an undimmed, unobstructed framing preview.
+- [x] Add pre-recording 95% zebras and an undimmed, unobstructed framing preview (source/threshold checks passed; Xcode and physical-iPhone verification unavailable).
 
 - [x] Prevent long native scripts from truncating or losing their reading position.
 - [x] Match the native library and editor to the web app.

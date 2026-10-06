@@ -213,6 +213,11 @@ final class LogHEVCWriter: @unchecked Sendable {
 final class LiveSampleRouter: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var writer: LogHEVCWriter?
+    private var previewMonitor: ZebraMonitor?
+
+    func setPreviewMonitor(_ monitor: ZebraMonitor) {
+        lock.lock(); previewMonitor = monitor; lock.unlock()
+    }
 
     func setWriter(_ writer: LogHEVCWriter?) {
         lock.lock(); self.writer = writer; lock.unlock()
@@ -226,7 +231,15 @@ final class LiveSampleRouter: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        current()?.appendVideo(sampleBuffer)
+        lock.lock()
+        let activeWriter = writer
+        let monitor = previewMonitor
+        lock.unlock()
+        if let activeWriter {
+            activeWriter.appendVideo(sampleBuffer)
+        } else {
+            monitor?.consume(sampleBuffer)
+        }
     }
 
     func appendAudio(_ sampleBuffer: CMSampleBuffer) {
