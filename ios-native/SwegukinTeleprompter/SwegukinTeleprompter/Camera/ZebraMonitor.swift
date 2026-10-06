@@ -4,7 +4,7 @@ import UIKit
 /// Preview-only 95% signal warning. Never changes or writes camera samples.
 final class ZebraMonitor: @unchecked Sendable {
     private let lock = NSLock()
-    private var enabled = true
+    private var enabled = false
     private var generation = 0
     private var lastFrameTime = -Double.infinity
     var onImage: ((UIImage?) -> Void)?

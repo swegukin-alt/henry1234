@@ -44,6 +44,7 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var zebraAvailable = false
     @Published var zebrasEnabled = true { didSet { updateZebraMonitoring() } }
     private let zebraMonitor = ZebraMonitor()
+    private var zebraConfigured = false
 
     static let log = Logger(subsystem: "com.swegukin.teleprompter", category: "capture")
 
@@ -154,6 +155,8 @@ final class CameraManager: NSObject, ObservableObject {
         refreshAudioInfo()
         usingFront = front
         status = ""
+        zebraMonitor.setEnabled(false)
+        zebraMonitor.onImage = { [weak self] image in self?.zebraImage = image }
 
         let running: Bool = await withCheckedContinuation { continuation in
             sessionQueue.async { [weak self] in
@@ -168,6 +171,8 @@ final class CameraManager: NSObject, ObservableObject {
 
         observeSession()
         isReady = running
+        zebraAvailable = zebraConfigured
+        updateZebraMonitoring()
         if !running {
             status = status.isEmpty ? "Camera could not start. Tap retry." : status
             throw CameraError.noDevice
@@ -439,7 +444,7 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     private func updateZebraMonitoring(paused: Bool = false) {
-        let enabled = zebrasEnabled && zebraAvailable && !paused
+        let enabled = isReady && zebrasEnabled && zebraAvailable && !paused
             && !recordingRequested && !isRecording && !isFinishing
         zebraMonitor.setEnabled(enabled)
         if !usesLiveHEVC {
@@ -479,7 +484,7 @@ final class CameraManager: NSObject, ObservableObject {
         session.commitConfiguration()
         // Adding an output must not select a different capture mode.
         if (try? camera.lockForConfiguration()) != nil {
-            camera.activeFormat = format
+            if camera.activeFormat !== format { camera.activeFormat = format }
             camera.activeVideoMinFrameDuration = minDuration
             camera.activeVideoMaxFrameDuration = maxDuration
             camera.activeColorSpace = color
@@ -625,13 +630,7 @@ final class CameraManager: NSObject, ObservableObject {
             usesLiveHEVC = enableLiveHEVC(camera: camera, fps: fps, stabilization: stabilization)
         }
         sampleRouter.setPreviewMonitor(zebraMonitor)
-        let zebraOK = usesLiveHEVC || enableZebraPreview(camera: camera)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.zebraMonitor.onImage = { [weak self] image in self?.zebraImage = image }
-            self.zebraAvailable = zebraOK
-            self.updateZebraMonitoring()
-        }
+        zebraConfigured = usesLiveHEVC || enableZebraPreview(camera: camera)
         applyRecordingCodec(appleLogActive: logOn, logCodec: logCodec)
         let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
         let spaces = camera.activeFormat.supportedColorSpaces.map { String(describing: $0.rawValue) }.joined(separator: ",")
@@ -1164,6 +1163,7 @@ final class CameraManager: NSObject, ObservableObject {
         AudioSessionManager.shared.isRecording = false
         levelMonitor.isPaused = false
         guard outputIsWriting else {
+            updateZebraMonitoring()
             // The system already closed the file (interruption, error). Hand
             // back whatever finished writing instead of reporting a failure.
             if let url = currentFileURL, FileManager.default.fileExists(atPath: url.path) {
@@ -1194,6 +1194,7 @@ final class CameraManager: NSObject, ObservableObject {
                 self.isRecording = false
                 self.liveWriter = nil
                 self.sampleRouter.setWriter(nil)
+                self.updateZebraMonitoring()
                 AudioSessionManager.shared.isRecording = false
                 self.timer?.invalidate()
                 self.timer = nil
@@ -1346,6 +1347,7 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
         self.isRecording = false
         self.isFinishing = false
         AudioSessionManager.shared.isRecording = false
+        self.updateZebraMonitoring()
         let segmentSeconds = self.startedAt.map { Date().timeIntervalSince($0) } ?? 0
         if self.recordingRequested, self.startedAt != nil {
             self.elapsedBeforeCurrentSegment += segmentSeconds
