@@ -88,6 +88,8 @@ final class CameraManager: NSObject, ObservableObject {
     /// may close one segment, but only the button is allowed to clear this flag.
     @Published private(set) var recordingRequested = false
     private var continuationURLProvider: (() -> URL)?
+    /// Consecutive automatic segments that closed with no real footage.
+    private var emptySegmentStreak = 0
 
     /// Called when a take ends without the user pressing stop (system
     /// interruption, backgrounding, capture error). The footage already written
@@ -1278,8 +1280,9 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
         self.isRecording = false
         self.isFinishing = false
         AudioSessionManager.shared.isRecording = false
-        if self.recordingRequested, let startedAt = self.startedAt {
-            self.elapsedBeforeCurrentSegment += Date().timeIntervalSince(startedAt)
+        let segmentSeconds = self.startedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if self.recordingRequested, self.startedAt != nil {
+            self.elapsedBeforeCurrentSegment += segmentSeconds
         }
         self.stopWatchdog?.invalidate()
         self.stopWatchdog = nil
@@ -1305,13 +1308,45 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
 
         if let completion = self.pendingCompletion {
             self.pendingCompletion = nil
+            self.emptySegmentStreak = 0
             completion(result)
         } else {
-            // Nobody asked for this stop: the system ended the take. Hand
-            // the footage over so it still lands in the clip list, then
-            // continue in a fresh file while the record button remains on.
+            // Nobody asked for this stop: the system ended the take.
+            // A segment with no real footage (iOS closed it right after it
+            // opened) is deleted instead of becoming a 0:00 clip, and the
+            // retry backs off so a still-interrupted camera can't spin out
+            // hundreds of empty files.
+            if Self.isEmptySegment(url: outputFileURL, fileExists: fileExists, size: size, seconds: segmentSeconds) {
+                if fileExists { try? FileManager.default.removeItem(at: outputFileURL) }
+                self.emptySegmentStreak += 1
+                print("[Camera] discarded empty segment (streak \(self.emptySegmentStreak))")
+                if self.emptySegmentStreak >= 8 {
+                    // Give up quietly rather than loop; footage so far is saved.
+                    self.recordingRequested = false
+                    self.emptySegmentStreak = 0
+                    self.status = "Recording stopped — camera unavailable"
+                    self.onInvoluntaryFinish?(.failure(CameraError.notReady))
+                    return
+                }
+                let delay = min(4.0, 0.5 * pow(2.0, Double(self.emptySegmentStreak - 1)))
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    self?.resumeRequestedRecordingIfPossible()
+                }
+                return
+            }
+            self.emptySegmentStreak = 0
             self.onInvoluntaryFinish?(result)
             self.resumeRequestedRecordingIfPossible()
         }
+    }
+
+    /// True when a system-closed segment holds no watchable footage.
+    private static func isEmptySegment(url: URL, fileExists: Bool, size: Int, seconds: Double) -> Bool {
+        guard fileExists, size > 0 else { return true }
+        // Anything that ran a while is real footage — never discard it.
+        if seconds >= 2 { return false }
+        let duration = CMTimeGetSeconds(AVURLAsset(url: url).duration)
+        return !duration.isFinite || duration < 0.5
     }
 }
