@@ -344,7 +344,7 @@ final class CameraManager: NSObject, ObservableObject {
             let curDur = device.exposureDuration.seconds > 0 ? device.exposureDuration.seconds : maxDur
             let curISO = Double(device.iso)
             // Low-pass the meter so frame-to-frame noise never reaches the sensor.
-            self.logAEFilteredOffset += (offset - self.logAEFilteredOffset) * 0.2
+            self.logAEFilteredOffset += (offset - self.logAEFilteredOffset) * 0.4
             let error = self.logAEFilteredOffset - comp
             let wasCustom = device.exposureMode == .custom
             // Hysteresis: start correcting past 0.12 EV, settle below 0.03 EV,
@@ -352,12 +352,13 @@ final class CameraManager: NSObject, ObservableObject {
             if abs(error) > 0.12 { self.logAEConverging = true }
             if abs(error) < 0.03 { self.logAEConverging = false }
             if !self.logAEConverging && wasCustom { return }
-            // Ultra-smooth ramp at ~30 Hz: tiny per-frame increments (≤0.05 EV,
-            // invisible to the eye). Only a hard blow-out/black allows faster recovery.
-            let cap = abs(error) > 2 ? 0.2 : 0.05
-            var step = -error * 0.08
+            // Smooth but responsive ramp at ~30 Hz: proportional easing (fast
+            // when far off, gentle as it lands), capped per frame so it glides.
+            // Typical 1–2 EV change settles in well under a second.
+            let cap = abs(error) > 2 ? 0.4 : 0.15
+            var step = -error * 0.22
             step = max(-cap, min(cap, step))
-            if !wasCustom { step = max(-0.05, min(0.05, step)) }
+            if !wasCustom { step = max(-0.15, min(0.15, step)) }
             let target = curDur * curISO * pow(2, step)
             var dur = min(max(target / baseISO, minDur), maxDur)
             var iso = min(max(target / dur, baseISO), maxISO)
