@@ -1,5 +1,7 @@
 # Roadmap
 
+- [ ] Make native 95% zebras clean, screen-sized and fluid as highlights change; verify available checks.
+
 - [x] Add pre-recording 95% zebras and an undimmed, unobstructed framing preview (source/threshold checks passed; Xcode and physical-iPhone verification unavailable).
 
 - [x] Prevent long native scripts from truncating or losing their reading position.
