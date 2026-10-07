@@ -51,8 +51,9 @@ final class LogExposureMeter: @unchecked Sendable {
         }
     }
 
-    // Apple's published Apple Log inverse, for original Apple Log only.
-    // https://developer.apple.com/av-foundation/Apple-Log-Profile.pdf
+    // Algebraic inverse of the original Apple Log encoding constants,
+    // corroborated by colour-science (not an Apple metering API):
+    // https://colour.readthedocs.io/en/latest/_modules/colour/models/rgb/transfer_functions/apple_log_profile.html
     // Decode nonlinear RGB BEFORE forming scene-linear BT.2020 luminance.
     // Inverting Y' alone would incorrectly meter strongly coloured subjects.
     private static let linearTable: [Double] = (0...4096).map { index in
@@ -87,6 +88,20 @@ final class LogExposureMeter: @unchecked Sendable {
         guard width > 0, height > 0, uvWidth > 0, uvHeight > 0 else { return nil }
         let yStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
         let uvStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 1)
+        // Honour the delivered Y'CbCr matrix instead of assuming every Log
+        // tap uses the same conversion. Reject unknown matrices, not fake EV.
+        let attachment = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil)?.takeRetainedValue()
+        let matrix = attachment as? String
+        let kr: Double
+        let kb: Double
+        if matrix == (kCVImageBufferYCbCrMatrix_ITU_R_709_2 as String) {
+            kr = 0.2126; kb = 0.0722
+        } else if matrix == (kCVImageBufferYCbCrMatrix_ITU_R_2020 as String) || matrix == nil {
+            // Original Apple Log specifies BT.2020; use it only as the
+            // documented default when the sample carries no matrix tag.
+            kr = 0.2627; kb = 0.0593
+        } else { return nil }
+        let kg = 1 - kr - kb
         var zones = [Double](repeating: 0, count: 48)
         // 8 × 6 zones, 8 × 8 samples each: fixed 3,072 samples irrespective
         // of resolution. Full capture frame; no faces or darkened UI involved.
@@ -101,9 +116,9 @@ final class LogExposureMeter: @unchecked Sendable {
                 let y = (Double(yRow[sx] >> 6) - (full ? 0 : 64)) / (full ? 1023 : 876)
                 let cb = (Double(uvRow[uvX] >> 6) - 512) / (full ? 1023 : 896)
                 let cr = (Double(uvRow[uvX + 1] >> 6) - 512) / (full ? 1023 : 896)
-                let r = linear(y + 1.4746 * cr)
-                let g = linear(y - 0.164553 * cb - 0.571353 * cr)
-                let b = linear(y + 1.8814 * cb)
+                let r = linear(y + 2 * (1 - kr) * cr)
+                let g = linear(y - 2 * kb * (1 - kb) / kg * cb - 2 * kr * (1 - kr) / kg * cr)
+                let b = linear(y + 2 * (1 - kb) * cb)
                 zones[(gy / 8) * 8 + gx / 8] += 0.2627 * r + 0.6780 * g + 0.0593 * b
             }
         }

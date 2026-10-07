@@ -1,6 +1,6 @@
 # Roadmap
 
-- [ ] Replace Log's opaque exposure-offset feedback with calibrated whole-frame multi-zone metering and distinguish measured EV from compensation; verify available checks.
+- [x] Replace Log's opaque exposure-offset feedback with whole-frame 48-zone scene-linear metering and separate measured EV from compensation (synthetic calibration/integration checks passed; Xcode build, iPhone exposure/colour-matrix and performance verification unavailable).
 
 - [x] Make native 95% zebras screen-sized with finer coverage, bounded 30 Hz updates and verified signal thresholds (source checks passed; Xcode and iPhone visual/performance testing unavailable).
 
