@@ -566,7 +566,7 @@ struct PrompterView: View {
                                         }
                                         if !settings.shutterAngle {
                                             HStack {
-                                                Text("Log exposure")
+                                                Text("Log exposure compensation")
                                                     .font(.system(size: 12, weight: .semibold))
                                                     .foregroundStyle(.white.opacity(0.8))
                                                 Spacer()
@@ -576,11 +576,11 @@ struct PrompterView: View {
                                             }
                                             Slider(value: $settings.logExposureEV, in: -3...3, step: 0.1)
                                                 .tint(Theme.accent)
-                                            Text("0 is the camera's own target. Go negative to protect highlights, positive to brighten.")
-                                                .font(.system(size: 11))
+                                            Text(camera.logMeterLabel.isEmpty ? "Whole-frame meter · waiting" : "Whole-frame · \(camera.logMeterLabel)")
+                                                .font(.system(size: 11).monospacedDigit())
                                                 .foregroundStyle(.white.opacity(0.5))
                                             if !camera.logExposureLabel.isEmpty {
-                                                Text("\(String(format: "%+.1f", settings.logExposureEV)) EV · \(camera.logExposureLabel)")
+                                                Text(camera.logExposureLabel)
                                                     .font(.system(size: 11).monospacedDigit())
                                                     .foregroundStyle(.white.opacity(0.5))
                                             }

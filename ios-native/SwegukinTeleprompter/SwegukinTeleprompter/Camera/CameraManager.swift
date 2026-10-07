@@ -44,6 +44,7 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var zebraAvailable = false
     @Published var zebrasEnabled = true { didSet { updateZebraMonitoring() } }
     private let zebraMonitor = ZebraMonitor()
+    private let logMeter = LogExposureMeter()
     private var zebraConfigured = false
 
     static let log = Logger(subsystem: "com.swegukin.teleprompter", category: "capture")
@@ -232,6 +233,14 @@ final class CameraManager: NSObject, ObservableObject {
     /// from exposureTargetOffset, and white balance stays continuous auto.
     func setShutterAngle(_ on: Bool) {
         shutterAngleOn = on
+        logMeter.setEnabled(!on && appleLogActive && zebraConfigured)
+        updateZebraMonitoring()
+        sessionQueue.async { [weak self] in
+            self?.logAEPending = false
+            self?.logAEFilteredOffset = 0
+            self?.logAEAppliedTime = -Double.infinity
+            self?.logAELastReadingTime = -Double.infinity
+        }
         if on { shutterWarning = "" }
         autoISOTimer?.invalidate()
         autoISOTimer = nil
@@ -240,10 +249,9 @@ final class CameraManager: NSObject, ObservableObject {
             lockedShutterDuration = nil
             shutterSpeedLabel = ""
             logExposureLabel = ""
-            if appleLogActive, device.isExposureModeSupported(.custom) {
-                // In Apple Log, iOS continuous AE holds a slow shutter and
-                // under-reacts in bright light. Meter like normal video instead:
-                // base ISO first, shutter shortens as light increases.
+            if appleLogActive, zebraConfigured, device.isExposureModeSupported(.custom) {
+                // Whole-frame, scene-linear feedback replaces the opaque
+                // device meter. Keep shutter/ISO control and automatic WB.
                 sessionQueue.async {
                     if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance),
                        (try? device.lockForConfiguration()) != nil {
@@ -254,7 +262,7 @@ final class CameraManager: NSObject, ObservableObject {
                 autoISOTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
                     Task { @MainActor in self?.stepLogAutoExposure() }
                 }
-                print("[Camera] Log auto exposure (auto shutter + ISO, base ISO priority) on")
+                print("[Camera] Log whole-frame 48-zone meter on, reference=18% grey")
             } else {
                 sessionQueue.async { Self.applyFullAuto(on: device) }
             }
@@ -310,35 +318,45 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     /// Log exposure compensation in EV, set from the settings slider (−3…+3).
-    /// 0 is Apple's meter target; negative protects highlights.
+    /// 0 targets whole-frame 18% scene-linear grey; this is compensation,
+    /// not a measured exposure reading.
     var logExposureEV: Double = 0
     /// e.g. "1/2000 s · ISO 64" — what the Log auto exposure actually applied.
     @Published private(set) var logExposureLabel = ""
+    @Published private(set) var logMeterLabel = ""
     /// Only touched on sessionQueue: true while a custom exposure change has
     /// not yet reached the sensor, so the next step never meters stale frames.
     nonisolated(unsafe) private var logAEPending = false
     /// sessionQueue only: smoothed meter offset and convergence state.
     nonisolated(unsafe) private var logAEFilteredOffset: Double = 0
     nonisolated(unsafe) private var logAEConverging = true
+    nonisolated(unsafe) private var logAEAppliedTime = -Double.infinity
+    nonisolated(unsafe) private var logAELastReadingTime = -Double.infinity
 
     /// Log auto exposure with the 180° shutter off. Total exposure is
-    /// duration × ISO; correct it from exposureTargetOffset (EV), spending the
+    /// duration × ISO; correct it from measured whole-frame Log luminance, spending the
     /// change on shutter first while ISO stays at base, and only raising ISO
     /// once the shutter reaches the frame interval. Bright scenes therefore get
     /// fast shutter speeds (no motion blur), like normal shooting mode.
     /// Corrections are slewed: each tick moves only a fraction of the remaining
     /// error, so exposure glides to the target instead of stepping.
     private func stepLogAutoExposure() {
-        guard !shutterAngleOn, appleLogActive, let device else { return }
+        guard !shutterAngleOn, appleLogActive, let device,
+              let reading = logMeter.reading() else { return }
         let comp = logExposureEV
         sessionQueue.async { [weak self] in
-            guard let self, !self.logAEPending else { return }
-            let offset = Double(device.exposureTargetOffset)
+            guard let self, self.device === device, self.logMeter.isEnabled,
+                  self.logMeter.reading()?.generation == reading.generation,
+                  !self.logAEPending, reading.time > self.logAELastReadingTime else { return }
+            let offset = reading.offset
             guard offset.isFinite else { return }
             let format = device.activeFormat
             let minDur = format.minExposureDuration.seconds
             var frame = device.activeVideoMinFrameDuration.seconds
             if !(frame > 0) { frame = 1.0 / 30 }
+            // Only measure frames after the last command reached the sensor.
+            guard reading.time > self.logAEAppliedTime + frame else { return }
+            self.logAELastReadingTime = reading.time
             let maxDur = min(format.maxExposureDuration.seconds, frame)
             let baseISO = Double(format.minISO), maxISO = Double(format.maxISO)
             let curDur = device.exposureDuration.seconds > 0 ? device.exposureDuration.seconds : maxDur
@@ -346,6 +364,10 @@ final class CameraManager: NSObject, ObservableObject {
             // Low-pass the meter so frame-to-frame noise never reaches the sensor.
             self.logAEFilteredOffset += (offset - self.logAEFilteredOffset) * 0.4
             let error = self.logAEFilteredOffset - comp
+            let meterLabel = String(format: "Meter %+.1f EV", offset)
+            Task { @MainActor in
+                if self.logMeterLabel != meterLabel { self.logMeterLabel = meterLabel }
+            }
             let wasCustom = device.exposureMode == .custom
             // Hysteresis: start correcting past 0.12 EV, settle below 0.03 EV,
             // so exposure doesn't hunt around the target.
@@ -369,9 +391,16 @@ final class CameraManager: NSObject, ObservableObject {
             }
             self.logAEPending = true
             device.setExposureModeCustom(duration: CMTime(seconds: dur, preferredTimescale: 1_000_000),
-                                         iso: Float(iso)) { [weak self] _ in
+                                         iso: Float(iso)) { [weak self] syncTime in
                 guard let self else { return }
-                self.sessionQueue.async { self.logAEPending = false }
+                self.sessionQueue.async {
+                    guard self.logMeter.reading()?.generation == reading.generation else { return }
+                    self.logAEAppliedTime = syncTime.seconds.isFinite ? syncTime.seconds : reading.time
+                    self.logAEPending = false
+                    // Do not carry pre-adjustment brightness into the next
+                    // correction; that causes overshoot and misleading zero.
+                    self.logAEFilteredOffset = comp + error + step
+                }
                 let label = "1/\(Int((1 / max(dur, 0.00001)).rounded())) s · ISO \(Int(iso.rounded()))"
                 Task { @MainActor in if self.logExposureLabel != label { self.logExposureLabel = label } }
             }
@@ -409,6 +438,8 @@ final class CameraManager: NSObject, ObservableObject {
 
     func stop() {
         zebraMonitor.setEnabled(false)
+        logMeter.setEnabled(false)
+        logMeterLabel = ""
         autoISOTimer?.invalidate()
         autoISOTimer = nil
         exposureMeterTimer?.invalidate()
@@ -450,7 +481,8 @@ final class CameraManager: NSObject, ObservableObject {
         zebraMonitor.setEnabled(enabled)
         if !usesLiveHEVC {
             let output = videoDataOutput
-            sessionQueue.async { output.connection(with: .video)?.isEnabled = enabled }
+            let needsExposureFrames = logMeter.isEnabled
+            sessionQueue.async { output.connection(with: .video)?.isEnabled = enabled || needsExposureFrames }
         }
     }
 
@@ -631,6 +663,8 @@ final class CameraManager: NSObject, ObservableObject {
             usesLiveHEVC = enableLiveHEVC(camera: camera, fps: fps, stabilization: stabilization)
         }
         sampleRouter.setPreviewMonitor(zebraMonitor)
+        sampleRouter.setExposureMeter(logMeter)
+        logMeter.setEnabled(false)
         zebraConfigured = usesLiveHEVC || enableZebraPreview(camera: camera)
         applyRecordingCodec(appleLogActive: logOn, logCodec: logCodec)
         let dims = CMVideoFormatDescriptionGetDimensions(camera.activeFormat.formatDescription)
