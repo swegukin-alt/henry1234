@@ -1,5 +1,7 @@
 # Roadmap
 
+- [x] Apply user-supplied estimated ISO-dependent Log clipping ceilings to smooth graduated pre-recording zebras, labelled with estimated IRE (synthetic threshold/alpha checks passed; Xcode and iPhone visibility, timing and calibration unverified).
+
 - [x] Replace Log's opaque exposure-offset feedback with whole-frame 48-zone scene-linear metering and separate measured EV from compensation (synthetic calibration/integration checks passed; Xcode build, iPhone exposure/colour-matrix and performance verification unavailable).
 
 - [x] Make native 95% zebras screen-sized with finer coverage, bounded 30 Hz updates and verified signal thresholds (source checks passed; Xcode and iPhone visual/performance testing unavailable).
