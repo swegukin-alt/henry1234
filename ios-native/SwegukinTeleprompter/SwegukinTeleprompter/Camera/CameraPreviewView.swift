@@ -7,20 +7,47 @@ final class PreviewUIView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
 
     let zebraView = UIImageView()
+    private let zebraPattern = UIView()
+    private let zebraStripes = CAShapeLayer()
+    private var stripeSize = CGSize.zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         zebraView.contentMode = .scaleAspectFill
         zebraView.clipsToBounds = true
         zebraView.isUserInteractionEnabled = false
-        addSubview(zebraView)
+        zebraPattern.isUserInteractionEnabled = false
+        zebraPattern.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+        zebraStripes.strokeColor = UIColor.white.withAlphaComponent(0.85).cgColor
+        zebraStripes.lineWidth = 3
+        zebraStripes.fillColor = nil
+        zebraPattern.layer.addSublayer(zebraStripes)
+        zebraPattern.mask = zebraView
+        addSubview(zebraPattern)
     }
 
     required init?(coder: NSCoder) { super.init(coder: coder) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        zebraPattern.frame = bounds
         zebraView.frame = bounds
+        guard stripeSize != bounds.size else { return }
+        stripeSize = bounds.size
+        // Fine, stable 45-degree stripes in screen points, independent of the
+        // camera's resolution. Only the live highlight coverage moves.
+        let path = UIBezierPath()
+        var x = -bounds.height
+        while x <= bounds.width {
+            path.move(to: CGPoint(x: x, y: bounds.height))
+            path.addLine(to: CGPoint(x: x + bounds.height, y: 0))
+            x += 12
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        zebraStripes.frame = bounds
+        zebraStripes.path = path.cgPath
+        CATransaction.commit()
     }
 
     var previewLayer: AVCaptureVideoPreviewLayer {
