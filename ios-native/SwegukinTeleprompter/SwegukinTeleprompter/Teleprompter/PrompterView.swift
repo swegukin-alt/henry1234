@@ -612,7 +612,7 @@ struct PrompterView: View {
                                     .tint(Theme.accent)
                                     .disabled(camera.recordingRequested)
 
-                                Toggle("Zebras · 95%", isOn: $camera.zebrasEnabled)
+                                Toggle("Zebras · \(camera.zebraThresholdLabel)", isOn: $camera.zebrasEnabled)
                                     .tint(Theme.accent)
                                     .disabled(camera.recordingRequested || !camera.zebraAvailable)
 

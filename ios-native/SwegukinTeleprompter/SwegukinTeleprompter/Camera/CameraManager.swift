@@ -42,6 +42,7 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var recordingCodecName: String = "device default"
     @Published private(set) var zebraImage: UIImage?
     @Published private(set) var zebraAvailable = false
+    @Published private(set) var zebraThresholdLabel = "95%"
     @Published var zebrasEnabled = true { didSet { updateZebraMonitoring() } }
     private let zebraMonitor = ZebraMonitor()
     private let logMeter = LogExposureMeter()
@@ -206,8 +207,17 @@ final class CameraManager: NSObject, ObservableObject {
             let dur = device.exposureDuration.seconds
             let iso = device.iso
             guard dur > 0, dur.isFinite, iso.isFinite else { return }
+            let logOn = device.activeColorSpace == .appleLog
+            self.zebraMonitor.setSignalContext(appleLog: logOn, iso: Double(iso))
+            let ceiling = ZebraMonitor.estimatedLogCeiling(iso: Double(iso))
+            let zebraLabel = logOn
+                ? String(format: "Log ≈%.1f IRE", ceiling * 95)
+                : "95%"
             let label = "1/\(Int((1 / dur).rounded())) s · ISO \(Int(iso.rounded()))"
-            Task { @MainActor in if self.liveExposureLabel != label { self.liveExposureLabel = label } }
+            Task { @MainActor in
+                if self.liveExposureLabel != label { self.liveExposureLabel = label }
+                if self.zebraThresholdLabel != zebraLabel { self.zebraThresholdLabel = zebraLabel }
+            }
         }
     }
 
@@ -663,6 +673,7 @@ final class CameraManager: NSObject, ObservableObject {
             usesLiveHEVC = enableLiveHEVC(camera: camera, fps: fps, stabilization: stabilization)
         }
         sampleRouter.setPreviewMonitor(zebraMonitor)
+        zebraMonitor.setSignalContext(appleLog: logOn, iso: Double(camera.iso))
         sampleRouter.setExposureMeter(logMeter)
         logMeter.setEnabled(false)
         zebraConfigured = usesLiveHEVC || enableZebraPreview(camera: camera)
