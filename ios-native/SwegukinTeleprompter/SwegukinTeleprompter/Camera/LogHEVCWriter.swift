@@ -214,6 +214,11 @@ final class LiveSampleRouter: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private let lock = NSLock()
     private var writer: LogHEVCWriter?
     private var previewMonitor: ZebraMonitor?
+    private var exposureMeter: LogExposureMeter?
+
+    func setExposureMeter(_ meter: LogExposureMeter) {
+        lock.lock(); exposureMeter = meter; lock.unlock()
+    }
 
     func setPreviewMonitor(_ monitor: ZebraMonitor) {
         lock.lock(); previewMonitor = monitor; lock.unlock()
@@ -234,12 +239,16 @@ final class LiveSampleRouter: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         lock.lock()
         let activeWriter = writer
         let monitor = previewMonitor
+        let meter = exposureMeter
         lock.unlock()
         if let activeWriter {
             activeWriter.appendVideo(sampleBuffer)
         } else {
             monitor?.consume(sampleBuffer)
         }
+        // Writer gets first use of the frame. The bounded fixed-sample meter
+        // reads only, including during movie-output ProRes takes; zebras stay off.
+        meter?.consume(sampleBuffer)
     }
 
     func appendAudio(_ sampleBuffer: CMSampleBuffer) {
