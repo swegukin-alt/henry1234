@@ -90,7 +90,7 @@ final class LogExposureMeter: @unchecked Sendable {
         let uvStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 1)
         // Honour the delivered Y'CbCr matrix instead of assuming every Log
         // tap uses the same conversion. Reject unknown matrices, not fake EV.
-        let attachment = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil)?.takeRetainedValue()
+        let attachment = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil)
         let matrix = attachment as? String
         let kr: Double
         let kb: Double
