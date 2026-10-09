@@ -164,9 +164,10 @@ struct LibraryView: View {
         }
     }
 
-    /// Turns the text currently on the iOS clipboard into a new script in one tap.
+    /// Turns the text currently on the iOS clipboard into a new script in one tap,
+    /// then opens it so the pasted words are visible straight away.
     private func quickAdd() {
-        let text = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = Self.clipboardText().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             showingEmptyClipboard = true
             return
@@ -175,6 +176,38 @@ struct LibraryView: View {
         script.body = text
         scripts.update(script)
         Haptics.tap()
+        onOpen(script.id)
+    }
+
+    /// Reads plain text, or falls back to rich text / HTML / a link, since
+    /// many apps (Notes, Pages, Safari, Docs) copy only styled text.
+    private static func clipboardText() -> String {
+        let board = UIPasteboard.general
+        if let plain = board.string, !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return plain
+        }
+        for item in board.items {
+            for (type, value) in item {
+                if let string = value as? String, !string.isEmpty, !type.contains("html") { return string }
+                if let attributed = value as? NSAttributedString, attributed.length > 0 { return attributed.string }
+                if let data = value as? Data {
+                    let docType: NSAttributedString.DocumentType?
+                    if type.contains("rtfd") { docType = .rtfd }
+                    else if type.contains("rtf") { docType = .rtf }
+                    else if type.contains("html") { docType = .html }
+                    else if type.contains("utf8-plain-text") || type.contains("plain-text") {
+                        if let s = String(data: data, encoding: .utf8), !s.isEmpty { return s }
+                        docType = nil
+                    } else { docType = nil }
+                    if let docType,
+                       let attributed = try? NSAttributedString(data: data, options: [.documentType: docType], documentAttributes: nil),
+                       attributed.length > 0 {
+                        return attributed.string
+                    }
+                }
+            }
+        }
+        return board.url?.absoluteString ?? ""
     }
 
     private var homeContents: some View {

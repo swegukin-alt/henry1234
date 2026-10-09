@@ -61,6 +61,8 @@ struct EditorView: View {
 
                     TextEditor(text: $draft.body)
                         .font(.system(size: 16))
+                        .foregroundStyle(.white)
+                        .tint(Theme.accent)
                         .lineSpacing(5)
                         .scrollContentBackground(.hidden)
                         // Match the web editor's 40vh box. The editor scrolls its own
