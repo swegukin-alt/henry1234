@@ -97,8 +97,10 @@ struct PrompterView: View {
                         }
                     }
                 )
-                .opacity(videoMode && !camera.recordingRequested ? 0 : 1)
-                .allowsHitTesting(!videoMode || camera.recordingRequested)
+                // Before recording the text follows the controls: hidden with a
+                // clean preview, visible when the user taps to practise.
+                .opacity(videoMode && !camera.recordingRequested && !controlsVisible ? 0 : 1)
+                .allowsHitTesting(!videoMode || camera.recordingRequested || controlsVisible)
 
                 Color.clear
                     .contentShape(Rectangle())
