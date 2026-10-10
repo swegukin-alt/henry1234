@@ -164,8 +164,7 @@ struct LibraryView: View {
         }
     }
 
-    /// Turns the text currently on the iOS clipboard into a new script in one tap,
-    /// then opens it so the pasted words are visible straight away.
+    /// Turns the text currently on the iOS clipboard into a new script in one tap.
     private func quickAdd() {
         let text = Self.clipboardText().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
@@ -176,7 +175,6 @@ struct LibraryView: View {
         script.body = text
         scripts.update(script)
         Haptics.tap()
-        onOpen(script.id)
     }
 
     /// Reads plain text, or falls back to rich text / HTML / a link, since
