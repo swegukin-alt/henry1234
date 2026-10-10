@@ -105,7 +105,9 @@ struct PrompterView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if videoMode && camera.recordingRequested {
+                        if videoMode {
+                            // Camera mode: a tap shows/hides the bottom controls,
+                            // and before recording the script text follows them.
                             Haptics.tap()
                             panel = nil
                             controlsVisible.toggle()
